@@ -39,7 +39,8 @@ class FakeQueryJob:
         self.job_id = job_id
         self.num_dml_affected_rows = num_dml_affected_rows
 
-    def result(self) -> list[Any]:
+    def result(self, timeout: float | None = None) -> list[Any]:
+        self.result_timeout = timeout
         return list(self._rows)
 
 
@@ -64,6 +65,7 @@ class FakeBigQueryClient:
         self.num_dml_affected_rows = num_dml_affected_rows
         self.queries: list[tuple[str, Any]] = []
         self.inserts: list[tuple[str, list[dict], list[str]]] = []
+        self.insert_timeouts: list[float | None] = []
 
     @property
     def sqls(self) -> list[str]:
@@ -80,9 +82,14 @@ class FakeBigQueryClient:
         )
 
     def insert_rows_json(
-        self, table: Any, rows: Iterable[dict], row_ids: Iterable[str] | None = None
+        self,
+        table: Any,
+        rows: Iterable[dict],
+        row_ids: Iterable[str] | None = None,
+        timeout: float | None = None,
     ) -> list[Any]:
         self.inserts.append((table, list(rows), list(row_ids or [])))
+        self.insert_timeouts.append(timeout)
         return list(self.insert_errors or [])
 
     def rows(self, table_suffix: str) -> list[dict]:

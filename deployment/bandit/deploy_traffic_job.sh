@@ -27,6 +27,10 @@ ENV_VARS+=",BQ_TABLE_BANDIT_EVENTS=${BQ_TABLE_BANDIT_EVENTS:-bandit_events}"
 ENV_VARS+=",BQ_TABLE_BANDIT_METRICS=${BQ_TABLE_BANDIT_METRICS:-bandit_episode_metrics}"
 ENV_VARS+=",GOOGLE_CLOUD_PROJECT=${PROJECT},GCP_REGION=${REGION}"
 
+# --task-timeout 3600 bounds a run at ~2.3M rounds (~650 rounds/s); the api caps a
+# traffic run at runserver.experiments.MAX_TRAFFIC_ROUNDS (1.5M) to fit it, so raise
+# both together. At the timeout the job gets SIGTERM, flushes its events, exits 143.
+
 gcloud run jobs deploy "${JOB}" \
   --project "${PROJECT}" \
   --image "${IMAGE}" \

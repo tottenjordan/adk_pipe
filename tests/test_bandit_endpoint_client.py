@@ -137,8 +137,10 @@ class ServiceUnavailable(Exception):
 
 
 class FakeAiplatform:
-    def __init__(self, fail_times=0):
+    def __init__(self, fail_times=0, error=ServiceUnavailable):
         self.fail_times = fail_times
+        self.error = error
+        self.timeouts = []
         self.init_kwargs = None
         self.endpoint_kwargs = None
         self.predict_calls = []
@@ -151,11 +153,12 @@ class FakeAiplatform:
         sdk = self
 
         class _Endpoint:
-            def predict(self, instances, parameters=None):
+            def predict(self, instances, parameters=None, timeout=None):
                 sdk.predict_calls.append((instances, parameters))
+                sdk.timeouts.append(timeout)
                 if sdk.fail_times:
                     sdk.fail_times -= 1
-                    raise ServiceUnavailable("503 unavailable")
+                    raise sdk.error("503 unavailable")
                 return SimpleNamespace(predictions=_echo(instances))
 
         return _Endpoint()
@@ -187,6 +190,23 @@ def test_vertex_client_gives_up_after_attempts():
     with pytest.raises(ServiceUnavailable):
         client.predict([{"type": "state"}])
     assert len(sdk.predict_calls) == 3
+
+
+class DeadlineExceeded(Exception):
+    """Named like google.api_core's: what a predict past its timeout raises."""
+
+
+def test_vertex_client_bounds_each_predict_so_a_stall_is_retried():
+    # the SDK's default timeout is None (wait forever); a bounded call turns a
+    # stalled predict into a DeadlineExceeded that call_with_retries retries
+    sdk = FakeAiplatform(fail_times=1, error=DeadlineExceeded)
+    client = ec.VertexEndpointClient(
+        ENDPOINT, aiplatform_module=sdk, sleep=lambda s: None
+    )
+    insts = [{"type": "state"}]
+    assert client.predict(insts) == _echo(insts)
+    assert sdk.timeouts == [ec.PREDICT_TIMEOUT_SECONDS] * 2
+    assert ec.PREDICT_TIMEOUT_SECONDS == 60
 
 
 @pytest.mark.parametrize("name", ["123", "projects/p/endpoints/1", ""])

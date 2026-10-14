@@ -77,6 +77,19 @@ def test_validation_errors(over):
         load_experiment_config(_cfg(**over))
 
 
+@pytest.mark.parametrize("seed", [-1, 2**31, 2**32, 2**64])
+def test_seed_outside_31_bits_is_rejected(seed):
+    # JAX keys (x64 off) keep only the low 32 bits and key(2**64) overflows, so a
+    # seed must be a non-negative 31-bit int (the api's default hash is one).
+    with pytest.raises(ValueError, match=r"seed must be in \[0, 2\*\*31\)"):
+        load_experiment_config(_cfg(seed=seed))
+
+
+@pytest.mark.parametrize("seed", [0, 1, 2**31 - 1])
+def test_seed_bounds_are_inclusive_of_31_bits(seed):
+    assert load_experiment_config(_cfg(seed=seed)).seed == seed
+
+
 def test_arm_overall_resolution():
     # contracts §6: api arms carry ad_copy_overall + visual_overall, no "overall"
     api_arm = ArmSpec(

@@ -15,21 +15,22 @@ import {
   armColor,
   armName,
   canStop,
-  continuousLimitError,
   ctrModeLabel,
   defaultHorizon,
   EPISODE_OPTIONS,
+  fittingEpisodes,
   getCreativeSeries,
   getExperimentMetrics,
   hasMetrics,
   InvalidShiftsError,
   isContinuousMetrics,
   isContinuousRun,
-  MAX_CONTINUOUS_ROUNDS,
+  MAX_RUN_ROUNDS,
   parseContinuousSummary,
   pollExperiment,
   PollWaker,
   rewardModeLabel,
+  runLimitError,
   scenarioLabel,
   shortId,
   startTraffic,
@@ -321,18 +322,11 @@ export default function ExperimentPage({
   const horizon = defaultHorizon(exp.scenario, exp.ctrMode);
   const ttl = canStop(exp.status) ? ttlText(exp.ttlExpiresAt, now) : "";
   const keepLearning = learning === "continuous";
-  const limitError = keepLearning ? continuousLimitError(episodes, horizon) : null;
-  const blockedCounts = keepLearning
-    ? EPISODE_OPTIONS.filter((n) => continuousLimitError(n, horizon) !== null)
-    : [];
-  // Switching to Keep learning moves an over-long choice down to the longest stream that fits.
-  const changeLearning = (mode: LearningMode) => {
-    setLearning(mode);
-    if (mode === "continuous" && continuousLimitError(episodes, horizon) !== null) {
-      const fits = EPISODE_OPTIONS.filter((n) => continuousLimitError(n, horizon) === null);
-      if (fits.length) setEpisodes(fits[fits.length - 1]);
-    }
-  };
+  // An over-long choice runs as the longest option that fits the total-rounds cap.
+  const runEpisodes = fittingEpisodes(episodes, horizon, learning);
+  const limitError = runLimitError(runEpisodes, horizon, learning);
+  const blockedCounts = EPISODE_OPTIONS.filter((n) => runLimitError(n, horizon, learning) !== null);
+  const changeLearning = (mode: LearningMode) => setLearning(mode);
 
   const onStartTraffic = async () => {
     setActionError(null);
@@ -343,7 +337,7 @@ export default function ExperimentPage({
     }
     setBusy("traffic");
     try {
-      await startTraffic(experimentId, episodes, horizon, { shifts: draftShifts, forget, learning });
+      await startTraffic(experimentId, runEpisodes, horizon, { shifts: draftShifts, forget, learning });
       setExp((e) => (e ? { ...e, status: "running_traffic" } : e));
       // The new run becomes the latest: follow it.
       setRunParam(null);
@@ -459,14 +453,18 @@ export default function ExperimentPage({
             </div>
             <select
               id="traffic-episodes"
-              value={episodes}
+              value={runEpisodes}
               onChange={(e) => setEpisodes(Number(e.target.value))}
               disabled={exp.status !== "ready"}
-              aria-describedby={keepLearning ? "traffic-stream-total" : undefined}
+              aria-describedby={
+                [keepLearning ? "traffic-stream-total" : "", blockedCounts.length ? "traffic-limit-note" : ""]
+                  .filter(Boolean)
+                  .join(" ") || undefined
+              }
               className="h-8 rounded-sm border border-input bg-card px-2 text-sm tabular-nums disabled:opacity-50"
             >
               {EPISODE_OPTIONS.map((n) => (
-                <option key={n} value={n} disabled={keepLearning && continuousLimitError(n, horizon) !== null}>
+                <option key={n} value={n} disabled={runLimitError(n, horizon, learning) !== null}>
                   {n}
                 </option>
               ))}
@@ -484,7 +482,7 @@ export default function ExperimentPage({
           {keepLearning && (
             <div id="traffic-stream-total" className="min-w-0 max-w-[22rem]">
               <p className="h-8 text-sm leading-8 font-medium text-foreground tabular-nums">
-                {limitError ? "Too long for one stream" : `${formatInt(episodes * horizon)} rounds in one stream`}
+                {limitError ? "Too long for one stream" : `${formatInt(runEpisodes * horizon)} rounds in one stream`}
               </p>
             </div>
           )}
@@ -541,12 +539,16 @@ export default function ExperimentPage({
             )}
           </div>
         </div>
-        {keepLearning && (limitError || blockedCounts.length > 0) && (
-          <p className="mt-2 max-w-[72ch] text-xs text-muted-foreground tabular-nums">
+        {(limitError || blockedCounts.length > 0) && (
+          <p id="traffic-limit-note" className="mt-2 max-w-[72ch] text-xs text-muted-foreground tabular-nums">
             {limitError ??
-              `One stream is capped at ${formatInt(MAX_CONTINUOUS_ROUNDS)} rounds, so ${joinList(
-                blockedCounts.map(String)
-              )} segments aren't available at ${formatInt(horizon)} rounds per segment.`}
+              (keepLearning
+                ? `One stream is capped at ${formatInt(MAX_RUN_ROUNDS)} rounds, so ${joinList(
+                    blockedCounts.map(String)
+                  )} segments aren't available at ${formatInt(horizon)} rounds per segment.`
+                : `A run is capped at ${formatInt(MAX_RUN_ROUNDS)} rounds (the traffic job's 1-hour limit), so ${joinList(
+                    blockedCounts.map(String)
+                  )} episodes aren't available at ${formatInt(horizon)} rounds per episode.`)}
           </p>
         )}
         {actionError && (

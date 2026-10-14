@@ -9,9 +9,9 @@ import type { CtrMode, ExperimentStatus, RewardMode, Scenario } from "@/lib/expe
 /** Experiment page controls. */
 export const CONTROL_HELP = {
   episodes:
-    "With Reset each episode, an episode is one independent replay: the endpoint's model starts fresh on new simulated readers, so more episodes give tighter confidence bands. With Keep learning, the run is one long stream and each episode becomes a segment: a stretch of rounds for progress and comparison, with no reset in between.",
+    "With Reset each episode, an episode is one independent replay: the endpoint's model starts fresh on new simulated readers, so more episodes give tighter confidence bands. With Keep learning, the run is one long stream and each episode becomes a segment: a stretch of rounds for progress and comparison, with no reset in between. A run is capped at 1,500,000 rounds in total (episodes × rounds).",
   segments:
-    "A segment is a stretch of rounds in one continuous stream. The endpoint keeps everything it learned from one segment to the next; segments only split the run for progress, storage and the batch-means check. Runs are capped at 2,000,000 rounds in total.",
+    "A segment is a stretch of rounds in one continuous stream. The endpoint keeps everything it learned from one segment to the next; segments only split the run for progress, storage and the batch-means check. Runs are capped at 1,500,000 rounds in total.",
   learning:
     "Reset each episode replays learning from scratch every episode: repeatable, comparable runs with 95% confidence bands, but it never shows long-run learning. Keep learning resets once and lets the endpoint learn across the whole run, like a production endpoint: one continuous timeline with no bands, and a batch-means check over the later segments in place of the confidence interval.",
   rounds:

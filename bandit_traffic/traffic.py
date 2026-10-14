@@ -129,6 +129,16 @@ class EndpointErrorRate(TrafficError):
     pass
 
 
+class TrafficStopped(TrafficError):
+    """A stop was requested (the job's SIGTERM at the task timeout): the
+    buffered events were flushed and every finished episode's metrics are
+    already written; ``summary`` is the run so far."""
+
+    def __init__(self, message: str, summary: TrafficSummary):
+        super().__init__(message)
+        self.summary = summary
+
+
 @dataclass(frozen=True)
 class TrafficSettings:
     """Run knobs. Episodes / horizon / batch size / reward mode come from the
@@ -265,6 +275,7 @@ class TrafficRunner:
         traffic_run: int = 1,
         forget: bool | None = None,
         learning: str = "per_episode",
+        stop: Callable[[], bool] | None = None,
     ):
         if traffic_run < 1:
             raise ValueError(f"traffic_run must be >= 1, got {traffic_run}")
@@ -331,6 +342,7 @@ class TrafficRunner:
         )
         self.outputs: dict[tuple[int, str], dict[str, np.ndarray]] = {}
         self._events: list[dict] = []
+        self._stop = stop or (lambda: False)
 
     # ------------------------------------------------------------- transport
     def _send(self, instances: list[dict]) -> list[dict]:
@@ -350,6 +362,21 @@ class TrafficRunner:
             self.summary.events_written += len(self._events)
             self._events = []
 
+    def _check_stop(self, where: str) -> None:
+        """Between batches / episodes / replays: on a requested stop, flush
+        the buffered events and raise ``TrafficStopped`` (finished episodes'
+        metrics and progress were written when each one ended)."""
+        if not self._stop():
+            return
+        self._flush_events(force=True)
+        unit = "segments" if self.continuous else "episodes"
+        raise TrafficStopped(
+            f"stop requested {where}: {self.summary.episodes_done} of "
+            f"{self.cfg.episodes} {unit} written, "
+            f"{self.summary.events_written} events flushed",
+            self.summary,
+        )
+
     # --------------------------------------------------------------- episode
     def run(self) -> TrafficSummary:
         total = self.cfg.episodes
@@ -366,6 +393,7 @@ class TrafficRunner:
         if self.continuous:
             return self._run_continuous()
         for e in range(total):
+            self._check_stop(f"before episode {e}")
             rows = self.run_episode(e)
             self.writer.write_metrics(rows)
             self.summary.metrics.extend(rows)
@@ -506,6 +534,9 @@ class TrafficRunner:
                     )
                 )
             self._flush_events()
+            if self._stop():
+                self.summary.decision_errors += errors
+                self._check_stop(f"in episode {episode} after batch {b}")
 
             cols["segment"].append(d["segment"])
             cols["arm"].append(arms)
@@ -566,12 +597,14 @@ class TrafficRunner:
         ours = self._drive(episode, 0, T, k_ctx, k_rew, fallback)
         rows = [self._metrics(ENDPOINT_POLICY, episode, ours)]
         for name in s.baselines:
+            self._check_stop(f"in episode {episode} before the {name} replay")
             out = simulate.run_episodes(self._policy(name), env, key[None], T, bs)
             ep = {k: v[0] for k, v in out.items()}
             if not np.array_equal(ep["segment"], ours["segment"]):
                 raise TrafficError("baseline replay diverged from the endpoint's users")
             rows.append(self._metrics(name, episode, ep))
         if self.ghost_env is not None:
+            self._check_stop(f"in episode {episode} before the ghost replay")
             rows.append(self._metrics(GHOST_POLICY, episode, self._ghost(key)))
         return rows
 
@@ -601,10 +634,12 @@ class TrafficRunner:
         states: dict[str, Any] = {}
         trace: dict[str, dict[str, list[np.ndarray]]] = {}
         for seg in range(E):
+            self._check_stop(f"before segment {seg}")
             fallback = np.random.default_rng([cfg.seed, seg])
             ours = self._drive(seg, seg * nb, T, k_ctx, k_rew, fallback)
             outs = {ENDPOINT_POLICY: ours}
             for name, (pol, env) in replays.items():
+                self._check_stop(f"in segment {seg} before the {name} replay")
                 out, states[name] = simulate.run_segment(
                     pol, env, key, seg * nb, nb, bs, states.get(name)
                 )
@@ -758,7 +793,10 @@ def run_traffic(
     traffic_run: int = 1,
     forget: bool | None = None,
     learning: str = "per_episode",
+    stop: Callable[[], bool] | None = None,
 ) -> TrafficSummary:
+    """Run the traffic; ``stop`` is polled between batches, episodes and
+    replays (``TrafficStopped`` once it returns true)."""
     return TrafficRunner(
         cfg,
         client,
@@ -770,4 +808,5 @@ def run_traffic(
         traffic_run=traffic_run,
         forget=forget,
         learning=learning,
+        stop=stop,
     ).run()

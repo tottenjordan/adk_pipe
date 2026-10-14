@@ -93,8 +93,14 @@ export type Shift = {
  */
 export type LearningMode = "per_episode" | "continuous";
 
-/** A continuous run's total rounds cap (bandit.config.MAX_CONTINUOUS_ROUNDS, §11). */
-export const MAX_CONTINUOUS_ROUNDS = 2_000_000;
+/**
+ * A traffic run's total rounds cap, either learning mode (runserver MAX_TRAFFIC_ROUNDS,
+ * contracts §5): what the traffic job finishes inside its 1-hour task timeout.
+ */
+export const MAX_RUN_ROUNDS = 1_500_000;
+
+/** A continuous run's total rounds cap (bandit.config.MAX_CONTINUOUS_ROUNDS, §11): the same cap. */
+export const MAX_CONTINUOUS_ROUNDS = MAX_RUN_ROUNDS;
 
 /** The experiment's policy batch size (§1 default); a continuous segment must be a multiple of it. */
 export const POLICY_BATCH_SIZE = 100;
@@ -118,6 +124,35 @@ export function continuousLimitError(
     )} would be ${formatInt(episodes * horizon)}.`;
   }
   return null;
+}
+
+/**
+ * Why a run of `episodes` × `horizon` rounds can't start in either learning mode, or null:
+ * continuous runs use `continuousLimitError`; a per-episode run only has the total cap.
+ */
+export function runLimitError(
+  episodes: number,
+  horizon: number,
+  learning: LearningMode,
+  batchSize = POLICY_BATCH_SIZE
+): string | null {
+  if (learning === "continuous") return continuousLimitError(episodes, horizon, batchSize);
+  if (episodes * horizon > MAX_RUN_ROUNDS) {
+    return `A run is capped at ${formatInt(MAX_RUN_ROUNDS)} rounds; ${episodes} episodes of ${formatInt(
+      horizon
+    )} would be ${formatInt(episodes * horizon)}.`;
+  }
+  return null;
+}
+
+/**
+ * The episode count to run: `choice` when it fits the limits, else the largest
+ * EPISODE_OPTIONS entry that does (the smallest when none does).
+ */
+export function fittingEpisodes(choice: number, horizon: number, learning: LearningMode): number {
+  if (runLimitError(choice, horizon, learning) === null) return choice;
+  const fits = EPISODE_OPTIONS.filter((n) => runLimitError(n, horizon, learning) === null);
+  return fits.length ? fits[fits.length - 1] : EPISODE_OPTIONS[0];
 }
 
 /** True when the run is continuous (contracts §11); legacy runs without the field are per episode. */
@@ -509,6 +544,10 @@ export async function startTraffic(
         400
       );
     }
+    if (detail && typeof detail === "object" && detail.reason === "run_too_large") {
+      const msg = typeof detail.message === "string" ? detail.message : "";
+      throw new ExperimentApiError(`The run is too long for the traffic job${msg ? `: ${msg}` : "."}`, 400);
+    }
     throw new ExperimentApiError(`Couldn't start traffic (400)${text ? `: ${text}` : ""}`, 400);
   }
   if (res.status === 409) {
@@ -860,7 +899,8 @@ export const REWARD_MODE_OPTIONS: { value: RewardMode; label: string }[] = [
 ];
 
 export const TTL_OPTIONS = [60, 120, 240] as const;
-export const EPISODE_OPTIONS = [5, 20, 50] as const;
+// 3 lets a 400,000-round (realistic) run fit the MAX_RUN_ROUNDS cap.
+export const EPISODE_OPTIONS = [3, 5, 20, 50] as const;
 
 const labelFrom = <T extends string>(opts: { value: T; label: string }[], v: string) =>
   opts.find((o) => o.value === v)?.label ?? v;

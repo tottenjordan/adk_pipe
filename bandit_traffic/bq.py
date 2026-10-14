@@ -258,6 +258,32 @@ class BigQueryWriteError(RuntimeError):
     pass
 
 
+#: Bounds on each streaming insert / progress UPDATE wait (the client defaults
+#: are ``None``, i.e. no bound), so a hung call fails instead of eating the
+#: job's 1 h task timeout.
+INSERT_TIMEOUT_SECONDS = 30.0
+QUERY_TIMEOUT_SECONDS = 60.0
+
+#: insertAll row-error reasons a retry cannot fix (schema mismatch, bad value,
+#: missing table, no access). ``stopped`` marks the request's other rows, which
+#: were rejected only because of an ``invalid`` one.
+PERMANENT_INSERT_REASONS = frozenset(
+    {"invalid", "invalidQuery", "notFound", "accessDenied"}
+)
+
+
+def is_permanent_insert_error(errors: Sequence[Any]) -> bool:
+    """True when ``insert_rows_json``'s row errors include a reason a retry
+    can't fix (``PERMANENT_INSERT_REASONS``); plain-string reasons count too."""
+    for entry in errors:
+        details = entry.get("errors", []) if isinstance(entry, Mapping) else []
+        for err in details:
+            reason = err.get("reason") if isinstance(err, Mapping) else err
+            if reason in PERMANENT_INSERT_REASONS:
+                return True
+    return False
+
+
 def _utcnow() -> dt.datetime:
     return dt.datetime.now(dt.UTC)
 
@@ -311,9 +337,22 @@ class BigQueryWriter:
 
     def _insert(self, table: str, rows: Sequence[dict], row_ids: list[str]) -> None:
         for attempt in range(1, self.attempts + 1):
-            errors = self._bq().insert_rows_json(table, list(rows), row_ids=row_ids)
+            errors = self._bq().insert_rows_json(
+                table, list(rows), row_ids=row_ids, timeout=INSERT_TIMEOUT_SECONDS
+            )
             if not errors:
                 return
+            if is_permanent_insert_error(errors):
+                log.error(
+                    "insert into %s: %d row errors are permanent (schema mismatch "
+                    "or bad value; none of the rows are inserted), not retrying: %s",
+                    table,
+                    len(errors),
+                    str(errors[:3])[:500],
+                )
+                raise BigQueryWriteError(
+                    f"insert into {table} failed with permanent row errors"
+                )
             log.warning(
                 "insert into %s: %d row errors (attempt %d/%d): %s",
                 table,
@@ -346,7 +385,9 @@ class BigQueryWriter:
             episodes_total,
             self.now(),
         )
-        self._bq().query(sql, job_config=self._job_config_factory(params)).result()
+        self._bq().query(sql, job_config=self._job_config_factory(params)).result(
+            timeout=QUERY_TIMEOUT_SECONDS
+        )
 
 
 class JsonlWriter:

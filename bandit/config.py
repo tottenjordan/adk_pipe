@@ -178,6 +178,11 @@ def validate_experiment_config(cfg: ExperimentConfig) -> ExperimentConfig:
         raise ValueError("batch_size must be in [1, min(10000, horizon)]")
     if not 1 <= cfg.episodes <= 1000:
         raise ValueError("episodes must be in [1, 1000]")
+    # JAX keys with x64 off keep only the low 32 bits of a seed (distinct seeds
+    # would collide) and key(2**64) raises OverflowError; 31 bits also matches
+    # the api's default seed and the reset seed's mod 2**31.
+    if not 0 <= cfg.seed < 2**31:
+        raise ValueError(f"seed must be in [0, 2**31), got {cfg.seed}")
     validate_lints_params(cfg.policy, len(cfg.arms))
     if cfg.scenario_overrides is not None:
         validate_scenario_overrides(cfg.scenario_overrides, load_scenario(cfg.scenario))
@@ -898,9 +903,11 @@ def default_shift_discount(ctr_mode: str, batch_size: int, horizon: int) -> floa
 #: endpoint every episode; ``continuous`` sends one reset and keeps learning
 #: across the run's episodes (then called segments).
 LEARNING_MODES: tuple[str, ...] = ("per_episode", "continuous")
-#: Cap on a continuous run's total rounds E·T (job runtime and memory). It
-#: replaces the per-episode ``horizon <= 1_000_000`` cap for the world's total.
-MAX_CONTINUOUS_ROUNDS = 2_000_000
+#: Cap on a continuous run's total rounds E·T (job runtime and memory: the
+#: traffic job's 1 h task timeout at ~650 rounds/s; the api applies the same cap
+#: to per-episode runs, runserver ``MAX_TRAFFIC_ROUNDS``). It replaces the
+#: per-episode ``horizon <= 1_000_000`` cap for the world's total.
+MAX_CONTINUOUS_ROUNDS = 1_500_000
 
 
 def validate_continuous_run(episodes: int, horizon: int, batch_size: int) -> int:

@@ -106,7 +106,10 @@ and `runserver/experiments.py` duplicates the noise-variance formula, with a tes
    stopping → stopped`, plus `failed` and `expired` (TTL).
 3. **Start traffic.** Choose **Learning** (**Reset each episode**, the default, or **Keep learning**;
    see [Continuous learning mode](#continuous-learning-mode)), the number of episodes (segments when
-   it keeps learning; 5 / 20 / 50, default 20) and press **Start traffic**. The horizon defaults per scenario (`clear_winner` 20k rounds, `segment_winners` and
+   it keeps learning; 3 / 5 / 20 / 50, default 20) and press **Start traffic**. A run is capped
+   at **1,500,000 rounds** (episodes × rounds, either mode) so it finishes inside the traffic job's
+   1-hour task timeout; the page disables the counts over the cap and runs an over-long choice as
+   the largest that fits (the api answers `400 run_too_large`). The horizon defaults per scenario (`clear_winner` 20k rounds, `segment_winners` and
    `drift` 40k in demo mode; ×10, max 400k, in realistic mode). The api starts one Cloud Run Job
    execution and moves to `running_traffic`; it moves back to `ready` once the job reports
    `episodes_done >= episodes_total` or the execution finishes. That check runs on the detail
@@ -368,8 +371,9 @@ and lets the Linear TS posterior accumulate over the whole run, like a productio
   comparison stays paired. Drift points and shifts are fractions of the **whole run**, and the
   forgetting discount remembers an eighth of the whole run. The endpoint matches the simulator
   round for round (`tests/test_bandit_endpoint_parity.py`, continuous case).
-- **Limits.** At most **2,000,000 rounds** in one stream (job runtime and memory: 50 × 40k demo or
-  5 × 400k realistic), and T must be a multiple of the 100-reader update batch. The page disables
+- **Limits.** At most **1,500,000 rounds** in one stream (the traffic job's 1-hour task timeout,
+  the same cap as per-episode runs: 37 × 40k demo or 3 × 400k realistic), and T must be a multiple
+  of the 100-reader update batch. The page disables
   the segment counts that would pass the cap and shows the stream's total ("800,000 rounds in one
   stream").
 - **When to use which.** Use **Reset each episode** to compare strategies with confidence bands
@@ -610,6 +614,16 @@ the oracle collected 2,028 clicks. Linear TS had the lowest regret in every epis
 <!-- /LIVE-MEASUREMENTS -->
 
 ## Limitations (not HA)
+
+- **Run size and early stop.** The traffic job runs with `--task-timeout 3600 --max-retries 0`
+  at ~650 rounds/s (~2.3M rounds per hour, see Live measurements), so the api caps a run at
+  1,500,000 rounds (`400 run_too_large` / `invalid_learning`). If the job is still running at the
+  timeout, Cloud Run sends SIGTERM (then SIGKILL ~10 s later): the job stops after the current
+  batch, flushes the buffered events (finished episodes' metrics are already written), logs
+  `traffic run stopped early by SIGTERM` and exits 143, so the execution fails with the partial
+  run kept. Each predict is bounded at 60 s and each BigQuery insert / progress update at
+  30 s / 60 s, so a stalled call is retried or fails instead of eating the hour
+  ([contracts §2](contracts.md)).
 
 - **Single replica, single worker.** The posterior lives in one process's memory, so the
   container must run with **`VERTEX_CPR_WEB_CONCURRENCY=1`** (CPR otherwise starts

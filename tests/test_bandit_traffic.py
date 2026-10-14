@@ -319,6 +319,106 @@ def test_main_endpoint_failure_exits_1(tmp_path):
     assert code == 1
 
 
+# ------------------------------------------------------------ early stop (SIGTERM)
+
+
+class DecisionCounter:
+    """Counts decision requests; calls ``on_decision(n)`` after the n-th."""
+
+    def __init__(self, inner, on_decision=lambda n: None):
+        self.inner = inner
+        self.on_decision = on_decision
+        self.decision_requests = 0
+
+    def predict(self, instances, parameters=None):
+        preds = self.inner.predict(instances, parameters)
+        if instances[0]["type"] == "decision":
+            self.decision_requests += 1
+            self.on_decision(self.decision_requests)
+        return preds
+
+
+@pytest.mark.parametrize("learning", ["per_episode", "continuous"])
+def test_stop_flushes_buffered_events_and_written_metrics(learning):
+    # stop 3 batches into the second episode / segment: the first one's metrics
+    # are written, the buffered events of both are flushed, then TrafficStopped
+    cfg = _cfg()
+    client = DecisionCounter(InProcessClient(FakeBanditEndpoint(cfg)))
+    stop_after = T // BS + 3
+    fake_bq = FakeBQ()
+    settings = traffic.TrafficSettings(baselines=("oracle",), event_flush_rows=10**9)
+    with pytest.raises(traffic.TrafficStopped, match="stop requested") as exc:
+        traffic.run_traffic(
+            cfg,
+            client,
+            _writer(fake_bq),
+            settings,
+            learning=learning,
+            stop=lambda: client.decision_requests >= stop_after,
+        )
+    events = fake_bq.rows("bandit_events")
+    assert len(events) == T + 3 * BS
+    assert {e["episode"] for e in events} == {0, 1}
+    metrics = fake_bq.rows("bandit_episode_metrics")
+    assert {r["episode"] for r in metrics} == {0}
+    assert {r["policy"] for r in metrics} == {"linear_ts", "oracle"}
+    assert exc.value.summary.episodes_done == 1
+    assert exc.value.summary.events_written == T + 3 * BS
+    assert client.decision_requests == stop_after  # nothing sent after the stop
+
+
+def test_stop_before_the_first_episode_writes_nothing():
+    cfg = _cfg()
+    fake_bq = FakeBQ()
+    with pytest.raises(traffic.TrafficStopped):
+        traffic.run_traffic(
+            cfg,
+            InProcessClient(FakeBanditEndpoint(cfg)),
+            _writer(fake_bq),
+            traffic.TrafficSettings(baselines=("oracle",)),
+            stop=lambda: True,
+        )
+    assert fake_bq.inserts == [] and fake_bq.queries == []
+
+
+def test_main_sigterm_stops_early_flushes_and_exits_nonzero(tmp_path, caplog):
+    import os
+    import signal
+
+    cfg_path = _write_config(tmp_path)
+    guard_hits: list[int] = []
+
+    # a guard handler, so a missing SIGTERM handler in main can't kill the worker
+    def guard(signum, frame):
+        guard_hits.append(signum)
+
+    previous = signal.signal(signal.SIGTERM, guard)
+    try:
+
+        def on_decision(n):
+            if n == T // BS + 2:  # 2 batches into episode 1
+                os.kill(os.getpid(), signal.SIGTERM)
+
+        cfg = _cfg()
+        client = DecisionCounter(InProcessClient(FakeBanditEndpoint(cfg)), on_decision)
+        fake_bq = FakeBQ()
+        env = {"CONFIG_URI": str(cfg_path), "EXPERIMENT_ID": EID}
+        with caplog.at_level("INFO", logger="bandit_traffic"):
+            code = main.main(
+                ["--in-process"], env=env, client=client, writer=_writer(fake_bq)
+            )
+        # main restores the handler it replaced
+        assert signal.getsignal(signal.SIGTERM) is guard
+        assert guard_hits == []  # main's own handler took the signal
+    finally:
+        signal.signal(signal.SIGTERM, previous)
+    assert code == main.EXIT_STOPPED != 0
+    assert "stopped early by SIGTERM" in caplog.text
+    # every buffered event of the interrupted episode reached BigQuery
+    assert len(fake_bq.rows("bandit_events")) == T + 2 * BS
+    assert {r["episode"] for r in fake_bq.rows("bandit_episode_metrics")} == {0}
+
+
 # ------------------------------------------------- scenario overrides (contracts §9)
 
 MIX = (0.7, 0.1, 0.1, 0.1)

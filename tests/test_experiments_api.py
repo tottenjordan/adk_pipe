@@ -1426,3 +1426,38 @@ def test_reaper_loop_runs_light_pass_between_full_passes(monkeypatch):
 
     run(go)
     assert seen[:11] == (["full"] + ["light"] * 4) * 2 + ["full"]
+
+
+def test_traffic_rejects_episodic_runs_over_the_round_cap():
+    """episodes x horizon > MAX_TRAFFIC_ROUNDS can't finish inside the traffic
+    job's 1 h task timeout (~650 rounds/s): 400 run_too_large, nothing started."""
+    h = Harness()
+
+    async def go():
+        await h.session()
+        eid = (await h.create()).json()["experimentId"]
+        await ex.drain()
+        url = f"/experiments/{A}/{eid}/traffic"
+        too_big = await h.client.post(url, json={"episodes": 20, "horizon": 400_000})
+        # no horizon in the body: the experiment default (20k) is what's checked
+        too_big_default = await h.client.post(url, json={"episodes": 100})
+        at_cap = await h.client.post(url, json={"episodes": 75, "horizon": 20_000})
+        return too_big, too_big_default, at_cap
+
+    too_big, too_big_default, at_cap = run(go)
+    for res in (too_big, too_big_default):
+        assert res.status_code == 400, res.text
+        detail = res.json()["detail"]
+        assert detail["reason"] == "run_too_large"
+        assert "1,500,000" in detail["message"]
+        assert "fewer episodes" in detail["message"]
+    assert at_cap.status_code == 200, at_cap.text
+    (job,) = h.jobs.runs
+    assert (job["episodes"], job["horizon"]) == (75, 20_000)
+
+
+def test_one_round_cap_for_both_learning_modes():
+    assert ex.MAX_TRAFFIC_ROUNDS == 1_500_000
+    assert ex.MAX_CONTINUOUS_ROUNDS == ex.MAX_TRAFFIC_ROUNDS
+    assert ex.run_size_error(75, 20_000) is None
+    assert "1,500,000" in (ex.run_size_error(76, 20_000) or "")
