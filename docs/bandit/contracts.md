@@ -28,7 +28,7 @@ class LinTSParams: prior_var: float = 1.0; noise_var: float = 0.25; exploration_
 @dataclass(frozen=True)
 class ExperimentConfig: experiment_id: str; arms: tuple[ArmSpec, ...]; scenario: str
                         ctr_mode: str = "demo"; reward_mode: str = "click"; horizon: int = 20000
-                        batch_size: int = 100; episodes: int = 20; seed: int = 0
+                        batch_size: int = 100; episodes: int = 20; seed: int = 0  # 0 <= seed < 2**31
                         policy: LinTSParams = LinTSParams()
                         scenario_overrides: ScenarioOverrides | None = None   # §9
 @dataclass(frozen=True)
@@ -52,7 +52,7 @@ def shifts_from_dict(data: list | None) -> tuple[ShiftSpec, ...]         # stric
 def shifts_to_dict(shifts) -> list[dict]                                 # JSON round-trip of shifts_from_dict
 def validate_shifts(shifts, scenario: ScenarioConfig, arms, ctr_mode) -> tuple[ShiftSpec, ...]  # ValueError "shifts[i].<field>"
 def default_shift_discount(ctr_mode, batch_size, horizon) -> float      # discount_for_memory(horizon / 8, batch_size)
-LEARNING_MODES = ("per_episode", "continuous"); MAX_CONTINUOUS_ROUNDS = 2_000_000   # §11
+LEARNING_MODES = ("per_episode", "continuous"); MAX_CONTINUOUS_ROUNDS = 1_500_000   # §11
 def validate_continuous_run(episodes, horizon, batch_size) -> int        # §11: total rounds E·T, ValueError naming the field
 def continuous_world_config(cfg) -> ExperimentConfig                     # §11: cfg with horizon E·T, episodes 1 (world of one long run)
 
@@ -107,6 +107,8 @@ A `reset`'s optional `discount` (added 2026-10-05 for the §10 forgetting toggle
 Reward instances carry the **unscaled** reward (`click` mode: 0/1; `engaged` mode: click × dwell seconds, with `dwell_s` set). Like the simulator, the predictor divides engaged rewards by the scenario's `dwell_base_s` before its `update`. A reward is accepted only for a pending decision whose `arm` matches the chosen arm.
 
 The traffic job (PR 3) sends `request_id = "{experiment_id}-r{traffic_run}-e{episode}-r{round}"`, where `traffic_run` is the 1-based traffic run (§10; always present, run 1 included, since 2026-10-05; earlier runs sent `{experiment_id}-e{episode}-r{round}`) and `round` is the 0-based round index within the episode (also `bandit_events.round`). It splits a batch into requests of at most 500 instances and about 1.2 MB, sends one `reset` per episode with `seed = (experiment seed × 1000003 + episode) mod 2³¹` plus the episode's `policy_key`/`batch_size` (`bandit_traffic.traffic.policy_stream_fields`), gives every decision its `batch` and `row`, and sends a batch's rewards only after all of that batch's decisions. A **continuous** run (§11) sends exactly **one** `reset` for the whole run (`episode` 0, episode 0's seed and policy stream); decision `batch` is then the **global** batch index over the run (0 … E·T/batch_size − 1) and `round` the global round. The predictor needs no change for this: `batch` has no upper bound, `model_version` (`…-e0-v{n}`) keeps counting, the pending/seen maps are bounded and a batch's rewards follow its decisions, and checkpoints keep their update-count / time cadence.
+
+**Bounds and early stop (2026-10-14).** Every `Endpoint.predict` call is bounded at 60 s (`bandit_traffic.endpoint_client.PREDICT_TIMEOUT_SECONDS`; the SDK default waits forever), so a stall raises `DeadlineExceeded` and is retried like any transient error. BigQuery streaming inserts are bounded at 30 s and the progress UPDATE at 60 s (`bandit_traffic.bq.INSERT_TIMEOUT_SECONDS` / `QUERY_TIMEOUT_SECONDS`); insert row errors with a permanent reason (`invalid`, e.g. a schema mismatch, where none of the rows are inserted; `invalidQuery`, `notFound`, `accessDenied`) are logged and fail the run at once instead of being retried. The job (`--task-timeout 3600 --max-retries 0`) handles **SIGTERM**, which Cloud Run sends at the task timeout about 10 s before SIGKILL: the handler sets a flag that the loop polls between batches, episodes and replays; it then flushes the buffered `bandit_events` rows (finished episodes' metrics and progress are already written), logs `traffic run stopped early by SIGTERM: …` and exits **143**. The partial episode gets events but no metrics rows. The api caps a run's total rounds so this shouldn't happen (§5 `run_too_large`).
 
 The CPR container is always deployed with `VERTEX_CPR_WEB_CONCURRENCY=1`, i.e. one worker process holding a single in-memory posterior. `AIP_STORAGE_URI` holds `experiment.json` (a §1 `experiment_config_to_dict`); on Vertex it is a read-only copy of the artifacts in a Vertex-managed bucket, so the posterior checkpoints live under the separate, writable `BANDIT_CHECKPOINT_URI` (`<artifact_uri>/checkpoints/`, set by `deployment/bandit/endpoint.py`; §7).
 
@@ -181,9 +183,10 @@ All routes are user-scoped. The proxy rewrites `userId` / the `{user_id}` segmen
 - `GET /experiments/{user_id}/{experiment_id}/metrics[?run=N]` returns `ExperimentMetrics` for traffic run `N` (default the latest; §10). It is empty (`episodes: 0`) until traffic runs. A `run` outside `[1, latest]` (or not an integer) is a 400 `invalid_run`.
 - `POST /experiments/{user_id}/{experiment_id}/traffic`
   - Body: `{episodes: 1..100, horizon?: 1000..400000, shifts?: Shift[] (≤ 4, §10), forget?: boolean | null, learning?: "per_episode" | "continuous"}`.
-  - `learning` (§11, default `"per_episode"`): `"continuous"` keeps the endpoint's posterior across the run's episodes (then called segments). A continuous run is limited to `episodes × horizon ≤ 2,000,000` rounds (`bandit.config.MAX_CONTINUOUS_ROUNDS`) and needs `horizon` to be a multiple of the experiment's `batch_size`.
+  - **Run size (2026-10-14):** `episodes × horizon ≤ 1,500,000` rounds in either mode (`runserver.experiments.MAX_TRAFFIC_ROUNDS`; a missing `horizon` counts as the experiment default). The traffic job runs with `--task-timeout 3600 --max-retries 0` at a measured ~650 rounds/s (~2.3M rounds per hour), so 1.5M (~40 min) leaves room for startup and slow predicts. Raise it only together with the job's task timeout. Until 2026-10-14 per-episode runs had no total cap (up to 100 × 400k = 40M rounds, which the job could never finish) and continuous runs were capped at 2,000,000.
+  - `learning` (§11, default `"per_episode"`): `"continuous"` keeps the endpoint's posterior across the run's episodes (then called segments). A continuous run is limited to `episodes × horizon ≤ 1,500,000` rounds (`bandit.config.MAX_CONTINUOUS_ROUNDS`, the same cap) and needs `horizon` to be a multiple of the experiment's `batch_size`.
   - Success: `{status: "running_traffic", execution, run}` (`run` = the allocated 1-based run number).
-  - Errors: 400 `invalid_shifts` (with `detail.field`, e.g. `shifts[1].untilFrac`) or `invalid_forget`; 400 `invalid_learning` with `detail.field`: `learning` (not one of the two modes), `episodes` (a continuous run over 2,000,000 rounds; a missing `horizon` counts as the experiment default) or `horizon` (not a multiple of `batch_size`); 409 unless status is `ready`.
+  - Errors: 400 `invalid_episodes` / `invalid_horizon` (outside the body ranges); 400 `run_too_large` (a per-episode run over 1,500,000 rounds; the message states the limit and suggests fewer episodes or a shorter horizon); 400 `invalid_shifts` (with `detail.field`, e.g. `shifts[1].untilFrac`) or `invalid_forget`; 400 `invalid_learning` with `detail.field`: `learning` (not one of the two modes), `episodes` (a continuous run over 1,500,000 rounds; a missing `horizon` counts as the experiment default) or `horizon` (not a multiple of `batch_size`); 409 unless status is `ready`.
 - `POST /experiments/{user_id}/{experiment_id}/stop` returns `{status: "stopping" | "stopped"}`.
 
 **Status enum:** `deploying → ready → running_traffic → ready → stopping → stopped`; also `failed` and `expired` (the TTL reaper).
@@ -521,7 +524,7 @@ Plan: [`docs/plans/2026-10-06-bandit-continuous-learning.md`](../plans/2026-10-0
 
 A traffic run's **learning mode** is `"per_episode"` (the default, every behaviour above) or `"continuous"`. A continuous run is **one long episode** of H = E × T rounds (E = `episodes`, T = `horizon`), cut into E **segments** of T rounds. The mode belongs to the traffic run (like shifts): `experiment.json` is unchanged, and each new run starts from a fresh posterior.
 
-**Limits** (`bandit.config.validate_continuous_run`): `E × T ≤ MAX_CONTINUOUS_ROUNDS = 2_000_000` (job runtime and memory; e.g. 50 × 40k demo or 5 × 400k realistic) and `T` a multiple of `batch_size` (so no policy batch straddles a segment boundary). This replaces the per-episode `horizon ≤ 1_000_000` cap for the world's total only; T itself keeps its bounds. Errors are `ValueError`s naming `episodes` / `horizon`; the job exits 2.
+**Limits** (`bandit.config.validate_continuous_run`): `E × T ≤ MAX_CONTINUOUS_ROUNDS = 1_500_000` (the job's 1 h task timeout, the same cap the api applies to per-episode runs, §5; 2,000,000 until 2026-10-14; e.g. 37 × 40k demo or 3 × 400k realistic) and `T` a multiple of `batch_size` (so no policy batch straddles a segment boundary). This replaces the per-episode `horizon ≤ 1_000_000` cap for the world's total only; T itself keeps its bounds. Errors are `ValueError`s naming `episodes` / `horizon`; the job exits 2.
 
 **Job env:** `LEARNING_MODE=per_episode|continuous` (flag `--learning`; default `per_episode`; anything else exits 2). The api (PR B) sets it only for continuous runs.
 
