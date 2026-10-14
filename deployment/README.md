@@ -41,6 +41,7 @@ Cloud Run Functions, which do **not** read `.env`). All vars are documented in
 | `GOOGLE_CLOUD_PROJECT_NUMBER` | CRF orchestrator (worker topic path) + worker (Reasoning Engine path); `deploy_agent.py --delete` | CRFs: optional; deploy scripts: yes | CRFs fall back to `GOOGLE_CLOUD_PROJECT` (both APIs accept the ID) |
 | `GCP_REGION` | CRFs (Agent Engine client), all deploy scripts | No | `us-central1` |
 | `CREATIVE_WORKER_TOPIC_NAME` | CRF orchestrator (publishes to it) | No | `creative-worker-queue-topic` |
+| `CREATIVE_AGENT_ENGINE_ID` | CRF worker (the creative engine it runs: the full `projects/<number>/locations/<GCP_REGION>/reasoningEngines/<id>` name, as `.env` stores it, or the bare id; another project/region or a malformed value is ignored with an ERROR); also `test_deployment.py` / `integration_test.py` (see below) | Worker: **yes** — while unset or invalid it logs an ERROR per message and leaves the row `QUEUED` (no lock taken). Set by `engine_handoff.py apply --update-worker` | none |
 | `AGENT_WORKER_USER_ID` | CRF worker (Agent Engine session owner, `<id>_<hash(uuid, target_trend)>`, else `<id>_<row index>`) | No | `crf_worker` |
 | `BQ_DATASET_ID` / `BQ_TABLE_TARGETS` | CRFs (SQL identifier allow-list) | No | `trend_trawler` / `target_trends_crf` |
 | `CRF_EXTRA_ALLOWED_TABLES` | CRFs (extra allow-listed tables) | No | empty |
@@ -50,8 +51,10 @@ Cloud Run Functions, which do **not** read `.env`). All vars are documented in
 
 `create_session_engine.py` also accepts `--project` / `--region` flags, which
 override the env vars. Agent Engine resource IDs are never constants: pass them via
-`--resource_id` (`deploy_agent.py --delete`), the `*_AGENT_ENGINE_ID` env vars, or
-the `agent_resource_id` field of the orchestrator's Pub/Sub message.
+`--resource_id` (`deploy_agent.py --delete`) or the `*_AGENT_ENGINE_ID` env vars. The
+CRF worker reads its engine from its own `CREATIVE_AGENT_ENGINE_ID` env var (since
+2026-10-14); the Pub/Sub messages no longer carry it, and a legacy
+`agent_resource_id` in a message is ignored (a WARNING when it differs).
 
 ---
 
@@ -300,9 +303,15 @@ BUILD_ID=<id from the submit output>
 gcloud storage cp gs://trend-trawler-deploy-ae/adk-pipe/cloudbuild/$BUILD_ID/engine_ids.json /tmp/engine_ids.json
 # 1) local .env (prints old -> new per key; same dotenv writer as deploy_agent)
 uv run python deployment/engine_handoff.py apply --ids /tmp/engine_ids.json --env-file .env
-# 2) CRF: the Pub/Sub message's agent_resource_id is the bare numeric ID (no redeploy)
-NEW_ID=$(jq -r '.engines.creative_agent.resource_name' /tmp/engine_ids.json); echo "${NEW_ID##*/}"
-#    -> put it in cloud_functions/creative_fanout/message.json (section 5.2) before publishing
+# 2) CRF worker: --update-worker also sets creative-worker-crf's CREATIVE_AGENT_ENGINE_ID
+#    (gcloud run services update --update-env-vars; a new revision). It first counts
+#    PROCESSING rows in BQ_PROJECT_ID.BQ_DATASET_ID.BQ_TABLE_TARGETS (from .env) and
+#    refuses ("worker busy", exit 1, nothing written) while a run is in flight, because
+#    the new revision would kill it; --force skips the check, --worker-service <name>
+#    targets another service. No creative_agent record -> .env only, worker untouched.
+uv run python deployment/engine_handoff.py apply --ids /tmp/engine_ids.json --env-file .env --update-worker
+#    (the trigger message needs no engine id any more)
+NEW_ID=$(jq -r '.engines.creative_agent.resource_name' /tmp/engine_ids.json)
 # 3) optional, NOT applied: keep the current IDs as Secret Manager versions
 #    (gcloud secrets create creative-agent-engine-id --replication-policy=automatic  # once)
 #    printf %s "$NEW_ID" | gcloud secrets versions add creative-agent-engine-id --data-file=-
@@ -311,8 +320,10 @@ NEW_ID=$(jq -r '.engines.creative_agent.resource_name' /tmp/engine_ids.json); ec
 The api runs the agents in-process and does not read engine IDs, so nothing else changes.
 
 **Rollback / cleanup.** Engines are created, never updated, so the old engines keep running:
-roll back by pointing `.env` / the CRF message at the previous ID again (`previous` in
-`engine_ids.json`, or the old value `apply` printed). Delete old engines manually once the new
+roll back by pointing `.env` and the CRF worker at the previous ID again (`previous` in
+`engine_ids.json`, or the old value `apply` printed): `gcloud run services update
+creative-worker-crf --region us-central1 --update-env-vars
+CREATIVE_AGENT_ENGINE_ID=<previous resource name>` (while no row is `PROCESSING`). Delete old engines manually once the new
 ones are verified: `uv run python deployment/deploy_agent.py --resource_id=<numeric id> --delete`
 (`--list` shows them all). It looks the engine up first and refuses the sessions engine or an
 engine a `*_AGENT_ENGINE_ID` in your env/.env still points at (stale shell exports count too:
@@ -743,11 +754,14 @@ gcloud run deploy $CREATIVE_WORKER_CRF_NAME \
   --memory 8Gi \
   --cpu 4 \
   --no-allow-unauthenticated \
-  --set-env-vars "FUNCTION_TARGET=$CREATIVE_WORKER_ENTRYPOINT,GOOGLE_CLOUD_PROJECT=$GOOGLE_CLOUD_PROJECT,GOOGLE_CLOUD_PROJECT_NUMBER=$GOOGLE_CLOUD_PROJECT_NUMBER,GCP_REGION=$GCP_REGION,AGENT_WORKER_USER_ID=${AGENT_WORKER_USER_ID:-crf_worker}" \
+  --set-env-vars "FUNCTION_TARGET=$CREATIVE_WORKER_ENTRYPOINT,GOOGLE_CLOUD_PROJECT=$GOOGLE_CLOUD_PROJECT,GOOGLE_CLOUD_PROJECT_NUMBER=$GOOGLE_CLOUD_PROJECT_NUMBER,GCP_REGION=$GCP_REGION,AGENT_WORKER_USER_ID=${AGENT_WORKER_USER_ID:-crf_worker},CREATIVE_AGENT_ENGINE_ID=$CREATIVE_AGENT_ENGINE_ID" \
   --labels agent-workflow=trend-trawler,function=creative-worker
   
   # Note:
-  # --set-env-vars: FUNCTION_TARGET and GOOGLE_CLOUD_PROJECT are REQUIRED (the function reads no .env);
+  # --set-env-vars: FUNCTION_TARGET, GOOGLE_CLOUD_PROJECT and CREATIVE_AGENT_ENGINE_ID are
+  #   REQUIRED (the function reads no .env). CREATIVE_AGENT_ENGINE_ID is the creative engine
+  #   (full resource name from .env or bare id); without it every row stays QUEUED. After an
+  #   engine redeploy, update it with `engine_handoff.py apply --update-worker`.
   #   see "Required environment" above. --set-env-vars REPLACES the env, so any
   #   other overrides (e.g. CRF_EXTRA_ALLOWED_TABLES) must be in the same list.
   # region=$GCP_REGION (us-central1) — Cloud Run is regional; GOOGLE_CLOUD_LOCATION
@@ -811,10 +825,9 @@ the job owns the completion check and the status write.
 
 **Malformed messages are ACKed (2026-10-13).** A message that can never be
 processed — undecodable base64/JSON, a non-object payload, a worker message
-missing `bq_dataset` / `bq_table` / `agent_resource_id` / `row_data` (or a
-`row_data` field the worker reads), a trigger missing `bq_table` /
-`agent_resource_id`, an `agent_resource_id` that isn't a plain id, or a
-non-allow-listed dataset/table — is logged at `ERROR` ("Rejecting worker
+missing `bq_dataset` / `bq_table` / `row_data` (or a `row_data` field the
+worker reads), a trigger missing `bq_table`, or a non-allow-listed
+dataset/table — is logged at `ERROR` ("Rejecting worker
 message: …" / "Rejecting trigger message: …") and ACKed, instead of raising
 (`KeyError` → NACK → redelivered until the message expires, as seen on
 2026-10-12). Only transient failures still NACK (a BigQuery error or timeout
@@ -901,10 +914,14 @@ VALUES
 ```json
 {
     "bq_dataset": "trend_trawler",
-    "bq_table": "target_trends_crf",
-    "agent_resource_id": "<CREATIVE_AGENT_ENGINE_ID>" # e.g., 4622783949466447488
+    "bq_table": "target_trends_crf"
 }
 ```
+
+No engine id: the worker runs the engine in its `CREATIVE_AGENT_ENGINE_ID` env
+var (§3.3; set by `engine_handoff.py apply --update-worker`). An old message that
+still has `agent_resource_id` works, but the field is ignored (a WARNING when it
+differs from the worker's engine).
 
 `bq_dataset`/`bq_table` become SQL identifiers, so both functions only accept
 the config allow-list (`BQ_DATASET_ID` / `BQ_TABLE_TARGETS`, defaults

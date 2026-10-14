@@ -13,12 +13,13 @@ exactly one handler):
 2. Worker (``agent_worker_entrypoint``): processes one worker message: locks
    the row, runs the creative agent on Agent Engine for that (trend +
    campaign) pair and records the row's final status (``worker.process_row``).
+   The engine is the worker's ``CREATIVE_AGENT_ENGINE_ID`` env var (set by
+   ``deployment/engine_handoff.py apply --update-worker``), not the message.
 
 Example trigger message:
 message = {
     "bq_dataset": "trend_trawler",
     "bq_table": "target_trends_crf",
-    "agent_resource_id": "<AGENT_ENGINE_ID>",
     "max_rows": 1,  # optional; clamped to CRF_MAX_ROWS_PER_RUN (default 3)
 }
 """
@@ -57,8 +58,9 @@ def crf_entrypoint(cloud_event: CloudEvent) -> None:
       cloud_event: the Pub/Sub trigger. Its JSON payload has:
         bq_dataset: BQ dataset hosting the status-tracking table
         bq_table: BQ table to monitor (allow-listed)
-        agent_resource_id: resource ID of the creative agent on Agent Engine
         max_rows (optional): can only lower ``CRF_MAX_ROWS_PER_RUN``
+        (a legacy ``agent_resource_id`` is ignored: the worker's env names
+        the engine)
 
     Returns normally (ACK) for a message that is not work or is malformed;
     a BigQuery error raises (NACK, Pub/Sub redelivers).
