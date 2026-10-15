@@ -151,6 +151,23 @@ class TestFetch:
         params = {p.name: p.value for p in job_config.query_parameters}
         assert params == {"brand": "ACME'; DROP TABLE x --", "limit": 3}
 
+    def test_select_lists_only_the_columns_read(self):
+        sql, _ = bh.build_history_query("p.d.creative_evals", "ACME", 5)
+        columns = [
+            c.strip()
+            for c in sql.split("SELECT", 1)[1].split("FROM", 1)[0].split(",")
+        ]
+        assert "target_trend" not in columns
+        assert columns == [
+            "datetime",
+            "overall_pass_rate",
+            "avg_ad_copy_score",
+            "avg_visual_score",
+            "weakest_dimension_labels",
+            "gates_pass_rate",
+            "eval_report_gcs_uri",
+        ]
+
     def test_aggregates_runs(self):
         bq, gcs = _fixture()
         d = bh.fetch_brand_history("ACME", bq_client=bq, gcs_client=gcs)
