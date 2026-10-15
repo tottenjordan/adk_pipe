@@ -60,10 +60,10 @@ describe("PeoplePage", () => {
     fireEvent.change(screen.getByLabelText("Photo"), { target: { value: `${PREFIX}carol.jpg` } });
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Carol" } });
     fireEvent.click(screen.getByLabelText(/is an adult and agreed to appear/));
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Register photo" }));
-    });
+    fireEvent.click(screen.getByRole("button", { name: "Register photo" }));
     expect(createPersonRef).toHaveBeenCalledTimes(1);
+    // The registration has landed (the form resets) before the list resolves.
+    await waitFor(() => expect(screen.getByLabelText("Name")).toHaveValue(""));
     // The (older) list arrives afterwards: it may or may not include Carol yet.
     await act(async () =>
       resolveList({
@@ -127,9 +127,7 @@ describe("PeoplePage", () => {
     fireEvent.click(screen.getByLabelText(/is an adult and agreed to appear/));
     fireEvent.click(screen.getByLabelText(/public share links/));
     expect(submit).toBeEnabled();
-    await act(async () => {
-      fireEvent.click(submit);
-    });
+    fireEvent.click(submit);
     expect(createPersonRef).toHaveBeenCalledWith({
       photo_uri: `${PREFIX}carol.jpg`,
       label: "Carol",
@@ -153,9 +151,7 @@ describe("PeoplePage", () => {
     fireEvent.change(screen.getByLabelText("Photo"), { target: { value: "gs://x/y.jpg" } });
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "X" } });
     fireEvent.click(screen.getByLabelText(/is an adult and agreed to appear/));
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Register photo" }));
-    });
+    fireEvent.click(screen.getByRole("button", { name: "Register photo" }));
     expect(await screen.findByRole("alert")).toHaveTextContent(/directly inside your folder/);
   });
 
@@ -168,9 +164,7 @@ describe("PeoplePage", () => {
     const dialog = await screen.findByRole("dialog");
     expect(within(dialog).getByText("Revoke Alice?")).toBeInTheDocument();
     expect(within(dialog).getByText(/Deletes the photo and every image made with it/)).toBeInTheDocument();
-    await act(async () => {
-      fireEvent.click(within(dialog).getByRole("button", { name: "Revoke and delete" }));
-    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Revoke and delete" }));
     expect(revokePersonRef).toHaveBeenCalledWith("cid_AAAAAAAAAAAA");
     expect(await screen.findByText("No one yet. Add a person above.")).toBeInTheDocument();
   });
@@ -182,11 +176,9 @@ describe("PeoplePage", () => {
     const [item] = await rows();
     fireEvent.click(within(item).getByRole("button", { name: "Revoke Alice" }));
     const dialog = await screen.findByRole("dialog");
-    await act(async () => {
-      fireEvent.click(within(dialog).getByRole("button", { name: "Revoke and delete" }));
-    });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Revoke and delete" }));
     const [still] = await rows();
-    expect(within(still).getByRole("alert")).toHaveTextContent(/Revoke again to finish/);
+    expect(await within(still).findByRole("alert")).toHaveTextContent(/Revoke again to finish/);
   });
 
   it("shows the headshot guidance above the form", async () => {
@@ -227,9 +219,7 @@ describe("PeoplePage", () => {
     await screen.findByText("No one yet. Add a person above.");
     fireEvent.change(screen.getByLabelText("Name"), { target: { value: "X" } });
     fireEvent.click(screen.getByLabelText(/is an adult and agreed to appear/));
-    await act(async () => {
-      fireEvent.click(screen.getByRole("button", { name: "Register photo" }));
-    });
+    fireEvent.click(screen.getByRole("button", { name: "Register photo" }));
     expect(await screen.findByRole("alert")).toHaveTextContent(/at least 512 px on its shorter side/);
   });
 
