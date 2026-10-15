@@ -314,6 +314,15 @@ uv run python deployment/engine_handoff.py apply --ids /tmp/engine_ids.json --en
 #    refuses ("worker busy", exit 1, nothing written) while a run is in flight, because
 #    the new revision would kill it; --force skips the check, --worker-service <name>
 #    targets another service. No creative_agent record -> .env only, worker untouched.
+#    The worker is traffic-pinned (traffic on a named revision, not "latest"), so the
+#    update alone leaves the new revision at 0% (and gcloud's success line names the OLD
+#    revision). --update-worker therefore also reads the new revision
+#    (status.latestCreatedRevisionName), checks it is Ready and carries the new
+#    CREATIVE_AGENT_ENGINE_ID, runs `gcloud run services update-traffic
+#    creative-worker-crf --to-revisions <new>=100` (explicit revision, keeping the pin;
+#    skipped when it already serves 100%) and verifies status.traffic. Any failed
+#    check exits 1 and prints the manual update-traffic fix and the rollback command
+#    (the revisions that served before).
 uv run python deployment/engine_handoff.py apply --ids /tmp/engine_ids.json --env-file .env --update-worker
 #    (the trigger message needs no engine id any more)
 NEW_ID=$(jq -r '.engines.creative_agent.resource_name' /tmp/engine_ids.json)
@@ -328,7 +337,10 @@ The api runs the agents in-process and does not read engine IDs, so nothing else
 roll back by pointing `.env` and the CRF worker at the previous ID again (`previous` in
 `engine_ids.json`, or the old value `apply` printed): `gcloud run services update
 creative-worker-crf --region us-central1 --update-env-vars
-CREATIVE_AGENT_ENGINE_ID=<previous resource name>` (while no row is `PROCESSING`). Delete old engines manually once the new
+CREATIVE_AGENT_ENGINE_ID=<previous resource name>` (while no row is `PROCESSING`), then pin
+the traffic to that new revision (`gcloud run services update-traffic creative-worker-crf
+--region us-central1 --to-revisions <revision>=100`; the update alone lands at 0%), or simply
+re-pin the previously serving revision, which still carries the old ID. Delete old engines manually once the new
 ones are verified: `uv run python deployment/deploy_agent.py --resource_id=<numeric id> --delete`
 (`--list` shows them all). It looks the engine up first and refuses the sessions engine or an
 engine a `*_AGENT_ENGINE_ID` in your env/.env still points at (stale shell exports count too:

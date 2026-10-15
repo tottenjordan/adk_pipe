@@ -109,7 +109,7 @@ tests/
 ├── test_crf_time_budget.py          # CRF worker budget: deadline from request start incl. the safety margin, best-effort bounded session delete, compact event logs, row-named session user ids
 ├── test_date_prompts.py            # the shared DATE_CONTEXT_LINE in trend research / brief / copy / art-direction prompts (optional tokens, no literal dates), scout as_of/event_hint, Current Moment section, TREND_SCOUT_HINT_BLOCK
 ├── test_cloudbuild_agents.py        # Cloud Build engine deploys: cloudbuild.agents.yaml structure, deploy.env profile drift, clean-env wrapper, engine_handoff.py
-├── test_engine_handoff_worker.py    # engine_handoff.py apply --update-worker: PROCESSING-rows guard + shell-free gcloud update of the CRF worker's CREATIVE_AGENT_ENGINE_ID
+├── test_engine_handoff_worker.py    # engine_handoff.py apply --update-worker: PROCESSING-rows guard + shell-free gcloud update of the CRF worker's CREATIVE_AGENT_ENGINE_ID + pinned-traffic move to the new revision and its verification
 ├── test_deploy_utils.py             # deploy_agent.py utils (env file, extra_packages, runtimes.create) + integration_test.py (skips, creative_agent smoke output assertion)
 ├── test_deploy_import_graph.py      # each agent's import-time repo-root packages ⊆ its AGENT_EXTRA_PACKAGES bundle (subprocess, slow)
 ├── test_deploy_packaging.py         # deploy_agent.py stages a filtered copy of each package (no .adk/, __pycache__, caches; refuses if one got staged) and runs the SDK from the staging root
