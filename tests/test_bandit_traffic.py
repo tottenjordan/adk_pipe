@@ -4,6 +4,7 @@ in-process fake endpoint and a fake BigQuery client (no GCP)."""
 import dataclasses
 import json
 import re
+from types import SimpleNamespace
 
 import jax
 import numpy as np
@@ -301,6 +302,32 @@ def test_main_config_errors_exit_2(tmp_path, argv, env):
     cfg_path = _write_config(tmp_path)
     env = {k: (str(cfg_path) if v == "CFG" else v) for k, v in env.items()}
     assert main.main([*argv, "--out", str(tmp_path / "o")], env=env) == 2
+
+
+@pytest.mark.parametrize(
+    ("argv", "env"),
+    [
+        ([], {"ERROR_THRESHOLD": "nan"}),  # would turn the abort off for good
+        ([], {"ERROR_THRESHOLD": "inf"}),
+        ([], {"ERROR_THRESHOLD": "-0.1"}),
+        ([], {"ERROR_THRESHOLD": "1.5"}),
+        ([], {"ERROR_THRESHOLD": "lots"}),
+        (["--error-threshold", "nan"], {}),
+        (["--error-threshold", "2"], {}),
+    ],
+)
+def test_main_bad_error_threshold_exits_2(tmp_path, caplog, argv, env):
+    env = {"CONFIG_URI": str(_write_config(tmp_path)), **env}
+    argv = ["--in-process", "--dry-run", "--out", str(tmp_path / "o"), *argv]
+    with caplog.at_level("ERROR", logger="bandit_traffic"):
+        assert main.main(argv, env=env) == 2
+    assert "ERROR_THRESHOLD" in caplog.text
+
+
+@pytest.mark.parametrize("value", ["0", "0.05", "1"])
+def test_error_threshold_bounds_are_inclusive(value):
+    assert main.parse_error_threshold(value) == float(value)
+    assert main.parse_error_threshold(None) == 0.05
 
 
 def test_main_endpoint_failure_exits_1(tmp_path):
@@ -990,3 +1017,204 @@ def test_main_runs_continuous_from_env(tmp_path):
     assert len(resets) == 1
     events = fake_bq.rows("bandit_events")
     assert [r["round"] for r in events] == list(range(2 * T))
+
+
+# ----------------------------------- resilience (review C6 / C9 / FYI, PR T)
+
+
+class DeadlineExceeded(Exception):
+    """Named like google.api_core's: what a predict past its timeout raises."""
+
+
+class StallingSdk:
+    """A fake ``aiplatform`` over the fake endpoint whose n-th decision request
+    stalls (times out) and sets the stop flag, like SIGTERM during the stall."""
+
+    def __init__(self, endpoint, stop, stall_at):
+        self.endpoint, self.stop, self.stall_at = endpoint, stop, stall_at
+        self.decision_calls = 0
+
+    def init(self, **kw):
+        pass
+
+    def Endpoint(self, **kw):  # noqa: N802
+        sdk = self
+
+        class _Endpoint:
+            def predict(self, instances, parameters=None, timeout=None):
+                if instances[0]["type"] == "decision":
+                    sdk.decision_calls += 1
+                    if sdk.decision_calls >= sdk.stall_at:
+                        sdk.stop.set()
+                        raise DeadlineExceeded("predict timed out")
+                preds = sdk.endpoint.predict(list(instances), parameters)
+                return SimpleNamespace(predictions=preds)
+
+        return _Endpoint()
+
+
+@pytest.mark.parametrize("learning", ["per_episode", "continuous"])
+def test_sigterm_during_a_stalled_predict_flushes_without_retrying(learning):
+    import threading
+
+    from bandit_traffic.endpoint_client import VertexEndpointClient
+
+    cfg = _cfg()
+    stop = threading.Event()
+    stall_at = T // BS + 4  # the 4th batch of the second episode / segment
+    sdk = StallingSdk(FakeBanditEndpoint(cfg), stop, stall_at)
+    sleeps: list[float] = []
+    client = VertexEndpointClient(
+        "projects/p/locations/us-central1/endpoints/1",
+        aiplatform_module=sdk,
+        sleep=sleeps.append,
+        should_stop=stop.is_set,
+    )
+    fake_bq = FakeBQ()
+    settings = traffic.TrafficSettings(baselines=("oracle",), event_flush_rows=10**9)
+    with pytest.raises(traffic.TrafficStopped, match="stop requested") as exc:
+        traffic.run_traffic(
+            cfg,
+            client,
+            _writer(fake_bq),
+            settings,
+            learning=learning,
+            stop=stop.is_set,
+        )
+    # one stalled attempt, no backoff sleep, no retry
+    assert sdk.decision_calls == stall_at and sleeps == []
+    # every buffered event before the stalled batch reached BigQuery
+    events = fake_bq.rows("bandit_events")
+    assert len(events) == T + 3 * BS
+    assert exc.value.summary.events_written == T + 3 * BS
+    assert {r["episode"] for r in fake_bq.rows("bandit_episode_metrics")} == {0}
+
+
+def test_events_flush_every_500_rows_by_default():
+    assert traffic.TrafficSettings().event_flush_rows == 500
+
+
+def test_main_passes_the_stop_flag_to_the_endpoint_client(tmp_path):
+    args = main.build_parser().parse_args(["--local-url", "http://x/predict"])
+    flag = lambda: False  # noqa: E731
+    client = main.build_client(args, {}, _cfg(), should_stop=flag)
+    assert client.should_stop is flag
+    args = main.build_parser().parse_args(
+        ["--endpoint-id", "projects/p/locations/r/endpoints/1"]
+    )
+    assert main.build_client(args, {}, _cfg(), should_stop=flag).should_stop is flag
+
+
+class RejectingClient(RecordingClient):
+    """Answers the first ``n`` rewards ``accepted: false`` (an endpoint restart
+    mid-run: the in-flight batch's rewards come back ``unknown request_id``)."""
+
+    def __init__(self, inner, n):
+        super().__init__(inner)
+        self.left = n
+
+    def predict(self, instances, parameters=None):
+        preds = super().predict(instances, parameters)
+        for i, inst in enumerate(instances):
+            if inst["type"] == "reward" and self.left:
+                self.left -= 1
+                preds[i] = {
+                    "type": "reward",
+                    "request_id": inst["request_id"],
+                    "accepted": False,
+                    "reason": "unknown request_id",
+                }
+        return preds
+
+
+def test_rejected_rewards_reach_progress_and_a_warning(caplog):
+    cfg = _cfg()
+    client = RejectingClient(InProcessClient(FakeBanditEndpoint(cfg)), n=7)
+    fake_bq = FakeBQ()
+    with caplog.at_level("WARNING", logger="bandit_traffic.traffic"):
+        summary = traffic.run_traffic(
+            cfg,
+            client,
+            _writer(fake_bq),
+            traffic.TrafficSettings(baselines=("oracle",)),
+        )
+    assert summary.rewards_rejected == 7
+    progress = [
+        json.loads(next(v for n, _, v in params if n == "progress"))
+        for _, params in fake_bq.queries
+    ]
+    assert [p["rewards_rejected"] for p in progress] == [7] * E
+    assert "7 rewards rejected" in caplog.text
+
+
+def test_segment_checkpoints_cover_a_shift_on_the_segment_boundary():
+    # E = 2, a shift at half the run: global round T, the first round of
+    # segment 1, which must still get the dense post-shift checkpoints (M16)
+    cfg = _cfg(episodes=2)
+    shifts = validate_shifts(
+        shifts_from_dict(CONT_SHIFTS), resolve_scenario(cfg), cfg.arms, cfg.ctr_mode
+    )
+    tr = traffic.TrafficRunner(
+        cfg,
+        InProcessClient(FakeBanditEndpoint(cfg)),
+        _writer(FakeBQ()),
+        traffic.TrafficSettings(),
+        shifts=shifts,
+        learning="continuous",
+    )
+    assert tr.shift_rounds == [T]
+    plain = make_checkpoints(T, 50, "linear")
+    assert tr._segment_checkpoints(0) == plain
+    dense = merge_checkpoints(plain, [0], T)
+    assert dense != plain
+    assert tr._segment_checkpoints(1) == dense
+
+
+def test_error_rate_abort_comes_at_500_rounds_in_a_long_episode():
+    # 10% of decisions fail from the start of a 4,000-round episode: the abort
+    # comes once 500 rounds are seen, not at the end of the episode (M24)
+    with pytest.raises(traffic.EndpointErrorRate, match="50/500"):
+        client, _, _ = _small_run(
+            lambda inner: RecordingClient(inner, error_every=10),
+            traffic.TrafficSettings(baselines=("oracle",)),
+            horizon=HORIZON_M,
+        )
+
+
+def test_error_rate_abort_sends_no_decision_past_500_rounds():
+    holder = {}
+
+    def wrap(inner):
+        holder["c"] = RecordingClient(inner, error_every=10)
+        return holder["c"]
+
+    with pytest.raises(traffic.EndpointErrorRate):
+        _small_run(wrap, traffic.TrafficSettings(baselines=("oracle",)), HORIZON_M)
+    assert holder["c"].n_decisions == 500
+
+
+@pytest.mark.parametrize(
+    ("seed", "episode"), [(0, 0), (0, 5), (7, 3), (2**31 - 1, 19), (123456789, 2)]
+)
+def test_reset_seed_formula(seed, episode):
+    # contracts §2: (seed * 1000003 + episode) mod 2**31, distinct per episode
+    assert traffic.reset_seed(seed, episode) == (seed * 1_000_003 + episode) % 2**31
+    assert traffic.reset_seed(seed, episode) != traffic.reset_seed(seed, episode + 1)
+
+
+@pytest.mark.parametrize("reward_mode", ["click", "engaged"])
+def test_reward_instance_shape(reward_mode):
+    # engaged rewards carry dwell_s == reward (M25); click rewards none
+    cfg = _cfg(episodes=1, reward_mode=reward_mode)
+    client = RecordingClient(InProcessClient(FakeBanditEndpoint(cfg)))
+    traffic.run_traffic(
+        cfg, client, _writer(FakeBQ()), traffic.TrafficSettings(baselines=())
+    )
+    rewards = [i for r in client.requests for i in r if i["type"] == "reward"]
+    assert len(rewards) == T
+    if reward_mode == "engaged":
+        assert all(set(i) >= {"dwell_s", "reward", "clicked"} for i in rewards)
+        assert all(i["dwell_s"] == i["reward"] for i in rewards)
+        assert any(i["reward"] > 1 for i in rewards)  # unscaled seconds
+    else:
+        assert all("dwell_s" not in i for i in rewards)

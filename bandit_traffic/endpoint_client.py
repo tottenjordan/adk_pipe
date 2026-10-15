@@ -131,6 +131,9 @@ def call_with_retries(
         except Exception as exc:
             if attempt == attempts or not retryable(exc):
                 raise
+            # SIGTERM during a stalled call: stop now instead of sleeping and
+            # retrying (the caller flushes its buffered rows)
+            _check_stop(should_stop, f"retrying {what}")
             delay = min(max_delay, base_delay * 2 ** (attempt - 1))
             delay *= 0.5 + random.random() / 2
             log.warning(
@@ -142,9 +145,6 @@ def call_with_retries(
                 exc,
                 delay,
             )
-            # SIGTERM during a stalled call: stop now instead of sleeping and
-            # retrying (the caller flushes its buffered rows)
-            _check_stop(should_stop, f"retrying {what}")
             sleep(delay)
     raise AssertionError("unreachable")  # pragma: no cover
 
