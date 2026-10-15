@@ -389,3 +389,33 @@ def test_batch_qa_error_keeps_the_render_and_lists_it_unavailable(monkeypatch):
     assert images["C1"]["qa"]["passed"] is True
     assert ctx.state["image_qa__unavailable"] == ["C2"]
     assert "image_qa__issues" not in ctx.state
+
+
+def test_blocked_cast_rerender_stops_the_loop(monkeypatch):
+    """M15: with two re-renders allowed, a blocked (no image) re-render ends the
+    loop; the first render is kept and no second re-render is spent."""
+
+    def respond(kwargs, n):
+        if n == 2:
+            return _response(None, finish=types.FinishReason.IMAGE_SAFETY)
+        return _response(f"img{n}".encode())
+
+    calls, qa_calls = _patch(
+        monkeypatch, respond, verdicts=[_verdict(motif_visible=False)]
+    )
+    monkeypatch.setattr(image_tools.config, "image_qa_max_rerenders", 2)
+    budget = image_tools._RerenderBudget(2)
+    result = asyncio.run(
+        render_concept(
+            {**CONCEPT, "casts_person_reference": True},
+            aspect_ratio="4:5",
+            person=PHOTO,
+            budget=budget,
+        )
+    )
+    assert len(calls) == 2  # the first render + one blocked re-render
+    assert all(c["config"].image_config.person_generation for c in calls)
+    assert result.rendered == (b"img1", "image/png")
+    assert result.attempts == 2 and result.cast is True
+    assert result.qa["passed"] is False and len(qa_calls) == 1
+    assert budget.remaining == 1
