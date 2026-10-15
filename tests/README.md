@@ -190,8 +190,8 @@ tests/
 ├── test_timely_records.py          # generate_image adds timely: True + valid_until only to the timely concept's render record; every other record keeps its exact keys
 ├── test_timely_expiry.py           # runserver/timely.py timely_expired vs the shared golden tests/fixtures/timely_expiry.json (also read by the frontend's lib/timely.ts tests)
 ├── test_trend_situation_rederive.py # batch (CRF) runs re-derive the current moment: the branch never reads trend_scout_context / trend_detected_on, the worker seeds no trend_situation
-├── test_trend_scout_graph.py        # trend_scout understand_trends graph run end-to-end (stub models)
-├── test_understand_trends_schema.py # TS-6: the synthesizer's AnalyzedTrends output_schema keeps the info_gtrends shape trend_context / picker / trend cards parse; malformed → ValidationError (SCHEMA_RETRY); schema + scrub + temperature 1.5 wiring
+├── test_trend_scout_graph.py        # trend_scout understand_trends graph run end-to-end (stub models; incl. an invalid briefing on every attempt → no exception, info_gtrends unset, retry_exhausted recorded, root continues)
+├── test_understand_trends_schema.py # TS-6: the synthesizer's AnalyzedTrends output_schema keeps the info_gtrends shape trend_context / picker / trend cards parse; a reply failing the schema is blanked by build_invalid_reply_dropper (degrades like an empty reply); schema + scrub + dropper + temperature 1.5 wiring
 ├── test_logging_config.py           # N-1: importing agent_common + trend_scout adds no root log handlers; ensure_default_logging only fills an unconfigured root
 ├── test_trend_scout_history.py      # trend_scout root history trim (measured on the real App, stub models): gather/pick AgentTool runs are isolated, the understand_trends (and, on a cache miss, trend_digest) NodeTool leaks 2 sub-agent turns + 2 node inputs into the root's final request without drop_other_agent_context, 0 with it; resumed review_trends checkpoint response kept; trim wired before the rate limiter
 ├── test_trend_scout_concurrency.py  # trend_scout GCS-export tools: per-run scratch isolation

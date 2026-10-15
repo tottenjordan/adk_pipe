@@ -22,7 +22,9 @@ from google.adk.sessions import InMemorySessionService
 from tests._fakes import RecordingLlm, fc_response, text_response, user_message
 
 
-def _run(monkeypatch: pytest.MonkeyPatch, empty_synth_turns: int):
+def _run(
+    monkeypatch: pytest.MonkeyPatch, empty_synth_turns: int, bad_brief: str = "   "
+):
     import trend_scout.agent as ts
 
     graph = {n.name: n for n in ts.understand_trends_search_and_synthesize.graph.nodes}
@@ -48,7 +50,7 @@ def _run(monkeypatch: pytest.MonkeyPatch, empty_synth_turns: int):
     )
     for i in range(3):
         search_llm.push(text_response(f"RAW {i}"))
-        brief = "   " if i < empty_synth_turns else '{"analyzed_trends": []}'
+        brief = bad_brief if i < empty_synth_turns else '{"analyzed_trends": []}'
         synth_llm.push(text_response(brief))
 
     async def go() -> tuple[list[Event], dict[str, Any]]:
@@ -113,3 +115,39 @@ def test_understand_trends_graph_exhaustion_does_not_stall_root(monkeypatch):
     (response,) = responses
     assert "info_gtrends__retry_exhausted" in str(response)
     assert root_llm.calls == 2
+
+
+@pytest.mark.parametrize(
+    "bad_brief",
+    [
+        "not json at all",
+        '{"analyzed_trends": ["t1"]}',  # wrong item shape
+        '```json\n{"analyzed_trends": [{"category": "no term"}]}\n```',
+    ],
+)
+def test_invalid_briefing_every_attempt_degrades_like_an_empty_reply(
+    monkeypatch, bad_brief
+):
+    """TS-6 fail-soft: a reply that fails AnalyzedTrends on every attempt never
+    raises out of the run; it counts as a missed attempt, so `info_gtrends`
+    stays unset, the exhaustion marker is recorded and the root continues."""
+    root_llm, search_llm, synth_llm, responses, state = _run(
+        monkeypatch, 99, bad_brief=bad_brief
+    )
+
+    assert (search_llm.calls, synth_llm.calls) == (3, 3)  # the pair re-ran
+    assert "info_gtrends" not in state
+    assert state["info_gtrends__retry_exhausted"] is True
+    (response,) = responses
+    assert "info_gtrends__retry_exhausted" in str(response)
+    assert root_llm.calls == 2  # the root got its function response and finished
+
+
+def test_one_invalid_briefing_then_a_valid_one_recovers(monkeypatch):
+    root_llm, search_llm, synth_llm, responses, state = _run(
+        monkeypatch, 1, bad_brief="not json"
+    )
+
+    assert (search_llm.calls, synth_llm.calls) == (2, 2)
+    assert state["info_gtrends"] == {"analyzed_trends": []}
+    assert "info_gtrends__retry_exhausted" not in state

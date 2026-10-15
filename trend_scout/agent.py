@@ -12,6 +12,7 @@ from agent_common import (
     RetryUntilKeyNode,
     build_gemini,
     build_gemini_with_fallback,
+    build_invalid_reply_dropper,
     build_safety_plugins,
     drop_other_agent_context,
     scrub_surrogates_in_response,
@@ -19,7 +20,7 @@ from agent_common import (
 from agent_common.sampling import temperature as sampled_temperature
 
 from . import callbacks, prompts
-from .config import INFRA_RETRY, SCHEMA_RETRY, config
+from .config import INFRA_RETRY, config
 from .digest import classify_trends_agent, trend_digest  # noqa: F401 (re-export)
 from .review_tools import review_trends_tool
 from .schemas import AnalyzedTrends
@@ -108,8 +109,12 @@ understand_trends_searcher = Agent(
 # them into the existing JSON `analyzed_trends` structure pick_trends_agent consumes.
 # TS-6: the structure is enforced by `output_schema=AnalyzedTrends` (state holds
 # the validated dict, which trend_context, the picker and the frontend all read),
-# so a malformed reply at the tuned temperature is re-drawn (SCHEMA_RETRY) instead
-# of silently turning `trend_context` into "". Lone surrogates are scrubbed first.
+# so a malformed reply at the tuned temperature no longer slips through as a string
+# that silently turns `trend_context` into "". Fail-soft like an empty reply: lone
+# surrogates are scrubbed, then a reply that still fails the schema is blanked
+# (build_invalid_reply_dropper; ADK would otherwise raise a ValidationError out of
+# the run), so understand_trends_agent_resilient re-runs the pair and, when every
+# attempt fails, records `info_gtrends__retry_exhausted` and the run continues.
 understand_trends_synthesizer = Agent(
     # Tool-free synthesis into structured JSON; its own global flash-lite bucket.
     model=build_gemini(config.lite_planner_model),
@@ -128,10 +133,10 @@ understand_trends_synthesizer = Agent(
     ),
     output_schema=AnalyzedTrends,
     output_key="info_gtrends",
-    retry_config=SCHEMA_RETRY,
     before_model_callback=callbacks.rate_limit_callback,
     after_model_callback=[
         scrub_surrogates_in_response,
+        build_invalid_reply_dropper(AnalyzedTrends),
         callbacks.log_empty_turn_finish_reason,
     ],
 )

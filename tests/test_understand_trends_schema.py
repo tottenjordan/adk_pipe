@@ -66,23 +66,55 @@ def test_trend_context_still_parses_the_stored_dict():
     assert trend_context_for("harvest moon", stored, "") == ""
 
 
-def test_malformed_reply_raises_for_the_schema_retry():
-    """A reply that isn't the briefing raises (SCHEMA_RETRY re-draws it) instead
-    of being stored as a string that trend_context silently drops."""
+def test_malformed_reply_fails_the_schema():
+    """ADK's own validation rejects a reply that isn't the briefing (instead of
+    storing a string trend_context silently drops); the dropper below blanks it
+    before ADK would raise."""
     for bad in ('{"analyzed_trends": ["t1"]}', "not json"):
         with pytest.raises(ValidationError):
             _stored(bad)
 
 
-def test_synthesizer_is_wired_with_schema_scrub_and_tuned_temperature():
+def _response(*texts: str, thought: bool = False):
+    from google.adk.models.llm_response import LlmResponse
+    from google.genai import types
+
+    parts = [types.Part(text=t, thought=thought or None) for t in texts]
+    return LlmResponse(content=types.Content(role="model", parts=parts))
+
+
+class _Ctx:
+    agent_name = "understand_trends_synthesizer"
+
+
+def test_dropper_blanks_only_a_reply_that_fails_the_schema(caplog):
+    from agent_common import build_invalid_reply_dropper
+
+    drop = build_invalid_reply_dropper(AnalyzedTrends)
+    bad = _response('{"analyzed_trends": ', '["t1"]}')
+    with caplog.at_level("WARNING", logger="agent_common.sanitize"):
+        assert drop(_Ctx(), bad) is None  # type: ignore[arg-type]
+    assert bad.content is not None and bad.content.parts is not None
+    assert [p.text for p in bad.content.parts] == ["", ""]
+    assert any("AnalyzedTrends" in r.getMessage() for r in caplog.records)
+
+    fenced = "```json\n" + REPLY + "\n```"  # ADK strips the fence too
+    for text, thought in ((fenced, False), ("   ", False), ("musing", True)):
+        kept = _response(text, thought=thought)
+        drop(_Ctx(), kept)  # type: ignore[arg-type]
+        assert kept.content is not None and kept.content.parts is not None
+        assert kept.content.parts[0].text == text
+
+
+def test_synthesizer_is_wired_with_schema_scrub_dropper_and_tuned_temperature():
     from agent_common import scrub_surrogates_in_response
     from trend_scout.agent import understand_trends_synthesizer as synth
-    from trend_scout.config import SCHEMA_RETRY
 
     assert synth.output_schema is AnalyzedTrends
     assert synth.output_key == "info_gtrends"
-    assert synth.retry_config is SCHEMA_RETRY
-    assert isinstance(synth.after_model_callback, list)
-    assert synth.after_model_callback[0] is scrub_surrogates_in_response
+    callbacks = synth.after_model_callback
+    assert isinstance(callbacks, list) and len(callbacks) == 3
+    assert callbacks[0] is scrub_surrogates_in_response
+    assert getattr(callbacks[1], "__name__", "") == "drop_invalid_reply"
     assert synth.generate_content_config is not None
     assert synth.generate_content_config.temperature == 1.5

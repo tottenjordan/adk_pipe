@@ -18,12 +18,29 @@ is an `after_model_callback` that applies the scrubber to an `LlmResponse`'s tex
 parts in place BEFORE ADK validates them against the schema. It mutates and
 returns `None`, so it composes cleanly with other `after_model_callback`s.
 
+`build_invalid_reply_dropper(schema)` builds an `after_model_callback` for an
+OPTIONAL structured producer under a `RetryUntilKeyNode`: a reply that still
+fails the schema is blanked in place, so it degrades like an empty reply
+instead of raising (see its docstring for the ADK source it mirrors).
+
 This module imports `google.adk`/`google.genai` types but builds no genai
 client, so it stays non-creds-gated and unit-testable offline.
 """
 
+import logging
+from collections.abc import Callable
+from typing import Any
+
 from google.adk.agents.callback_context import CallbackContext
 from google.adk.models.llm_response import LlmResponse
+
+# The exact validator ADK applies to an output_schema agent's final text
+# (google/adk/agents/llm_agent.py `__maybe_save_output_to_state` →
+# google/adk/utils/_schema_utils.py `validate_schema`: strips a JSON code fence,
+# then `model_validate_json`). Private, so imported where it is used.
+from google.adk.utils._schema_utils import validate_schema
+
+logger = logging.getLogger(__name__)
 
 _HIGH_MIN, _HIGH_MAX = 0xD800, 0xDBFF
 _LOW_MIN, _LOW_MAX = 0xDC00, 0xDFFF
@@ -89,3 +106,61 @@ def scrub_surrogates_in_response(
             if cleaned != text:
                 part.text = cleaned
     return None
+
+
+def build_invalid_reply_dropper(
+    schema: Any,
+) -> Callable[[CallbackContext, LlmResponse], None]:
+    """An `after_model_callback` that blanks a reply failing ``schema``.
+
+    In ADK 2.10 an output_schema agent's final text is validated AFTER the
+    after-model callbacks, in ``LlmAgent.__maybe_save_output_to_state``
+    (google/adk/agents/llm_agent.py), with ``validate_schema``
+    (google/adk/utils/_schema_utils.py). A failure raises a pydantic
+    ``ValidationError`` out of the agent run, which ``RetryUntilKeyNode`` does
+    not treat as a missed attempt (only empty output and transient errors), so
+    one bad reply would fail the whole run. A blank/whitespace final text, by
+    contrast, is skipped there ("empty final chunk": the output key stays
+    unset), which the wrapper retries and finally records as
+    ``<key>__retry_exhausted``.
+
+    This callback runs the same ``validate_schema`` on the joined non-thought
+    text parts; on failure it logs a warning and sets those parts' text to ""
+    in place (returns ``None`` so it composes with the other callbacks). Put it
+    after ``scrub_surrogates_in_response`` so a scrub-able reply still passes.
+    """
+
+    name = getattr(schema, "__name__", str(schema))
+
+    def drop_invalid_reply(
+        callback_context: CallbackContext, llm_response: LlmResponse
+    ) -> None:
+        # pylint: disable=unused-argument
+        if (
+            llm_response is None
+            or not llm_response.content
+            or not llm_response.content.parts
+        ):
+            return None
+        parts = [
+            p
+            for p in llm_response.content.parts
+            if getattr(p, "text", None) and not getattr(p, "thought", False)
+        ]
+        text = "".join(p.text or "" for p in parts)
+        if not text.strip():
+            return None
+        try:
+            validate_schema(schema, text)
+        except ValueError as exc:  # pydantic ValidationError is a ValueError
+            logger.warning(
+                "%s reply does not match %s (%s); dropped as an empty reply",
+                callback_context.agent_name,
+                name,
+                type(exc).__name__,
+            )
+            for part in parts:
+                part.text = ""
+        return None
+
+    return drop_invalid_reply

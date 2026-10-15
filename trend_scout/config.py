@@ -2,7 +2,6 @@ import os
 from dataclasses import dataclass, field
 
 from google.genai import errors as genai_errors
-from pydantic import ValidationError
 
 from agent_common.config import BaseAgentConfiguration, parse_on_flag
 from agent_common.retry import build_infra_retry
@@ -11,13 +10,6 @@ from agent_common.retry import build_infra_retry
 # raises google.genai errors (google/adk/models/google_llm.py), so without it a
 # model 5xx that escapes the genai HTTP retry would never trigger the node retry.
 INFRA_RETRY = build_infra_retry(extra_exceptions=[genai_errors.ServerError])
-
-# The high-temperature structured producer (understand_trends_synthesizer) also
-# re-draws a reply that fails its output_schema (pydantic ValidationError), like
-# creative_agent's SCHEMA_RETRY.
-SCHEMA_RETRY = build_infra_retry(
-    extra_exceptions=[genai_errors.ServerError, ValidationError]
-)
 
 
 @dataclass

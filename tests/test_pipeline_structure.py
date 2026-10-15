@@ -997,11 +997,12 @@ def test_trend_scout_split_agents_have_finish_reason_callback():
     assert understand_trends_searcher.after_model_callback is (
         log_empty_turn_finish_reason
     )
-    # TS-6: the structured synthesizer scrubs lone surrogates first.
-    assert understand_trends_synthesizer.after_model_callback == [
-        scrub_surrogates_in_response,
-        log_empty_turn_finish_reason,
-    ]
+    # TS-6: the structured synthesizer scrubs lone surrogates (and blanks a
+    # reply that fails its schema) before logging.
+    callbacks = understand_trends_synthesizer.after_model_callback
+    assert isinstance(callbacks, list)
+    assert callbacks[0] is scrub_surrogates_in_response
+    assert callbacks[-1] is log_empty_turn_finish_reason
 
 
 def test_creative_root_has_final_state_summary():

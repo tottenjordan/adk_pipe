@@ -22,6 +22,7 @@ from agent_common.retry import build_infra_retry
 from agent_common.retry_node import RetryUntilKeyNode, is_populated
 from agent_common.safety import ScopedModelArmorPlugin, build_safety_plugins
 from agent_common.sanitize import (
+    build_invalid_reply_dropper,
     scrub_lone_surrogates,
     scrub_surrogates_in_response,
 )
@@ -50,6 +51,7 @@ __all__ = [
     "log_run_start",
     "make_final_state_summary",
     "memorize",
+    "build_invalid_reply_dropper",
     "scrub_lone_surrogates",
     "scrub_surrogates_in_response",
     "seed_initial_state",
