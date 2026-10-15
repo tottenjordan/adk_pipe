@@ -162,13 +162,43 @@ def test_learns_clearly_better_arm():
     assert np.mean(np.asarray(arms) == 0) > 0.9
 
 
-def test_sample_thetas_covariance():
-    s, _, params = _two_arm_state()
-    thetas = lts.sample_thetas(jax.random.key(0), s, 1.0, num_samples=20000)
-    assert thetas.shape == (20000, 2, D)
-    cov = np.cov(np.asarray(thetas[:, 0, :2]).T)
-    expected = np.linalg.inv(np.asarray(s.precision[0], np.float64))[:2, :2]
-    np.testing.assert_allclose(cov, expected, rtol=0.1, atol=3e-3)
+def test_select_score_variance_is_the_posterior_covariance():
+    """For a fixed row the sampled score xᵀθ̃_k has variance s²·xᵀΛ_k⁻¹x."""
+    s, x, params = _two_arm_state()
+    params = dataclasses.replace(params, exploration_scale=1.0)
+    x2 = x.at[1].set(1.0)
+    _, scores = lts.select(jax.random.key(0), s, jnp.tile(x2, (20000, 1)), params)
+    cov = np.linalg.inv(np.asarray(s.precision, np.float64))
+    xn = np.asarray(x2, np.float64)
+    expected = np.einsum("d,kde,e->k", xn, cov, xn)
+    np.testing.assert_allclose(np.var(np.asarray(scores), axis=0), expected, rtol=0.05)
+
+
+def test_update_accumulates_without_float32_drift():
+    """C1: on a precision already ~1.9e8 (1.5M realistic pulls), one float32
+    scatter-add per row rounds each x xᵀ/σ² increment (126) the same way (to 128:
+    ulp 16), a +1.6% bias. Reducing per batch first keeps the accumulated
+    increment within 0.1% of the float64 sum."""
+    rng = np.random.default_rng(0)
+    d, batch, batches = 4, 100, 40
+    params = LinTSParams(noise_var=1 / 126.0)
+    start = np.eye(d, dtype=np.float32) * np.float32(1.9e8)
+    s = lts.LinTSState(
+        precision=jnp.asarray(start)[None],
+        b=jnp.zeros((1, d), jnp.float32),
+        n=jnp.zeros((1,), jnp.int32),
+        step=jnp.zeros((), jnp.int32),
+    )
+    ref = np.zeros((d, d))
+    arms = jnp.zeros((batch,), jnp.int32)
+    for _ in range(batches):
+        X = rng.integers(0, 2, size=(batch, d)).astype(np.float32)
+        X[:, 0] = 1.0
+        s = lts.update(s, arms, jnp.asarray(X), jnp.zeros(batch), params)
+        ref += X.astype(np.float64).T @ X / params.noise_var
+    got = np.asarray(s.precision[0], np.float64) - start
+    rel = np.abs(np.diag(got) - np.diag(ref)) / np.diag(ref)
+    assert rel.max() < 1e-3, rel
 
 
 @pytest.mark.parametrize("bad", [{"prior_var": 0.0}, {"discount": 1.5}])

@@ -22,10 +22,12 @@ Definitions, for one episode of one policy (per-round arrays from
   pseudo-regret).
 - **arm share** = share of pulls per arm in each checkpoint window
   (c_{j-1}, c_j].
-- **steps_to_converge** (notebook): with a moving average of window w over the
-  realized rewards and over μ*, the first round t ≥ w whose trailing
-  w-round average reward reaches the trailing average optimum; ``None`` if it
-  never does. w defaults to clamp(T // 10, 10, 2000).
+- **steps_to_converge**: with a moving average of window w over the chosen
+  arms' true expected reward μ_{a_i,i} and over μ*, the first round t ≥ w from
+  which the trailing w-round average stays within 2% (relative) of the
+  trailing average optimum for the rest of the episode; ``None`` if it is not
+  within it at the end. w defaults to clamp(T // 10, 10, 2000). (Before
+  2026-10-15 it used realized rewards, which crossed the optimum by chance.)
 - **checkpoints**: ~50 log-spaced 1-based round counts ending at T, shared by
   all policies/episodes of one experiment (``log_checkpoints``). With scripted
   shifts (contracts §10): linear spacing, plus points around each shift round
@@ -83,20 +85,37 @@ def default_window(horizon: int) -> int:
     return int(min(2000, max(10, horizon // 10)))
 
 
+#: Relative tolerance of ``steps_to_converge``: within 2% of the expected optimum.
+CONVERGE_TOL = 0.02
+
+
 def steps_to_converge(
-    rewards: np.ndarray, optimum: np.ndarray | float, window: int
+    mean_chosen: np.ndarray,
+    optimum: np.ndarray | float,
+    window: int,
+    tol: float = CONVERGE_TOL,
 ) -> int | None:
-    """First round t ≥ window where the trailing ``window``-round mean reward
-    reaches the trailing mean of ``optimum`` (scalar or per-round); else None."""
-    rewards = np.asarray(rewards, np.float64)
-    if len(rewards) < window:
+    """First round t ≥ ``window`` (1-based) from which the trailing
+    ``window``-round mean of the chosen arms' *expected* reward stays at or
+    above (1 - ``tol``) × the trailing mean of ``optimum`` (scalar or
+    per-round expected optimum) for every remaining round; else None.
+
+    Expected, not realized, rewards: at a ~1% CTR a trailing mean of 0/1
+    clicks is noisy enough to cross the optimum by chance (a uniform policy
+    would "converge")."""
+    chosen = np.asarray(mean_chosen, np.float64)
+    if len(chosen) < window:
         return None
-    opt = np.broadcast_to(np.asarray(optimum, np.float64), rewards.shape)
+    opt = np.broadcast_to(np.asarray(optimum, np.float64), chosen.shape)
     kernel = np.ones(window) / window
-    ma = np.convolve(rewards, kernel, mode="valid")
+    ma = np.convolve(chosen, kernel, mode="valid")
     ma_opt = np.convolve(opt, kernel, mode="valid")
-    hits = np.flatnonzero(ma >= ma_opt - 1e-12)
-    return int(hits[0] + window) if len(hits) else None
+    ok = ma >= (1.0 - tol) * ma_opt - 1e-12
+    if not ok[-1]:
+        return None
+    misses = np.flatnonzero(~ok)
+    first = int(misses[-1]) + 1 if len(misses) else 0
+    return first + window
 
 
 def _per_segment(
@@ -197,7 +216,7 @@ def episode_metrics(
         "realized_regret": _f(np.sum(np.asarray(out["reward_opt"]) - reward)),
         "pct_optimal": _f(is_opt.mean()),
         "steps_to_converge": steps_to_converge(
-            reward, mean_opt, window or default_window(horizon)
+            out["mean_chosen"], mean_opt, window or default_window(horizon)
         ),
         "optimal_avg_reward": _f(mean_opt.mean()),
         "curve": curve,

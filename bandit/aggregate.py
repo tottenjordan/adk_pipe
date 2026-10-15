@@ -226,8 +226,9 @@ def aggregate_episode_metrics(
 
 def summarize_totals(rows: Sequence[Mapping[str, Any]]) -> dict[str, dict[str, Any]]:
     """Per-policy scalar summary (not part of §5): mean/std of total reward,
-    clicks, pseudo-regret and % optimal, plus steps_to_converge (mean over
-    converged episodes) and the converged-episode count."""
+    clicks, pseudo-regret and % optimal, plus steps_to_converge: the mean over
+    converged episodes next to ``converged_episodes`` / ``episodes``, so the
+    mean never hides the episodes that did not converge."""
     out: dict[str, dict[str, Any]] = {}
     for p in order_policies(r["policy"] for r in rows):
         rs = [r for r in rows if r["policy"] == p]
@@ -242,7 +243,8 @@ def summarize_totals(rows: Sequence[Mapping[str, Any]]) -> dict[str, dict[str, A
         ]
         summary["steps_to_converge"] = {
             "mean": _r(sum(conv) / len(conv)) if conv else None,
-            "converged": len(conv),
+            "converged_episodes": len(conv),
+            "episodes": len(rs),
         }
         out[p] = summary
     return out

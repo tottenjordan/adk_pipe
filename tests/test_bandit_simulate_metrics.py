@@ -151,12 +151,66 @@ def test_log_checkpoints():
 
 
 def test_steps_to_converge_synthetic():
-    rewards = np.r_[np.zeros(100), np.ones(200)]
-    assert metrics.steps_to_converge(rewards, 1.0, window=10) == 110
-    assert metrics.steps_to_converge(np.zeros(50), 1.0, window=10) is None
+    """First round after which the trailing mean expected reward of the chosen
+    arms stays within 2% (relative) of the trailing mean expected optimum."""
+    chosen = np.r_[np.full(100, 0.5), np.ones(200)]
+    assert metrics.steps_to_converge(chosen, 1.0, window=10) == 110
+    assert metrics.steps_to_converge(np.full(50, 0.5), 1.0, window=10) is None
     assert metrics.steps_to_converge(np.ones(5), 1.0, window=10) is None
     # per-round optimum works too
     assert metrics.steps_to_converge(np.full(40, 0.5), np.full(40, 0.5), 10) == 10
+    # within the relative tolerance counts, just outside it does not
+    assert metrics.steps_to_converge(np.full(40, 0.981), 1.0, 10) == 10
+    assert metrics.steps_to_converge(np.full(40, 0.979), 1.0, 10) is None
+    # it must *stay* converged: a later dip moves the answer past the dip
+    dip = np.r_[np.ones(50), np.full(20, 0.5), np.ones(50)]
+    assert metrics.steps_to_converge(dip, 1.0, window=10) == 80
+    assert metrics.steps_to_converge(np.r_[np.ones(50), np.zeros(10)], 1.0, 10) is None
+
+
+def test_steps_to_converge_ignores_click_noise(seg_rows):
+    """C2: uniform on segment_winners (a ~23% regret gap) never converges. On
+    realized 0/1 rewards a trailing window crossed the optimum by chance."""
+    uniform = [r["steps_to_converge"] for r in seg_rows if r["policy"] == "uniform"]
+    assert uniform == [None] * E
+
+
+@pytest.mark.slow
+def test_linear_ts_converges_on_clear_winner():
+    """LinTS gets within 2% of the per-round oracle on clear_winner at the demo
+    preset horizon (seed 0, episode 0 converges near round 22k; its last-window
+    ratio is ~0.99). Not a shared size: convergence needs the preset horizon.
+    The oracle converges as soon as the first window is full; uniform never."""
+    horizon = 40_000
+    cfg = build_sim_config("clear_winner", horizon=horizon, episodes=1, seed=0)
+    rows = metrics.experiment_rows(
+        simulate.run_experiment(
+            cfg, ["linear_ts", "oracle", "uniform"], log_propensity=False
+        )
+    )
+    steps = {r["policy"]: r["steps_to_converge"] for r in rows}
+    window = metrics.default_window(horizon)
+    assert steps["oracle"] == window
+    assert steps["uniform"] is None
+    assert steps["linear_ts"] is not None and window < steps["linear_ts"] < horizon
+    summary = aggregate.summarize_totals(rows)["linear_ts"]["steps_to_converge"]
+    assert summary["converged_episodes"] == 1 and summary["episodes"] == 1
+
+
+def test_summarize_totals_reports_converged_episodes():
+    rows = [
+        {
+            "policy": "uniform",
+            "total_reward": 1.0,
+            "total_clicks": 1,
+            "cumulative_regret": 1.0,
+            "pct_optimal": 0.2,
+            "steps_to_converge": s,
+        }
+        for s in (None, 300, None, 500)
+    ]
+    conv = aggregate.summarize_totals(rows)["uniform"]["steps_to_converge"]
+    assert conv == {"mean": 400.0, "converged_episodes": 2, "episodes": 4}
 
 
 def test_episode_row_matches_contract_payloads(seg_rows):

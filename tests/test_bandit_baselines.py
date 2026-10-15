@@ -135,6 +135,35 @@ def test_bbts_engaged_counts_clicks_from_positive_reward():
     np.testing.assert_allclose(np.asarray(s.sum_r), [12.5, 3.0])
 
 
+def test_bbts_engaged_breaks_ties_among_unclicked_arms_at_random():
+    """R3: every arm without a click scores +inf in engaged mode; the tie-break
+    must spread rows over them (it used to add 1e-6 to 1e30, a float32 no-op,
+    so every row picked the lowest index with propensity 1.0)."""
+    pol = baselines.beta_bernoulli_ts(engaged=True)
+    arms, prop = pol.select(
+        jax.random.key(0), pol.init(4, D), X[:1000], jnp.ones((4,), bool), MEAN
+    )
+    share = np.bincount(np.asarray(arms), minlength=4) / 1000
+    assert np.all((share > 0.15) & (share < 0.35)), share
+    np.testing.assert_allclose(np.asarray(prop), 0.25, atol=0.05)
+
+
+def test_bbts_engaged_tie_break_keeps_clicked_and_ineligible_arms_out():
+    pol = baselines.beta_bernoulli_ts(engaged=True)
+    s = baselines.CountsState(
+        n=jnp.array([50, 0, 0, 0], jnp.int32),
+        sum_r=jnp.array([5.0, 0.0, 0.0, 0.0]),
+        clicks=jnp.array([5, 0, 0, 0], jnp.int32),
+        step=jnp.asarray(50, jnp.int32),
+    )
+    eligible = jnp.array([True, True, True, False])
+    arms, prop = pol.select(jax.random.key(1), s, X[:1000], eligible, MEAN)
+    share = np.bincount(np.asarray(arms), minlength=4) / 1000
+    assert share[0] == 0 and share[3] == 0, share
+    assert 0.4 < share[1] < 0.6, share
+    np.testing.assert_allclose(np.asarray(prop), 0.5, atol=0.05)
+
+
 def test_bbts_prefers_better_arm_and_propensity():
     pol = baselines.beta_bernoulli_ts()
     s = _state([1000, 1000, 1000], [80, 40, 40])
