@@ -24,8 +24,9 @@ like ``understand_trends_agent_resilient``), called right after the gather:
   sensitivity verdicts rest on today's facts when they are available.
 - ``digest_store`` normalises the draft into ``trend_summaries`` (raw terms
   only, verbatim, capped; source ``fresh``, or ``unavailable`` with no items)
-  and, when the summaries AND the flags each cover at least
-  ``MIN_CACHE_COVERAGE`` of the terms, MERGE-inserts one row (insert-only,
+  and, when the summaries cover at least ``MIN_CACHE_COVERAGE`` of the terms
+  AND the flags cover every term (``FLAG_CACHE_COVERAGE``; a missing verdict
+  reads as "not sensitive", so a partial classify is never shared), MERGE-inserts one row (insert-only,
   keyed by ``stable_row_id(refresh_date, terms_hash)``: the first writer of a
   racing pair wins). A failed describe is never cached, so the next run
   retries; a failed write only logs.
@@ -83,7 +84,12 @@ STORE_TIMEOUT_SECONDS = 10.0
 BQ_JOB_TIMEOUT_MS = 8000
 MAX_SUMMARY_CHARS = 300
 MAX_REASON_CHARS = 200
+# Summaries are optional enrichment; caching most of them is useful.
 MIN_CACHE_COVERAGE = 0.8
+# Flags are a safety floor: a cache hit skips the classifier for every user and
+# engine that day, and a missing verdict reads as "not sensitive", so a digest
+# is cached (and a cached row used) only with a verdict for EVERY term.
+FLAG_CACHE_COVERAGE = 1.0
 
 _LABELS = {"agentic_wf": "trend_scout", "agent": "trend_scout"}
 
@@ -298,13 +304,19 @@ def coverage(entries: Sequence[Any], terms: Sequence[str]) -> float:
     return len(entries) / len(terms) if terms else 0.0
 
 
+def flags_complete(flags: Mapping[str, Any] | None, terms: Sequence[str]) -> bool:
+    """True when ``flags`` holds a sensitivity verdict for every raw term."""
+    return flags is not None and coverage(flags["flags"], terms) >= FLAG_CACHE_COVERAGE
+
+
 def should_cache(
     summaries: Mapping[str, Any], flags: Mapping[str, Any] | None, terms: Sequence[str]
 ) -> bool:
-    """Cache only a fresh describe AND classify covering ≥ MIN_CACHE_COVERAGE."""
+    """Cache only a fresh describe covering ≥ MIN_CACHE_COVERAGE of the terms
+    AND a classify with a verdict for every term (FLAG_CACHE_COVERAGE)."""
     if summaries.get("source") != "fresh" or not summaries.get("refresh_date"):
         return False
-    if flags is None or coverage(flags["flags"], terms) < MIN_CACHE_COVERAGE:
+    if not flags_complete(flags, terms):
         return False
     return coverage(summaries["items"], terms) >= MIN_CACHE_COVERAGE
 
@@ -443,7 +455,9 @@ async def lookup_cached_digest(state: Mapping[str, Any]) -> dict[str, Any] | Non
     flags = normalize_flags(
         {"flags": cached.get("flags")} if isinstance(cached, Mapping) else None, terms
     )
-    if summaries["source"] != "fresh" or flags is None:
+    if summaries["source"] != "fresh" or not flags_complete(flags, terms):
+        # A row without a verdict for every term (e.g. written before full flag
+        # coverage was required) is a miss: the classifier runs again.
         logger.warning("trend digest cache row unusable for %s", refresh_date)
         return None
     logger.info("trend digest cache hit for %s/%s", refresh_date, digest_hash)
@@ -484,6 +498,13 @@ async def digest_store(ctx: Context) -> None:
         logger.warning("trend digest: summaries unavailable; not cached")
         return None
     flags = normalize_flags(state.get("trend_flags"), terms)
+    unclassified = len(terms) - (len(flags["flags"]) if flags else 0)
+    if unclassified:
+        logger.warning(
+            "trend digest: %d of %d terms have no sensitivity verdict; not cached",
+            unclassified,
+            len(terms),
+        )
     table = _table_id()
     if table is None or flags is None or not should_cache(summaries, flags, terms):
         logger.info("trend digest not cached (incomplete or no table)")

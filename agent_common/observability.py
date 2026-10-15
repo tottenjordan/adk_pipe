@@ -6,8 +6,9 @@ implementation of the three signals that made the 2026-07-14 incident
 diagnosable:
 
 - `log_run_start` — a run-start correlation line (`before_agent_callback`) tying
-  a run to its session transcript. The frontend mints a throwaway user_id per
-  submission, so without this a UI failure can't be traced to a session.
+  a run to its session transcript, so a UI failure can be traced to a session.
+  The user is logged only as `stable_row_id(user_id)` (the user_id is the
+  caller's email since P3).
 - `log_empty_turn_finish_reason` — an `after_model_callback` that warns only when
   a model turn produced no usable output (the producer-empty landmine root
   cause), staying quiet on the happy path.
@@ -34,6 +35,8 @@ from google.adk.agents.callback_context import CallbackContext
 from google.adk.models.llm_response import LlmResponse
 from google.adk.sessions.state import State
 from google.genai import types
+
+from agent_common.idempotency import stable_row_id
 
 # --- config ---
 logging.basicConfig(
@@ -76,16 +79,18 @@ _ISSUE_LABELS: dict[str, str] = {
 def log_run_start(callback_context: CallbackContext) -> None:
     """Log a run-start correlation line tying this run to a session transcript.
 
-    Call at the top of an agent's `before_agent_callback`. The frontend mints a
-    throwaway user_id per submission, so without this a UI failure can't be
-    traced back to a specific session for post-mortem inspection.
+    Call at the top of an agent's `before_agent_callback`, so a UI failure can
+    be traced back to a specific session for post-mortem inspection. Since the
+    per-user authz model (P3) the user_id is the caller's IAP email, so the line
+    logs only a stable pseudonymous id (`stable_row_id(user_id)`): the same user
+    always gets the same id, but the email never reaches the logs.
     """
     logging.info(
         "run start: agent=%s invocation=%s session=%s user=%s",
         callback_context.agent_name,
         callback_context.invocation_id,
         callback_context.session.id,
-        callback_context.user_id,
+        stable_row_id(str(callback_context.user_id or "")),
     )
 
 

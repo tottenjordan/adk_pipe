@@ -63,15 +63,40 @@ def record_research_gaps(tool_context: ToolContext) -> dict:
 # ==============================
 # Google Search Trends (context)
 # =============================
+# Bounds on the public-table reads (like trend_scout/digest.py's lookup): the
+# server-side job timeout plus a client-side wait a little longer than it.
+GTRENDS_JOB_TIMEOUT_MS = 60_000
+GTRENDS_RESULT_TIMEOUT_SECONDS = 75.0
+
+
+def _gtrends_job_config(
+    params: list[bigquery.ScalarQueryParameter] | None = None,
+) -> bigquery.QueryJobConfig:
+    return bigquery.QueryJobConfig(
+        query_parameters=params or [], job_timeout_ms=GTRENDS_JOB_TIMEOUT_MS
+    )
+
+
 def _get_gtrends_max_date() -> str:
     query = """
-        SELECT 
+        SELECT
          MAX(refresh_date) as max_date
         FROM `bigquery-public-data.google_trends.top_terms`
     """
     bq_client = _get_bigquery_client()
-    row = next(iter(bq_client.query(query).result()))
+    job = bq_client.query(query, job_config=_gtrends_job_config())
+    row = next(iter(job.result(timeout=GTRENDS_RESULT_TIMEOUT_SECONDS)))
     return row["max_date"].strftime("%m/%d/%Y")
+
+
+def _gathered_refresh_date(value: object) -> str:
+    """State ``gtrends_refresh_date`` (ISO) as MM/DD/YYYY, or "" when unusable."""
+    if isinstance(value, str):
+        try:
+            return datetime.date.fromisoformat(value.strip()).strftime("%m/%d/%Y")
+        except ValueError:
+            pass
+    return ""
 
 
 def _gtrends_markdown(rows: list[tuple[str, int, str]]) -> str:
@@ -108,15 +133,17 @@ def _query_daily_gtrends() -> tuple[str, list[tuple[str, int, str]]]:
     bq_client = _get_bigquery_client()
 
     # Setup the query for BigQuery
-    query_job_config = bigquery.QueryJobConfig(
-        query_parameters=[bigquery.ScalarQueryParameter("max_date", "STRING", max_date)]
+    query_job_config = _gtrends_job_config(
+        [bigquery.ScalarQueryParameter("max_date", "STRING", max_date)]
     )
     # Execute the query and iterate the rows (no pandas needed); rank is
     # the 1-based position in the rank-ordered result.
     job = bq_client.query(query, job_config=query_job_config)
     rows = [
         (row["term"], rank, str(row["refresh_date"]))
-        for rank, row in enumerate(job.result(), start=1)
+        for rank, row in enumerate(
+            job.result(timeout=GTRENDS_RESULT_TIMEOUT_SECONDS), start=1
+        )
     ]
     return max_date, rows
 
@@ -214,13 +241,33 @@ def save_search_trends_to_session_state(
         tool_context: The tool context.
 
     Returns:
-        A status message. An automatically picked term that the classifier
-        flagged sensitive (state 'trend_flags') is refused and not saved; a
-        human pick (interactive_trend_pick) is always saved.
+        A status message. An automatically picked term must be one of today's
+        gathered trends (state 'raw_gtrends', matched case/space-insensitively
+        and saved as gathered) and not flagged sensitive by the classifier
+        (state 'trend_flags'); otherwise it is refused and not saved. A term
+        already saved is not added twice. A human pick (interactive_trend_pick
+        exactly True) is always saved as given.
     """
     if tool_context.state.get("interactive_trend_pick") is not True:
-        flagged = sensitive_flags(tool_context.state.get("trend_flags"))
         term_key = _norm_term(trend_term)
+        raw = tool_context.state.get("raw_gtrends")
+        gathered: dict[str, str] = {}
+        if isinstance(raw, (list, tuple)):
+            for term in raw:
+                key = _norm_term(term)
+                if key:
+                    gathered.setdefault(key, term)
+        if term_key not in gathered:
+            # A paraphrase would also miss the sensitivity lookup below.
+            logging.warning("Refused to auto-pick ungathered trend %r", trend_term)
+            return {
+                "status": "refused",
+                "message": (
+                    f"'{trend_term}' is not one of today's gathered trends; it was "
+                    "not saved. Select a term exactly as it appears in the list."
+                ),
+            }
+        flagged = sensitive_flags(tool_context.state.get("trend_flags"))
         if term_key in flagged:
             reason = flagged[term_key]
             logging.warning(
@@ -234,6 +281,10 @@ def save_search_trends_to_session_state(
                     + "; it was not saved. Do not select it."
                 ),
             }
+        trend_term = gathered[term_key]
+        saved = tool_context.state.get("target_search_trends") or {}
+        if term_key in {_norm_term(t) for t in saved.get("target_search_trends", [])}:
+            return {"status": "ok", "message": f"'{trend_term}' is already saved."}
     existing_target_search_trends = tool_context.state.get(
         "target_search_trends", {"target_search_trends": []}
     )
@@ -389,15 +440,20 @@ def _trawler_date(state_current_date: object) -> str:
     return now_in_tz(config.trend_timezone).strftime("%m/%d/%Y")
 
 
-# refresh_date: str = max_date
-# refresh_date: Latest refresh date from the trends table in the format 'MM/DD/YYYY'. Use the default value provided.
 def _write_trend_rows(state: dict[str, Any], session_id: str) -> dict:
     """Blocking body of write_trends_to_bq, on a state snapshot (worker thread)."""
     bq_client = _get_bigquery_client()
 
-    # get latest refresh date
-    max_date = _get_gtrends_max_date()
-    logging.info(f"\n\nmax_date in trends_assistant: {max_date}\n\n")
+    # refresh_date = the date the trends were GATHERED (get_daily_gtrends seeds
+    # gtrends_refresh_date), never the table's latest date at write time: an
+    # interactive pause can span a table refresh, which would stamp yesterday's
+    # terms with today's date (and seed a wrong trend_detected_on downstream).
+    max_date = _gathered_refresh_date(state.get("gtrends_refresh_date"))
+    if not max_date:
+        max_date = _get_gtrends_max_date()
+        logging.warning(
+            "gtrends_refresh_date missing; using the table's latest date %s", max_date
+        )
 
     # values to insert. One batch per session: every selected trend shares this
     # session-derived id (not uuid4), so an at-least-once re-run (resumed app)
@@ -474,7 +530,7 @@ async def write_trends_to_bq(tool_context: ToolContext) -> dict:
               On success, status is 'success' and includes a 'trends' key with the inserted terms
               On failure, status is 'error' and includes an 'error_message'.
     """
-    # The MERGEs (and the max-date lookup) block on BigQuery, so they run off the
+    # The MERGEs (and the fallback max-date lookup) block on BigQuery, so they run off the
     # event loop on a state snapshot; the tool writes no state.
     return await asyncio.to_thread(
         _write_trend_rows, tool_context.state.to_dict(), tool_context.session.id

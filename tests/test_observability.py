@@ -300,3 +300,26 @@ def test_final_state_summary_skips_cleared_markers(caplog):
     with caplog.at_level(logging.INFO):
         summary_cb(ctx)
     assert "retry_exhausted" not in caplog.records[-1].getMessage()
+
+
+def test_log_run_start_never_logs_the_user_email(caplog):
+    """AC-1: since P3 the user_id is the caller's IAP email; the correlation
+    line logs a stable pseudonymous id instead."""
+    from agent_common.idempotency import stable_row_id
+
+    email = "jane.doe@example.com"
+    ctx = SimpleNamespace(
+        agent_name="trend_scout",
+        invocation_id="inv-5",
+        session=SimpleNamespace(id="sess-5"),
+        user_id=email,
+    )
+    with caplog.at_level(logging.INFO):
+        observability.log_run_start(ctx)
+    (record,) = [r for r in caplog.records if "run start" in r.getMessage()]
+    message = record.getMessage()
+    assert email not in message
+    assert "jane" not in message and "example.com" not in message
+    assert email not in repr(record.args)
+    assert f"user={stable_row_id(email)}" in message
+    assert "session=sess-5" in message

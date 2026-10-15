@@ -444,3 +444,91 @@ def test_disabled_runs_only_the_classifier(monkeypatch, digest_env):
     instr = str(run.classify.requests[0].config.system_instruction)
     assert "None" not in instr.split("<trend_summaries>")[1].split("</")[0]
     assert responses and responses[0]
+
+
+# --- TS-1 / TS-3: the shared cache never holds a term without a verdict -------
+
+
+def test_should_cache_requires_a_verdict_for_every_term():
+    from trend_scout.digest import normalize_draft, normalize_flags, should_cache
+
+    summaries = normalize_draft(SUMMARIES, TERMS, REFRESH)
+    full = normalize_flags(FLAGS, TERMS)
+    partial = normalize_flags({"flags": FLAGS["flags"][:2]}, TERMS)
+    assert should_cache(summaries, full, TERMS)
+    assert not should_cache(summaries, partial, TERMS)
+    # Summaries keep the MIN_CACHE_COVERAGE bar (optional enrichment).
+    many = [f"term {i}" for i in range(10)]
+    nine = normalize_draft(
+        {"items": [{"term": t, "summary": "s"} for t in many[:9]]}, many, REFRESH
+    )
+    all_flags = normalize_flags(
+        {"flags": [{"term": t, "sensitive": False} for t in many]}, many
+    )
+    assert should_cache(nine, all_flags, many)
+    # ...but flags must cover every term, even above MIN_CACHE_COVERAGE (9/10).
+    nine_flags = normalize_flags({"flags": all_flags["flags"][:9]}, many)
+    assert not should_cache(nine, nine_flags, many)
+
+
+def test_partial_flag_coverage_writes_nothing(monkeypatch, digest_env, caplog):
+    """M7: full summaries, flags for 2 of 3 terms: never cached (the missing
+    verdict would be read as 'not sensitive' by every later cache hit)."""
+    bq = FakeBigQueryClient([])
+    digest_env(bq)
+    run = _Run(monkeypatch)
+    partial = {"flags": FLAGS["flags"][:2]}
+    _script_miss(run, synth_turns=[json.dumps(SUMMARIES)], flags=partial)
+    with caplog.at_level("WARNING", logger="trend_scout.digest"):
+        state, _ = run.go(dict(_SEED))
+
+    assert state["trend_summaries"]["source"] == "fresh"
+    assert len(state["trend_summaries"]["items"]) == 3
+    assert len(bq.queries) == 1  # the lookup only, never a MERGE
+    assert any("1 of 3" in r.getMessage() for r in caplog.records)
+
+
+def test_cached_row_without_full_flags_is_a_miss(digest_env):
+    """M8: a row with summaries but no (or partial) flags is never a hit."""
+    import trend_scout.digest as digest
+
+    rows = (
+        {"items": SUMMARIES["items"]},
+        {"items": SUMMARIES["items"], "flags": []},
+        {"items": SUMMARIES["items"], "flags": FLAGS["flags"][:2]},
+    )
+    for row in rows:
+        digest_env(FakeBigQueryClient([{"digest": json.dumps(row)}]))
+        assert asyncio.run(digest.lookup_cached_digest(dict(_SEED))) is None
+
+
+def test_stale_draft_is_cleared_so_the_describe_step_runs(monkeypatch, digest_env):
+    """M9: a draft left in state by an earlier run must not satisfy the
+    describe step's output key on a miss."""
+    bq = FakeBigQueryClient([])
+    digest_env(bq)
+    run = _Run(monkeypatch)
+    _script_miss(run, synth_turns=[json.dumps(SUMMARIES)])
+    stale = {"items": [{"term": "Storm Ada", "summary": "STALE yesterday"}]}
+    state, _ = run.go({**_SEED, "trend_summaries_draft": stale})
+
+    assert (run.searcher.calls, run.synth.calls) == (1, 1)
+    items = state["trend_summaries"]["items"]
+    assert "STALE" not in json.dumps(items)
+    assert len(items) == 3
+
+
+def test_stale_draft_never_passes_for_a_failed_describe(monkeypatch, digest_env):
+    """M9: RetryUntilKeyNode counts an already-populated key as success, so an
+    uncleared stale draft would turn a failed describe into 'fresh' summaries
+    (and be cached). Cleared on the miss route, both attempts run and fail."""
+    bq = FakeBigQueryClient([])
+    digest_env(bq)
+    run = _Run(monkeypatch)
+    _script_miss(run, synth_turns=["  ", "  "])
+    stale = {"items": [{"term": t, "summary": "STALE"} for t in TERMS]}
+    state, _ = run.go({**_SEED, "trend_summaries_draft": stale})
+
+    assert (run.searcher.calls, run.synth.calls) == (2, 2)
+    assert state["trend_summaries"]["source"] == "unavailable"
+    assert len(bq.queries) == 1  # never cached
