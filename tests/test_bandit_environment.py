@@ -86,6 +86,23 @@ def test_drift_flips_best_arm_at_change_point():
     np.testing.assert_allclose(mid, before, rtol=1e-6)  # abrupt at T/2 = 500
 
 
+def test_drift_swaps_best_and_worst_arms_exactly():
+    """After the change point the pre-drift best creative behaves exactly like the
+    pre-drift worst and vice versa; the others keep their CTR. ``drift_perm`` is
+    an involution that moves exactly two arms."""
+    env = _shared_env("drift", horizon=1000)
+    before = envm.marginal_ctrs(env, jax.random.key(3), t=0)["overall"]
+    after = envm.marginal_ctrs(env, jax.random.key(3), t=999)["overall"]
+    best, worst = int(np.argmax(before)), int(np.argmin(before))
+    np.testing.assert_allclose(after[best], before[worst], rtol=1e-6)
+    np.testing.assert_allclose(after[worst], before[best], rtol=1e-6)
+    rest = [a for a in range(len(before)) if a not in (best, worst)]
+    np.testing.assert_allclose(after[rest], before[rest], rtol=1e-6)
+    perm = np.asarray(env.model.drift_perm)
+    np.testing.assert_array_equal(perm[perm], np.arange(len(perm)))
+    assert sorted(np.flatnonzero(perm != np.arange(len(perm)))) == sorted([best, worst])
+
+
 def test_gradual_drift_ramps():
     sc = load_scenario("drift")
     sc = dataclasses.replace(
