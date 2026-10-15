@@ -258,3 +258,52 @@ def test_brief_writer_sets_the_timely_angle_only_for_a_timely_moment():
     assert "{" not in prompts.TIMELY_ANGLE_RULE
     # Rule 13: a sensitive current moment is never referenced.
     assert "current moment marked sensitive is never referenced" in instr
+
+
+# --- copy gate limits come from copy_gate's constants (CA-10) ---------------
+
+
+def test_copy_critic_states_the_gate_limits():
+    from creative_agent.copy_gate import MAX_CTA_WORDS, MAX_HEADLINE_CHARS
+
+    instr = prompts.AD_COPY_CRITIC_INSTR
+    assert f"stay within {MAX_CTA_WORDS} words" in instr
+    assert f"within {MAX_HEADLINE_CHARS} characters" in instr
+
+
+def test_copy_reviser_states_the_gate_limits_and_the_cta_as_a_product_place():
+    from creative_agent.copy_gate import (
+        MAX_CAPTION_CHARS,
+        MAX_CTA_WORDS,
+        MAX_HEADLINE_CHARS,
+    )
+
+    instr = prompts.AD_COPY_REVISER_INSTR
+    assert f"({MAX_CTA_WORDS} by default)" in instr
+    assert f"headline within {MAX_HEADLINE_CHARS} characters" in instr
+    assert f"social caption within {MAX_CAPTION_CHARS} characters" in instr
+    assert "headline, body text, social caption or call to action" in instr
+
+
+def test_copy_prompts_interpolate_the_limits(monkeypatch):
+    # Reloading prompts with other limits changes the text: nothing is
+    # hard-coded.
+    import importlib
+
+    from creative_agent import copy_gate
+
+    monkeypatch.setattr(copy_gate, "MAX_CTA_WORDS", 7)
+    monkeypatch.setattr(copy_gate, "MAX_HEADLINE_CHARS", 55)
+    monkeypatch.setattr(copy_gate, "MAX_CAPTION_CHARS", 2100)
+    try:
+        reloaded = importlib.reload(prompts)
+        for name in ("AD_COPY_CRITIC_INSTR", "AD_COPY_REVISER_INSTR"):
+            instr = getattr(reloaded, name)
+            assert "8 words" not in instr and "8 by default" not in instr, name
+            assert "60 characters" not in instr and "2200" not in instr, name
+            assert "55 characters" in instr, name
+        assert "7 words" in reloaded.AD_COPY_CRITIC_INSTR
+        assert "2100 characters" in reloaded.AD_COPY_REVISER_INSTR
+    finally:
+        monkeypatch.undo()
+        importlib.reload(prompts)
