@@ -66,6 +66,7 @@ from agent_common import (
     stable_row_id,
 )
 from agent_common.clients import get_bigquery_client
+from agent_common.sampling import temperature as sampled_temperature
 
 from . import callbacks, prompts
 from .config import INFRA_RETRY, config
@@ -103,7 +104,7 @@ trend_describe_searcher = Agent(
     ),
     instruction=prompts.TREND_DESCRIBE_SEARCHER_INSTR,
     generate_content_config=types.GenerateContentConfig(
-        temperature=0.7,
+        temperature=sampled_temperature(0.7),
         labels={**_LABELS, "subagent": "trend_describe_searcher"},
     ),
     tools=[google_search],
@@ -121,7 +122,7 @@ trend_describe_synthesizer = Agent(
     description="Turns the findings into one neutral summary line per trend.",
     instruction=prompts.TREND_DESCRIBE_SYNTHESIZER_INSTR,
     generate_content_config=types.GenerateContentConfig(
-        temperature=0.2,
+        temperature=sampled_temperature(0.2),
         labels={**_LABELS, "subagent": "trend_describe_synthesizer"},
     ),
     output_schema=TrendSummaries,
@@ -179,7 +180,7 @@ classify_trends_agent = Agent(
     output_key="trend_flags",
     retry_config=INFRA_RETRY,
     generate_content_config=types.GenerateContentConfig(
-        temperature=0.0,
+        temperature=sampled_temperature(0.0),
         labels={**_LABELS, "subagent": "classify_trends_agent"},
     ),
     before_model_callback=callbacks.rate_limit_callback,

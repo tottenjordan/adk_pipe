@@ -33,6 +33,7 @@ from google.adk.workflow import Workflow
 from google.genai import types
 
 from agent_common import FailSoftNode, RetryUntilKeyNode, build_gemini
+from agent_common.sampling import temperature as sampled_temperature
 
 from ... import callbacks, prompts
 from ...config import SCHEMA_RETRY, config
@@ -70,7 +71,9 @@ trend_situation_synthesizer = Agent(
     include_contents="none",
     description="Turns the raw findings into a structured trend situation draft.",
     instruction=prompts.TREND_SITUATION_SYNTHESIZER_INSTR,
-    generate_content_config=types.GenerateContentConfig(temperature=0.2),
+    generate_content_config=types.GenerateContentConfig(
+        temperature=sampled_temperature(0.2)
+    ),
     output_schema=TrendSituationDraft,
     retry_config=SCHEMA_RETRY,
     output_key="trend_situation_draft",
