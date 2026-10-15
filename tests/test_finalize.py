@@ -7,6 +7,7 @@ from typing import Any
 import pytest
 from google.api_core import exceptions as gexc
 
+from agent_common import collect_degradation_warnings
 from creative_agent import finalize as fin
 from tests._fake_bq import FakeBigQueryClient
 from tests._fakes import FakeToolContext
@@ -74,6 +75,51 @@ def test_summary_names_failed_steps():
         }
     )
     assert "Failed steps: evaluation, HTML gallery, eval row (BigQuery)." in out
+
+
+def _one_ad_report(score: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "summary": {"gates_pass_rate": 1.0},
+        "ad_copy_evaluations": [{"headline": "Fast Feet", "score": score}],
+    }
+
+
+def test_summary_reads_judge_failed_not_the_improvements_text():
+    """A judged copy whose judge wrote "evaluation_failed" into its improvements
+    is not a failed judge call: judge_failed (False) decides."""
+    judged = {
+        "overall_score": 0.4,
+        "passed": False,
+        "improvements": ["evaluation_failed"],
+        "gates": [{"gate": "product_named", "passed": False}],
+        "gates_passed": False,
+        "judge_failed": False,
+    }
+    out = fin.finalize_summary({"creative_evaluation_report": _one_ad_report(judged)})
+    assert "failed checks: Product named" in out
+    assert "evaluation failed" not in out
+    assert "0/1 passed all checks" in out
+
+
+def test_summary_marks_a_failed_judge_call():
+    failed = {
+        "overall_score": 0.0,
+        "passed": False,
+        "improvements": ["evaluation_failed"],
+        "gates": [],
+        "gates_passed": False,
+        "judge_failed": True,
+    }
+    out = fin.finalize_summary({"creative_evaluation_report": _one_ad_report(failed)})
+    assert "'Fast Feet' (ad copy, 0.00, evaluation failed)" in out
+    assert "0/0 passed all checks" in out
+
+
+def test_summary_old_report_falls_back_to_the_improvements_marker():
+    """A report written before judge_failed existed has no such key."""
+    old = {"overall_score": 0.0, "passed": False, "improvements": ["evaluation_failed"]}
+    out = fin.finalize_summary({"creative_evaluation_report": _one_ad_report(old)})
+    assert "evaluation failed" in out
 
 
 def test_issue_message_is_short_and_single_line():
@@ -190,6 +236,26 @@ def test_persist_isolates_a_raising_gallery(monkeypatch):
     assert "gcs down" in ctx.state["creative_gallery_gcs_uri__issues"]
     assert "creative_gallery_gcs_uri" not in ctx.state
     assert ctx.state["eval_bq_row_uuid"] == "eval1"
+
+
+def test_a_successful_rerun_clears_the_first_runs_issue(monkeypatch):
+    """CV-10: a stale ``<key>__issues`` from an earlier finalize is cleared once
+    the step succeeds, so it no longer surfaces as a run note or failed step."""
+    calls: list[str] = []
+
+    async def boom(ctx):
+        raise RuntimeError("gcs down")
+
+    _patch_steps(monkeypatch, calls, gallery=boom)
+    first = _persist({"creative_evaluation_report": _REPORT, **_CREATIVES})
+    assert "gcs down" in first.state["creative_gallery_gcs_uri__issues"]
+
+    _patch_steps(monkeypatch, calls)
+    second = _persist(dict(first.state))
+    assert second.state["creative_gallery_gcs_uri__issues"] is None
+    assert second.state["creative_gallery_gcs_uri"] == "gs://b/gallery.html"
+    assert "Failed steps" not in fin.finalize_summary(second.state)
+    assert not collect_degradation_warnings(second.state)
 
 
 def test_persist_records_error_dicts(monkeypatch):

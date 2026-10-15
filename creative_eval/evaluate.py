@@ -15,7 +15,7 @@ Usage:
 import logging
 import os
 import re
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
@@ -495,10 +495,7 @@ def moment_block(trend_situation: Any, sources: Any = None) -> str:
         ("Valid until", ts.get("valid_until")),
         ("Tone rule", ts.get("tone_rule")),
     ]
-    lines = [
-        "Current moment (validated from research; the only facts a timely "
-        "claim may state):"
-    ]
+    lines = [prompts.MOMENT_HEADER]
     lines += [f"{label}: {_one_line(value)}" for label, value in rows]
     by_id = sources if isinstance(sources, Mapping) else {}
     urls = []
@@ -514,7 +511,7 @@ def moment_block(trend_situation: Any, sources: Any = None) -> str:
 def _moment_section(timely: bool, trend_situation: Any, sources: Any) -> str:
     """The prompt's ``moment_section``: the moment block for a timely creative."""
     block = moment_block(trend_situation, sources) if timely else ""
-    return f"<CURRENT_MOMENT>\n{fence(block)}\n</CURRENT_MOMENT>\n\n" if block else ""
+    return prompts.MOMENT_SECTION.format(block=fence(block)) if block else ""
 
 
 def trend_valid_until(trend_situation: Any) -> str:
@@ -540,42 +537,20 @@ def _score_from_verdicts(
     """Compute an aggregate CreativeScore from individual verdicts and gates.
 
     ``passed`` = mean score (0-1) >= ``threshold`` AND ``gates_passed``.
+    ``strengths`` / ``improvements`` stay empty: :func:`score_from_judge`
+    fills them with the judge's own text.
     """
     gates = list(gates or [])
     gates_ok = gates_passed(gates)
-    if not verdicts:
-        return CreativeScore(
-            overall_score=0.0,
-            passed=False,
-            verdicts=[],
-            strengths=[],
-            improvements=[],
-            gates=gates,
-            gates_passed=gates_ok,
-            judge_failed=False,
-        )
-
-    avg_score = sum(v.score for v in verdicts) / (len(verdicts) * 10)
-    passed = avg_score >= threshold and gates_ok
-
-    strengths = [
-        v.dimension
-        for v in sorted(verdicts, key=lambda v: v.score, reverse=True)
-        if v.verdict == "pass"
-    ][:3]
-
-    improvements = [
-        v.dimension
-        for v in sorted(verdicts, key=lambda v: v.score)
-        if v.verdict == "fail"
-    ][:3]
-
+    avg_score = (
+        sum(v.score for v in verdicts) / (len(verdicts) * 10) if verdicts else 0.0
+    )
     return CreativeScore(
         overall_score=round(avg_score, 3),
-        passed=passed,
+        passed=bool(verdicts) and avg_score >= threshold and gates_ok,
         verdicts=verdicts,
-        strengths=strengths,
-        improvements=improvements,
+        strengths=[],
+        improvements=[],
         gates=gates,
         gates_passed=gates_ok,
         judge_failed=False,
@@ -679,6 +654,73 @@ def _prompt_fields(
     return out
 
 
+def _brief_block(
+    brief: Mapping[str, Any] | None, safer_angle: bool, sensitive_reason: str
+) -> str:
+    """The fenced ``<CREATIVE_BRIEF>`` block both judges read."""
+    return fence(
+        format_brief_for_judge(
+            brief, safer_angle=safer_angle, sensitive_reason=sensitive_reason
+        )
+    )
+
+
+def _yes_no(flag: bool) -> str:
+    return "yes" if flag else "no"
+
+
+def _trend_given(campaign_context: Mapping[str, Any]) -> bool:
+    """True when the run has a target trend (else ``TREND_GATES`` pass in code)."""
+    return bool(str(campaign_context.get("target_search_trend") or "").strip())
+
+
+def _call_judge(
+    client: genai.Client,
+    config: EvalConfig,
+    contents: genai.types.ContentListUnionDict,
+    system: str,
+    schema: type[AdCopyJudgeOutput] | type[VisualJudgeOutput],
+) -> JudgeScore:
+    """One structured judge call → the judge's raw :class:`JudgeScore`.
+
+    Raises on a transport error or an unparseable response (the callers turn
+    that into a failed-judge placeholder).
+    """
+    response = client.models.generate_content(
+        model=config.eval_model,
+        contents=contents,
+        config=genai.types.GenerateContentConfig(
+            system_instruction=system,
+            response_mime_type="application/json",
+            response_schema=schema,
+            temperature=config.judge_temperature,
+        ),
+    )
+    return schema.model_validate_json(response.text or "").score
+
+
+def _build_ad_copy_request(
+    ad_copy: Mapping[str, Any],
+    campaign_context: Mapping[str, Any],
+    *,
+    brief: Mapping[str, Any] | None,
+    timely: bool,
+    moment_section: str,
+    safer_angle: bool,
+    sensitive_reason: str,
+) -> str:
+    """The ad-copy judge's user prompt (every interpolated value fenced)."""
+    return prompts.AD_COPY_EVAL_USER.format(
+        **_prompt_fields(campaign_context, CAMPAIGN_PROMPT_FIELDS),
+        **_prompt_fields(ad_copy, AD_COPY_PROMPT_FIELDS),
+        angle=fence(angle_line(brief, ad_copy.get("angle_id") or "")),
+        brief_block=_brief_block(brief, safer_angle, sensitive_reason),
+        timely=_yes_no(timely),
+        safer_angle=_yes_no(safer_angle),
+        moment_section=moment_section,
+    )
+
+
 def evaluate_ad_copy(
     ad_copy: dict,
     campaign_context: dict,
@@ -713,71 +755,167 @@ def evaluate_ad_copy(
     if client is None:
         client = _get_client(config)
 
-    angle_id = str(ad_copy.get("angle_id") or "")
     timely = creative_is_timely(ad_copy, trend_situation)
-    # Build the prompt
-    # Join keys and labels come from the input copy, never the judge's echo.
-    ids = {
-        "original_id": ad_copy.get("original_id", 0),
-        "headline": str(ad_copy.get("headline") or ""),
-        "tone_style": str(ad_copy.get("tone_style") or ""),
-    }
-    user_prompt = prompts.AD_COPY_EVAL_USER.format(
-        **_prompt_fields(campaign_context, CAMPAIGN_PROMPT_FIELDS),
-        **_prompt_fields(ad_copy, AD_COPY_PROMPT_FIELDS),
-        angle=fence(angle_line(brief, ad_copy.get("angle_id") or "")),
-        brief_block=fence(
-            format_brief_for_judge(
-                brief, safer_angle=safer_angle, sensitive_reason=sensitive_reason
-            )
-        ),
-        timely="yes" if timely else "no",
-        safer_angle="yes" if safer_angle else "no",
+    user_prompt = _build_ad_copy_request(
+        ad_copy,
+        campaign_context,
+        brief=brief,
+        timely=timely,
         moment_section=_moment_section(timely, trend_situation, sources),
+        safer_angle=safer_angle,
+        sensitive_reason=sensitive_reason,
     )
-
     try:
-        response = client.models.generate_content(
-            model=config.eval_model,
-            contents=user_prompt,
-            config=genai.types.GenerateContentConfig(
-                system_instruction=prompts.AD_COPY_EVAL_SYSTEM,
-                response_mime_type="application/json",
-                response_schema=AdCopyJudgeOutput,
-                temperature=config.judge_temperature,
-            ),
+        judged = _call_judge(
+            client, config, user_prompt, prompts.AD_COPY_EVAL_SYSTEM, AdCopyJudgeOutput
         )
-
-        judged = AdCopyJudgeOutput.model_validate_json(response.text or "")
-        return AdCopyEvaluation(
-            **ids,
-            angle_id=angle_id,
-            score=score_from_judge(
-                judged.score,
-                AD_COPY_GATES,
-                config.passing_threshold,
-                expected_dimensions=config.ad_copy_dimensions,
-                brief_used=brief is not None,
-                trend_given=bool(
-                    str(campaign_context.get("target_search_trend") or "").strip()
-                ),
-                timely=timely,
-                safer_angle=safer_angle,
-            ),
+        score = score_from_judge(
+            judged,
+            AD_COPY_GATES,
+            config.passing_threshold,
+            expected_dimensions=config.ad_copy_dimensions,
+            brief_used=brief is not None,
+            trend_given=_trend_given(campaign_context),
             timely=timely,
+            safer_angle=safer_angle,
         )
-
     except Exception as e:
         logger.error(
             f"Failed to evaluate ad copy {ad_copy.get('original_id', '?')}: {e}"
         )
-        # Return a zero-score evaluation on failure
-        return AdCopyEvaluation(
-            **ids,
-            score=_failed_score(),
-            angle_id=angle_id,
-            timely=timely,
+        score = _failed_score()  # a zero-score evaluation on failure
+    # Join keys and labels come from the input copy, never the judge's echo.
+    return AdCopyEvaluation(
+        original_id=ad_copy.get("original_id", 0),
+        headline=str(ad_copy.get("headline") or ""),
+        tone_style=str(ad_copy.get("tone_style") or ""),
+        angle_id=str(ad_copy.get("angle_id") or ""),
+        score=score,
+        timely=timely,
+    )
+
+
+def _build_visual_request(
+    visual_concept: Mapping[str, Any],
+    campaign_context: Mapping[str, Any],
+    *,
+    brief: Mapping[str, Any] | None,
+    qa: Any,
+    uri: str,
+    photo_uri: str,
+    person_cast: bool,
+    timely: bool,
+    moment_section: str,
+    safer_angle: bool,
+    sensitive_reason: str,
+) -> genai.types.ContentListUnionDict:
+    """The visual judge's contents (pure).
+
+    With the rendered image at ``uri``: ``[image, (person label, person
+    photo,) user prompt]``, the person photo only with ``photo_uri``;
+    prompt-only (``uri`` "") the user prompt alone. ``qa`` is the render
+    record's image-QA verdict (a hint line).
+    """
+    image_section = (
+        prompts.VISUAL_IMAGE_ATTACHED.format(qa_hint=fence(image_qa_hint(qa)))
+        if uri
+        else prompts.VISUAL_IMAGE_MISSING
+    )
+    if uri and photo_uri:
+        image_section += "\n" + prompts.VISUAL_PERSON_PHOTO_ATTACHED
+    user_prompt = prompts.VISUAL_CONCEPT_EVAL_USER.format(
+        **_prompt_fields(campaign_context, CAMPAIGN_PROMPT_FIELDS),
+        **_prompt_fields(visual_concept, VISUAL_PROMPT_FIELDS, _VISUAL_FIELD_DEFAULTS),
+        person_cast=_yes_no(person_cast),
+        timely=_yes_no(timely),
+        safer_angle=_yes_no(safer_angle),
+        brief_block=_brief_block(brief, safer_angle, sensitive_reason),
+        image_section=image_section,
+        moment_section=moment_section,
+    )
+    if not uri:
+        return user_prompt
+    contents: list[genai.types.PartUnionDict] = [
+        genai.types.Part.from_uri(file_uri=uri, mime_type=image_mime_type(uri))
+    ]
+    if photo_uri:
+        contents += [
+            genai.types.Part.from_text(text=prompts.PERSON_PHOTO_LABEL),
+            genai.types.Part.from_uri(
+                file_uri=photo_uri, mime_type=image_mime_type(photo_uri)
+            ),
+        ]
+    contents.append(genai.types.Part.from_text(text=user_prompt))
+    return contents
+
+
+def _score_visual(
+    judged: JudgeScore,
+    config: EvalConfig,
+    *,
+    brief_used: bool,
+    trend_given: bool,
+    person_cast: bool,
+    timely: bool,
+    safer_angle: bool,
+) -> CreativeScore:
+    """The visual judge's raw score → the report's :class:`CreativeScore`."""
+    return score_from_judge(
+        judged,
+        VISUAL_GATES,
+        config.passing_threshold,
+        expected_dimensions=config.visual_dimensions,
+        brief_used=brief_used,
+        trend_given=trend_given,
+        person_cast=person_cast,
+        timely=timely,
+        safer_angle=safer_angle,
+    )
+
+
+def _judge_with_image_fallbacks(
+    judge: Callable[[str, str], VisualConceptEvaluation],
+    name: Any,
+    image_uri: str,
+    photo: str,
+) -> VisualConceptEvaluation:
+    """Run ``judge(uri, photo_uri)``, degrading on an image-related 4xx.
+
+    An unreadable person photo is retried without it; an unreadable rendered
+    image falls back to a prompt-only verdict (``image_judged=False``). Any
+    other error propagates (:func:`is_image_fallback_error`).
+    """
+    try:
+        if photo:
+            try:
+                return judge(image_uri, photo)
+            except genai_errors.ClientError as e:
+                if not is_image_fallback_error(e):
+                    raise
+                # The error text may name the photo: log only the code.
+                logger.warning(
+                    "Judge could not use the person reference photo for %r "
+                    "(HTTP %s); judging the rendered image without it",
+                    name,
+                    e.code,
+                )
+        return judge(image_uri, "")
+    except genai_errors.ClientError as e:
+        # An image-related 4xx (unreadable / missing object, unsupported
+        # file — see is_image_fallback_error) must not zero the creative:
+        # fail soft to a prompt-only verdict (image_judged=False). Any
+        # other client error (quota, a bad request unrelated to the
+        # image) propagates to the normal judge-failure path.
+        if not image_uri or not is_image_fallback_error(e):
+            raise
+        logger.warning(
+            "Judge could not use the rendered image %s for %r (%s); "
+            "judging the prompt instead",
+            image_uri,
+            name,
+            e,
         )
+        return judge("", "")
 
 
 def evaluate_visual_concept(
@@ -799,10 +937,10 @@ def evaluate_visual_concept(
     With a rendered image (``image["gcs_uri"]``, a ``generated_images``
     record) the judge sees the pixels as a ``gs://`` Part — Vertex fetches it
     server-side as the project's Vertex AI service agent (project
-    permissions), not with the caller's credentials — and judges the image, using the prompt only for
-    intent; the record's image-QA verdict is passed as a hint line. Without
-    one it judges the image generation prompt and the result records
-    ``image_judged=False``.
+    permissions), not with the caller's credentials — and judges the image,
+    using the prompt only for intent; the record's image-QA verdict is passed
+    as a hint line. Without one it judges the image generation prompt and the
+    result records ``image_judged=False``.
 
     For a cast concept (``image["cast"] is True``) with a rendered image and a
     ``person_photo`` (:func:`person_photo_uri`), the consented person's
@@ -836,11 +974,6 @@ def evaluate_visual_concept(
         client = _get_client(config)
 
     name = visual_concept.get("concept_name", "?")
-    # Join keys come from the input concept, never the judge's echo.
-    ids = {
-        "ad_copy_id": visual_concept.get("ad_copy_id", 0),
-        "concept_name": str(visual_concept.get("concept_name") or ""),
-    }
     image_uri = rendered_image_uri(image)
     if _gs_uri(image) and not image_uri:
         logger.warning(
@@ -855,125 +988,65 @@ def evaluate_visual_concept(
         visual_concept, trend_situation, paired_copy_timely=paired_copy_timely
     )
     moment_section = _moment_section(timely, trend_situation, sources)
-    # Recorded on the evaluation by code (brand history reads them).
-    tags = {
-        "visual_style": str(visual_concept.get("visual_style") or ""),
-        "angle_id": str(visual_concept.get("angle_id") or ""),
-    }
 
-    def judge(uri: str, photo_uri: str = "") -> VisualConceptEvaluation:
+    def evaluation(
+        score: CreativeScore, image_judged: bool = False
+    ) -> VisualConceptEvaluation:
+        # Join keys come from the input concept, never the judge's echo; the
+        # tags are recorded by code (brand history reads them).
+        return VisualConceptEvaluation(
+            ad_copy_id=visual_concept.get("ad_copy_id", 0),
+            concept_name=str(visual_concept.get("concept_name") or ""),
+            score=score,
+            image_judged=image_judged,
+            visual_style=str(visual_concept.get("visual_style") or ""),
+            angle_id=str(visual_concept.get("angle_id") or ""),
+            timely=timely,
+        )
+
+    def judge(uri: str, photo_uri: str) -> VisualConceptEvaluation:
         """One judge call: with the rendered image at ``uri`` (plus the cast
         person's reference photo at ``photo_uri``), or prompt-only."""
-        image_section = (
-            prompts.VISUAL_IMAGE_ATTACHED.format(
-                qa_hint=fence(image_qa_hint((image or {}).get("qa")))
-            )
-            if uri
-            else prompts.VISUAL_IMAGE_MISSING
-        )
-        if uri and photo_uri:
-            image_section += "\n" + prompts.VISUAL_PERSON_PHOTO_ATTACHED
-        user_prompt = prompts.VISUAL_CONCEPT_EVAL_USER.format(
-            **_prompt_fields(campaign_context, CAMPAIGN_PROMPT_FIELDS),
-            **_prompt_fields(
-                visual_concept, VISUAL_PROMPT_FIELDS, _VISUAL_FIELD_DEFAULTS
-            ),
-            person_cast="yes" if person_cast else "no",
-            timely="yes" if timely else "no",
-            safer_angle="yes" if safer_angle else "no",
-            brief_block=fence(
-                format_brief_for_judge(
-                    brief, safer_angle=safer_angle, sensitive_reason=sensitive_reason
-                )
-            ),
-            image_section=image_section,
-            moment_section=moment_section,
-        )
-        contents: genai.types.ContentListUnionDict = user_prompt
-        if uri:
-            contents = [
-                genai.types.Part.from_uri(file_uri=uri, mime_type=image_mime_type(uri)),
-            ]
-            if photo_uri:
-                contents += [
-                    genai.types.Part.from_text(text=prompts.PERSON_PHOTO_LABEL),
-                    genai.types.Part.from_uri(
-                        file_uri=photo_uri, mime_type=image_mime_type(photo_uri)
-                    ),
-                ]
-            contents.append(genai.types.Part.from_text(text=user_prompt))
-        response = client.models.generate_content(
-            model=config.eval_model,
-            contents=contents,
-            config=genai.types.GenerateContentConfig(
-                system_instruction=prompts.VISUAL_CONCEPT_EVAL_SYSTEM,
-                response_mime_type="application/json",
-                response_schema=VisualJudgeOutput,
-                temperature=config.judge_temperature,
-            ),
-        )
-        judged = VisualJudgeOutput.model_validate_json(response.text or "")
-        return VisualConceptEvaluation(
-            **ids,
-            score=score_from_judge(
-                judged.score,
-                VISUAL_GATES,
-                config.passing_threshold,
-                expected_dimensions=config.visual_dimensions,
-                brief_used=brief is not None,
-                person_cast=person_cast,
-                timely=timely,
-                safer_angle=safer_angle,
-            ),
-            image_judged=bool(uri),
+        contents = _build_visual_request(
+            visual_concept,
+            campaign_context,
+            brief=brief,
+            qa=(image or {}).get("qa"),
+            uri=uri,
+            photo_uri=photo_uri,
+            person_cast=person_cast,
             timely=timely,
-            **tags,
+            moment_section=moment_section,
+            safer_angle=safer_angle,
+            sensitive_reason=sensitive_reason,
         )
+        judged = _call_judge(
+            client,
+            config,
+            contents,
+            prompts.VISUAL_CONCEPT_EVAL_SYSTEM,
+            VisualJudgeOutput,
+        )
+        score = _score_visual(
+            judged,
+            config,
+            brief_used=brief is not None,
+            trend_given=_trend_given(campaign_context),
+            person_cast=person_cast,
+            timely=timely,
+            safer_angle=safer_angle,
+        )
+        return evaluation(score, image_judged=bool(uri))
 
     if not image_uri:
         logger.info("No rendered image for visual concept %r; judging its prompt", name)
     try:
-        try:
-            if photo:
-                try:
-                    return judge(image_uri, photo)
-                except genai_errors.ClientError as e:
-                    if not is_image_fallback_error(e):
-                        raise
-                    # The error text may name the photo: log only the code.
-                    logger.warning(
-                        "Judge could not use the person reference photo for %r "
-                        "(HTTP %s); judging the rendered image without it",
-                        name,
-                        e.code,
-                    )
-            return judge(image_uri)
-        except genai_errors.ClientError as e:
-            # An image-related 4xx (unreadable / missing object, unsupported
-            # file — see is_image_fallback_error) must not zero the creative:
-            # fail soft to a prompt-only verdict (image_judged=False). Any
-            # other client error (quota, a bad request unrelated to the
-            # image) propagates to the normal judge-failure path.
-            if not image_uri or not is_image_fallback_error(e):
-                raise
-            logger.warning(
-                "Judge could not use the rendered image %s for %r (%s); "
-                "judging the prompt instead",
-                image_uri,
-                name,
-                e,
-            )
-            return judge("")
+        return _judge_with_image_fallbacks(judge, name, image_uri, photo)
     except Exception as e:
         logger.error(
             "Failed to evaluate visual concept %s: %s", name, _redact(str(e), photo)
         )
-        return VisualConceptEvaluation(
-            **ids,
-            score=_failed_score(),
-            timely=timely,
-            **tags,
-        )
+        return evaluation(_failed_score())
 
 
 _IMAGE_ERROR_HINTS = ("image", "uri", "file", "permission")
@@ -1066,24 +1139,21 @@ def unreported_gates_warning(
     entry.
     """
     gates = [g for e in [*ad_evals, *visual_evals] for g in e.score.gates]
-    out = []
-    passed = sum(g.note == NOT_REPORTED_NOTE for g in gates)
-    if passed:
-        out.append(_count_line(passed, "", "passed"))
-    unchecked = [g for g in gates if g.note == NOT_CHECKED_NOTE and not g.passed]
     special = PERSON_GATES | TIMELY_GATES | SAFER_ANGLE_GATES
-    other = sum(g.gate not in special for g in unchecked)
-    if other:
-        out.append(_count_line(other, "", "failed"))
-    for kind, names in (
-        ("person ", PERSON_GATES),
-        ("timely ", TIMELY_GATES),
-        ("safer-angle ", SAFER_ANGLE_GATES),
-    ):
-        count = sum(g.gate in names for g in unchecked)
-        if count:
-            out.append(_count_line(count, kind, "failed"))
-    return out
+    unchecked = [g.gate for g in gates if g.note == NOT_CHECKED_NOTE and not g.passed]
+    counts = [
+        ("", "passed", sum(g.note == NOT_REPORTED_NOTE for g in gates)),
+        ("", "failed", sum(name not in special for name in unchecked)),
+        *(
+            (kind, "failed", sum(name in names for name in unchecked))
+            for kind, names in (
+                ("person ", PERSON_GATES),
+                ("timely ", TIMELY_GATES),
+                ("safer-angle ", SAFER_ANGLE_GATES),
+            )
+        ),
+    ]
+    return [_count_line(n, kind, outcome) for kind, outcome, n in counts if n]
 
 
 def unscored_dimensions_warning(
@@ -1262,6 +1332,47 @@ def _build_summary(
     )
 
 
+def build_report(
+    campaign_context: Mapping[str, Any],
+    ad_evals: list[AdCopyEvaluation],
+    visual_evals: list[VisualConceptEvaluation],
+    config: EvalConfig,
+    *,
+    brief_used: bool,
+    generated_images: Mapping[str, Any] | None = None,
+    trend_situation: Any = None,
+    run_warnings: Sequence[str] = (),
+    learning_used: bool = False,
+    learning_flags: Sequence[str] = (),
+) -> CreativeEvaluationReport:
+    """The one place a :class:`CreativeEvaluationReport` is assembled (pure).
+
+    Shared by :func:`evaluate_creatives` and
+    ``creative_eval.agent.evaluate_all_creatives``, so both entry points stamp
+    the same summary, judge metadata and warnings: ``run_warnings`` (the run's
+    degradation notes) first, then :func:`judge_warnings`.
+    """
+    return CreativeEvaluationReport(
+        brand=campaign_context.get("brand", ""),
+        target_product=campaign_context.get("target_product", ""),
+        target_search_trend=campaign_context.get("target_search_trend", ""),
+        ad_copy_evaluations=ad_evals,
+        visual_concept_evaluations=visual_evals,
+        summary=_build_summary(ad_evals, visual_evals),
+        warnings=[
+            *run_warnings,
+            *judge_warnings(ad_evals, visual_evals, generated_images),
+        ],
+        judge_model=config.eval_model,
+        judge_version=JUDGE_VERSION,
+        passing_threshold=config.passing_threshold,
+        brief_used=brief_used,
+        learning_used=learning_used,
+        learning_flags=list(learning_flags),
+        trend_valid_until=trend_valid_until(trend_situation),
+    )
+
+
 def evaluate_creatives(
     campaign_context: dict,
     ad_copies: list[dict],
@@ -1327,22 +1438,16 @@ def evaluate_creatives(
             sensitive_reason=sensitive_reason,
         )
 
-    summary = _build_summary(ad_evals, visual_evals)
-
-    report = CreativeEvaluationReport(
-        brand=campaign_context["brand"],
-        target_product=campaign_context["target_product"],
-        target_search_trend=campaign_context["target_search_trend"],
-        ad_copy_evaluations=ad_evals,
-        visual_concept_evaluations=visual_evals,
-        summary=summary,
-        warnings=judge_warnings(ad_evals, visual_evals, generated_images),
-        judge_model=config.eval_model,
-        judge_version=JUDGE_VERSION,
-        passing_threshold=config.passing_threshold,
+    report = build_report(
+        campaign_context,
+        ad_evals,
+        visual_evals,
+        config,
         brief_used=brief is not None,
-        trend_valid_until=trend_valid_until(trend_situation),
+        generated_images=generated_images,
+        trend_situation=trend_situation,
     )
+    summary = report.summary
 
     logger.info(
         f"Evaluation complete: {summary.ad_copies_passed}/{summary.total_ad_copies} ad copies passed, "

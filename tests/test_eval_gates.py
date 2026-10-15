@@ -1495,7 +1495,7 @@ class TestTrendConnectedGate:
         assert "trend_connected" not in VISUAL_GATES
         assert "trend_connected" not in BRIEF_GATES
         assert "trend_connected" not in ADVISORY_GATES
-        assert TREND_GATES == frozenset({"trend_connected"})
+        assert TREND_GATES == frozenset({"trend_connected", "trend_motif_visible"})
         assert GATE_LABELS["trend_connected"] == "Connected to the trend"
 
     def test_prompt_describes_a_specific_recognisable_tie(self):
@@ -1569,3 +1569,47 @@ class TestTrendConnectedGate:
         by = {g.gate: g for g in ad.score.gates}
         assert by["trend_connected"].passed and by["trend_connected"].note == "no trend"
         assert ad.score.gates_passed
+
+
+class TestTrendMotifNoTrend:
+    """2026-10-15.2: ``trend_motif_visible`` is a TREND_GATES gate too, so a run
+    without a target trend passes it in code (note "no trend") instead of
+    having the judge look for a motif of an empty trend."""
+
+    def _visual(self, trend: str):
+        from creative_eval.evaluate import evaluate_visual_concept
+
+        gates = dict.fromkeys(VISUAL_GATES, True) | {"trend_motif_visible": False}
+        return evaluate_visual_concept(
+            CONCEPT,
+            CAMPAIGN | {"target_search_trend": trend},
+            EvalConfig(),
+            client=_client(_judge_json("visual", gates)),
+            brief=BRIEF,
+        )
+
+    def test_empty_campaign_trend_passes_with_note(self):
+        vis = self._visual("  ")
+        by = {g.gate: g for g in vis.score.gates}
+        motif = by["trend_motif_visible"]
+        assert motif.passed and motif.note == "no trend"
+        assert vis.score.gates_passed
+
+    def test_with_a_trend_the_judge_decides(self):
+        vis = self._visual("roadrunner")
+        by = {g.gate: g for g in vis.score.gates}
+        assert by["trend_motif_visible"].passed is False
+        assert not vis.score.gates_passed and not vis.score.passed
+
+    def test_omitted_without_a_trend_is_not_unverified(self):
+        from creative_eval.evaluate import normalize_gates
+
+        raw = [GateResult(gate="product_visible", passed=True)]
+        by = {
+            g.gate: g
+            for g in normalize_gates(
+                raw, VISUAL_GATES, brief_used=True, trend_given=False
+            )
+        }
+        assert by["trend_motif_visible"].passed
+        assert by["trend_motif_visible"].note == "no trend"

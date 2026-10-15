@@ -15,7 +15,7 @@ from collections.abc import Iterable
 # gates, the gate or dimension wording, the scoring/pass rules (threshold,
 # normalisation) or the judge model change. A second change on the same day
 # appends ".N" ("2026-10-12.2"); versions are only ever compared by equality.
-JUDGE_VERSION = "2026-10-15.1"
+JUDGE_VERSION = "2026-10-15.2"
 
 DIMENSION_LABELS: dict[str, str] = {
     # Ad copy
@@ -73,8 +73,9 @@ BRIEF_GATES: frozenset[str] = frozenset(
 )
 
 # Judged against the campaign's trend only (never the brief, so no "no brief"
-# pass): passed with note "no trend" when the run has no target trend.
-TREND_GATES: frozenset[str] = frozenset({"trend_connected"})
+# pass): passed with note "no trend" when the run has no target trend (both
+# kinds: an ad copy's trend tie and a visual's trend motif).
+TREND_GATES: frozenset[str] = frozenset({"trend_connected", "trend_motif_visible"})
 
 # Only judged for a concept that cast the user's person reference
 # (``generated_images[concept]["cast"] is True``); otherwise passed in code with
