@@ -74,19 +74,25 @@ Per app, compare `default` to `tuned`. Means are reported with a 95% bootstrap C
 Read once at import (Agent Engine pickles agents with the deployer's env; Cloud
 Run reads it at revision start). https://ai.google.dev/gemini-api/docs/gemini-3
 """
+
 import logging, os
 
 PROFILES = ("tuned", "default")
 GEMINI3_DEFAULT_TEMPERATURE = 1.0
 
+
 def _profile() -> str:
     raw = os.getenv("GEMINI_TEMPERATURE_PROFILE", "tuned").strip().lower() or "tuned"
     if raw not in PROFILES:
-        logging.getLogger(__name__).warning("unknown GEMINI_TEMPERATURE_PROFILE %r; using 'tuned'", raw)
+        logging.getLogger(__name__).warning(
+            "unknown GEMINI_TEMPERATURE_PROFILE %r; using 'tuned'", raw
+        )
         return "tuned"
     return raw
 
+
 PROFILE = _profile()
+
 
 def temperature(tuned: float) -> float:
     """The agent's temperature under the active profile."""
