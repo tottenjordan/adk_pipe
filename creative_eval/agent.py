@@ -16,18 +16,15 @@ from agent_common import collect_degradation_warnings
 
 from .brief import parse_brief
 from .config import EvalConfig
-from .dimensions import JUDGE_VERSION
 from .evaluate import (
-    _build_summary,
     _is_failed,
+    build_report,
     evaluate_all_concurrently,
-    judge_warnings,
     run_trend_situation,
     safer_angle_active,
     safer_angle_reason,
-    trend_valid_until,
 )
-from .schemas import AdCopyEvaluation, CreativeEvaluationReport, CreativeScore
+from .schemas import AdCopyEvaluation, CreativeScore, VisualConceptEvaluation
 
 logger = logging.getLogger(__name__)
 
@@ -217,98 +214,27 @@ def evaluate_all_creatives(tool_context) -> dict:
             "message": "No ad copies or visual concepts found in session state to evaluate.",
         }
 
-    # Ad copies already judged while the visuals rendered (creative_agent's
-    # evaluate_ad_copies_node) are reused; only the rest are judged now.
-    reused = _reusable_ad_evals(state, len(ad_copies))
-    to_judge = [ac for ac, e in zip(ad_copies, reused, strict=True) if e is None]
-
-    logger.info(
-        f"Evaluating {len(to_judge)} ad copies ({len(ad_copies) - len(to_judge)} "
-        f"reused from the early evaluation) and {len(visual_concepts)} visual "
-        f"concepts concurrently (max {_config.workers_for(len(to_judge), len(visual_concepts))} workers)..."
+    ad_evals, visual_evals = _judge_run(
+        state, campaign_context, ad_copies, visual_concepts
     )
-
-    brief = parse_brief(state.get("creative_brief"))
-    generated_images = state.get("generated_images") or {}
-
-    # Score every creative in parallel — each is an independent judge call, so
-    # this collapses eval wall-clock from ~N*28s to roughly one call's latency.
-    judged_ads, visual_evals = evaluate_all_concurrently(
-        to_judge,
-        visual_concepts,
-        campaign_context,
-        _config,
-        brief=brief,
-        generated_images=generated_images,
-        person_reference=state.get("person_reference"),
-        trend_situation=run_trend_situation(state),
-        sources=state.get("sources"),
-        # Visuals pair with every final copy, also the ones reused above.
-        paired_ad_copies=ad_copies,
-        safer_angle=safer_angle_active(state),
-        sensitive_reason=safer_angle_reason(state),
-    )
-    if any(e is not None for e in reused):
-        judged_iter = iter(judged_ads)
-        ad_evals = [e if e is not None else next(judged_iter) for e in reused]
-    else:
-        ad_evals = judged_ads
-
-    summary = _build_summary(ad_evals, visual_evals)
-
-    # Surface any research producers that exhausted their retries (RetryUntilKeyNode
-    # markers) as structured, consumable degradation notes on the report.
-    warnings = collect_degradation_warnings(state) + judge_warnings(
-        ad_evals, visual_evals, generated_images
-    )
-
     learning_used, learning_flags = learning_record(state.get("rating_signals_applied"))
-    report = CreativeEvaluationReport(
-        brand=campaign_context["brand"],
-        target_product=campaign_context["target_product"],
-        target_search_trend=campaign_context["target_search_trend"],
-        ad_copy_evaluations=ad_evals,
-        visual_concept_evaluations=visual_evals,
-        summary=summary,
-        warnings=warnings,
-        judge_model=_config.eval_model,
-        judge_version=JUDGE_VERSION,
-        passing_threshold=_config.passing_threshold,
-        brief_used=brief is not None,
+    report = build_report(
+        campaign_context,
+        ad_evals,
+        visual_evals,
+        _config,
+        brief_used=parse_brief(state.get("creative_brief")) is not None,
+        generated_images=state.get("generated_images") or {},
+        trend_situation=run_trend_situation(state),
+        # Research producers that exhausted their retries (RetryUntilKeyNode
+        # markers) and other residual-issue markers, as report notes.
+        run_warnings=collect_degradation_warnings(state),
         learning_used=learning_used,
         learning_flags=learning_flags,
-        trend_valid_until=trend_valid_until(run_trend_situation(state)),
     )
-
-    # Store in session state
     state["creative_evaluation_report"] = report.model_dump()
 
-    # Compact per-creative list of failures so the agent can say which failed and
-    # why (improvements are the lowest-scoring failed dimensions, top 2).
-    failed_creatives = [
-        {
-            "type": "ad_copy",
-            "id": e.original_id,
-            "name": e.headline,
-            "overall_score": e.score.overall_score,
-            "improvements": e.score.improvements[:2],
-            "failed_gates": _failed_gates(e.score),
-        }
-        for e in ad_evals
-        if not e.score.passed
-    ] + [
-        {
-            "type": "visual_concept",
-            "id": e.ad_copy_id,
-            "name": e.concept_name,
-            "overall_score": e.score.overall_score,
-            "improvements": e.score.improvements[:2],
-            "failed_gates": _failed_gates(e.score),
-        }
-        for e in visual_evals
-        if not e.score.passed
-    ]
-
+    summary = report.summary
     return {
         "status": "success",
         "total_ad_copies": summary.total_ad_copies,
@@ -319,5 +245,75 @@ def evaluate_all_creatives(tool_context) -> dict:
         "avg_visual_score": summary.avg_visual_score,
         "overall_pass_rate": summary.overall_pass_rate,
         "weakest_dimensions": summary.weakest_dimensions,
-        "failed_creatives": failed_creatives,
+        "failed_creatives": _failed_creatives(ad_evals, visual_evals),
     }
+
+
+def _judge_run(
+    state: Mapping[str, Any],
+    campaign_context: dict[str, Any],
+    ad_copies: list[dict],
+    visual_concepts: list[dict],
+) -> tuple[list[AdCopyEvaluation], list[VisualConceptEvaluation]]:
+    """Judge the run's creatives, reusing the early ad-copy evaluations.
+
+    Ad copies already judged while the visuals rendered (creative_agent's
+    evaluate_ad_copies_node) are reused; only the rest are judged now, in one
+    concurrent batch with every visual concept. Order follows the inputs.
+    """
+    reused = _reusable_ad_evals(state, len(ad_copies))
+    to_judge = [ac for ac, e in zip(ad_copies, reused, strict=True) if e is None]
+
+    logger.info(
+        f"Evaluating {len(to_judge)} ad copies ({len(ad_copies) - len(to_judge)} "
+        f"reused from the early evaluation) and {len(visual_concepts)} visual "
+        f"concepts concurrently (max {_config.workers_for(len(to_judge), len(visual_concepts))} workers)..."
+    )
+
+    # Score every creative in parallel — each is an independent judge call, so
+    # this collapses eval wall-clock from ~N*28s to roughly one call's latency.
+    judged_ads, visual_evals = evaluate_all_concurrently(
+        to_judge,
+        visual_concepts,
+        campaign_context,
+        _config,
+        brief=parse_brief(state.get("creative_brief")),
+        generated_images=state.get("generated_images") or {},
+        person_reference=state.get("person_reference"),
+        trend_situation=run_trend_situation(state),
+        sources=state.get("sources"),
+        # Visuals pair with every final copy, also the ones reused above.
+        paired_ad_copies=ad_copies,
+        safer_angle=safer_angle_active(state),
+        sensitive_reason=safer_angle_reason(state),
+    )
+    if not any(e is not None for e in reused):
+        return judged_ads, visual_evals
+    judged_iter = iter(judged_ads)
+    return [e if e is not None else next(judged_iter) for e in reused], visual_evals
+
+
+def _failed_creatives(
+    ad_evals: list[AdCopyEvaluation], visual_evals: list[VisualConceptEvaluation]
+) -> list[dict[str, Any]]:
+    """Compact per-creative failures, so the agent can say which failed and why.
+
+    ``improvements`` are the judge's own top-2 suggested improvements (free
+    text from its score), ``failed_gates`` the failed blocking gates.
+    """
+    rows: list[tuple[str, Any, str, AdCopyEvaluation | VisualConceptEvaluation]] = [
+        *(("ad_copy", e.original_id, e.headline, e) for e in ad_evals),
+        *(("visual_concept", e.ad_copy_id, e.concept_name, e) for e in visual_evals),
+    ]
+    return [
+        {
+            "type": kind,
+            "id": creative_id,
+            "name": name,
+            "overall_score": e.score.overall_score,
+            "improvements": e.score.improvements[:2],
+            "failed_gates": _failed_gates(e.score),
+        }
+        for kind, creative_id, name, e in rows
+        if not e.score.passed
+    ]

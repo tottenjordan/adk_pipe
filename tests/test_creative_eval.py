@@ -281,7 +281,9 @@ class TestScoreFromVerdicts:
         assert result.overall_score == 0.35
         assert not result.passed
 
-    def test_identifies_strengths_and_improvements(self):
+    def test_leaves_strengths_and_improvements_to_the_judge(self):
+        """score_from_judge fills them with the judge's own text, so the
+        aggregate never derives them from the verdicts."""
         from creative_eval.evaluate import _score_from_verdicts
         from creative_eval.schemas import EvalVerdict
 
@@ -297,8 +299,7 @@ class TestScoreFromVerdicts:
             ),
         ]
         result = _score_from_verdicts(verdicts, threshold=0.7)
-        assert "strong_dim" in result.strengths
-        assert "weak_dim" in result.improvements
+        assert result.strengths == [] and result.improvements == []
 
 
 class TestEvalConfig:
@@ -467,7 +468,7 @@ class TestEvaluateAllCreativesInputs:
         with (
             patch("creative_eval.evaluate.evaluate_ad_copy", mock_ad_eval),
             patch("creative_eval.evaluate.evaluate_visual_concept", mock_vis_eval),
-            patch("creative_eval.agent._build_summary") as mock_summary,
+            patch("creative_eval.evaluate._build_summary") as mock_summary,
         ):
             # Setup return values
             from creative_eval.schemas import (
@@ -550,7 +551,7 @@ class TestEvaluateAllCreativesInputs:
             patch(
                 "creative_eval.evaluate.evaluate_ad_copy", side_effect=capture_ad_eval
             ),
-            patch("creative_eval.agent._build_summary") as mock_summary,
+            patch("creative_eval.evaluate._build_summary") as mock_summary,
         ):
             from creative_eval.schemas import EvaluationSummary
 
