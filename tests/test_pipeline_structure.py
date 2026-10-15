@@ -2230,6 +2230,26 @@ def test_ad_copy_reviser_failsoft_error_delta():
     assert delta["ad_copy_revision_rounds_used"] >= ca.config.copy_revision_rounds
 
 
+@pytest.mark.parametrize("used", [0, 1])
+def test_ad_copy_reviser_failure_spends_a_multi_round_budget(monkeypatch, used):
+    """With COPY_REVISION_ROUNDS=2 a failed reviser spends the whole budget, so
+    the gate it routes back to records the issues instead of revising again."""
+    from creative_agent import agent as ca
+
+    monkeypatch.setattr(ca.config, "copy_revision_rounds", 2)
+    before = {"ad_copies": list(_four(_final_copy(2, body_text="Go fast.")))}
+    state = _copy_state(
+        _final_copy(2, body_text="half-written"),
+        ad_copy_critique__before_revision=before,
+        ad_copy_revision_rounds_used=used,
+        ad_copy_issues="- x",
+    )
+    delta = ca._ad_copy_reviser_failed(state, ValueError())
+    assert delta["ad_copy_revision_rounds_used"] == 2
+    route, _ = ca.copy_gate_decision({**state, **delta}, 2)
+    assert route == "ok"
+
+
 @pytest.mark.parametrize(
     ("raw", "expected"),
     [(None, 1), ("", 1), ("0", 0), ("2", 2), ("5", 2), ("-1", 0), ("x", 1)],
