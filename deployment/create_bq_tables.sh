@@ -75,9 +75,14 @@ make_table "${BQ_TABLE_BANDIT_EXPERIMENTS}" \
   experiment_id:STRING,user_id:STRING,session_id:STRING,app_name:STRING,created_at:TIMESTAMP,updated_at:TIMESTAMP,status:STRING,scenario:STRING,ctr_mode:STRING,reward_mode:STRING,arms:STRING,config_uri:STRING,model_resource:STRING,endpoint_id:STRING,deployed_model_id:STRING,ttl_expires_at:TIMESTAMP,stopped_at:TIMESTAMP,traffic_execution:STRING,progress:STRING,error:STRING,scenario_overrides:STRING,deploy_lease_until:TIMESTAMP,deploy_lease_owner:STRING,policy_discount:FLOAT,traffic_runs:STRING
 
 # Bandit events, one row per endpoint-policy round (traffic job; insertId = request_id).
+# Day partitions on ts expire after 90 days (7776000 s): the table grows by up to
+# ~1.5M rows per traffic run, and only the creative drawer's per-creative series
+# reads it (bandit_episode_metrics, which the metrics view reads, is kept).
+# Existing table: the ALTER in deployment/README.md → Bandit experiments → Retention.
 make_table "${BQ_TABLE_BANDIT_EVENTS}" \
   experiment_id:STRING,episode:INTEGER,round:INTEGER,batch:INTEGER,request_id:STRING,ts:TIMESTAMP,policy:STRING,segment:STRING,context:STRING,arm:STRING,propensity:FLOAT,reward:FLOAT,clicked:INTEGER,dwell_s:FLOAT,p_chosen:FLOAT,p_optimal:FLOAT,optimal_arm:STRING,regret:FLOAT,model_version:STRING,latency_ms:FLOAT,traffic_run:INTEGER \
-  --time_partitioning_field ts --time_partitioning_type DAY --clustering_fields experiment_id
+  --time_partitioning_field ts --time_partitioning_type DAY \
+  --time_partitioning_expiration 7776000 --clustering_fields experiment_id
 
 # Bandit episode metrics, one row per (episode, policy) (traffic job).
 make_table "${BQ_TABLE_BANDIT_METRICS}" \
