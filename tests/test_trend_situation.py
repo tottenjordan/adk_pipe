@@ -368,3 +368,88 @@ def test_state_delta_without_a_draft_abstains():
     )
     assert delta["trend_situation"]["phase"] == "unknown"
     assert delta["trend_situation_md"] == ""
+
+
+# --- CA-1: a trend flagged sensitive by trend_scout is never timely --- #
+_TRIAL = {
+    "phase": "upcoming",
+    "event_name": "Tupac Shakur murder trial",
+    "event_start": "2026-10-12",
+    "source_ids": ["src-1"],
+    "confidence": "high",
+}
+
+
+def _trial_state(**extra):
+    return {
+        "trend_situation_draft": _TRIAL,
+        "sources": SOURCES,
+        "current_datetime": "2026-10-11T10:00:00-04:00",
+        "current_timezone": "America/New_York",
+        **extra,
+    }
+
+
+def _trial_delta(state):
+    from creative_agent.trend_situation import trend_situation_state_delta
+
+    return trend_situation_state_delta(
+        state, enabled=True, window_days=7, valid_hours_after=48, max_timely=1
+    )
+
+
+def test_trend_scout_sensitive_hint_floors_the_moment_to_not_timely():
+    from creative_agent.brief_check import check_brief
+    from creative_agent.trend_situation import timely_allowed
+    from tests.test_creative_agent_graph import _BRIEF
+
+    # Without the hint the drafted trial is a valid upcoming moment.
+    plain = _trial_delta(_trial_state())
+    assert plain["trend_situation"]["timely_ok"] is True
+    assert "Tupac Shakur murder trial" in plain["timely_rules"]
+
+    state = _trial_state(trend_sensitive_hint="yes")
+    delta = _trial_delta(state)
+    situation = delta["trend_situation"]
+    assert situation["phase"] == "upcoming"  # only timely_ok is floored
+    assert situation["timely_ok"] is False
+    assert situation["abstain_reason"] == "flagged sensitive by trend scout"
+    assert situation["tone_rule"] == ""
+    assert delta["timely_rules"] == ""
+    assert "valid until" not in delta["trend_situation_md"]
+
+    # The guards agree, even on a state whose stored moment still says timely.
+    assert timely_allowed({**state, **plain}, 1) is False
+    assert timely_allowed({**plain}, 1) is True
+
+    brief = json.loads(json.dumps(_BRIEF))
+    brief["trend_bridge"]["timely_angle"] = "Count down to the trial tomorrow"
+    issues = check_brief(brief, trend_situation=situation, max_timely=1)
+    assert any("timely_angle" in i for i in issues)
+
+
+@pytest.mark.parametrize("hint", ["", "no", None])
+def test_other_sensitive_hint_values_do_not_floor(hint):
+    delta = _trial_delta(_trial_state(trend_sensitive_hint=hint))
+    assert delta["trend_situation"]["timely_ok"] is True
+
+
+# --- CA-7 boundaries (M12 window, M13 source dated event - 1 day) --- #
+def test_event_exactly_window_days_away_is_inside_the_window():
+    # NOW is 2026-10-11; window 7 -> 2026-10-18 is in, 2026-10-19 is out.
+    assert _validate({**UPCOMING, "event_start": "2026-10-18"}).timely_ok is True
+    beyond = _validate({**UPCOMING, "event_start": "2026-10-19"})
+    assert beyond.phase == "unknown"
+    assert "more than 7 days" in beyond.abstain_reason
+
+
+def test_source_dated_the_day_before_the_event_is_accepted():
+    sources = {
+        "src-1": {"url": "https://news.example.com/2026/10/09/texas-oklahoma"},
+        "src-2": {"url": "https://news.example.com/2026/10/08/texas-oklahoma"},
+    }
+    day_before = _validate({**LOSS, "source_ids": ["src-1"]}, sources=sources)
+    assert day_before.timely_ok is True
+    two_days = _validate({**LOSS, "source_ids": ["src-2"]}, sources=sources)
+    assert two_days.phase == "unknown"
+    assert "predates the event" in two_days.abstain_reason
