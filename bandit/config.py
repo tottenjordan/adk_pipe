@@ -26,6 +26,11 @@ SCENARIOS: tuple[str, ...] = ("clear_winner", "segment_winners", "drift")
 CTR_MODES: tuple[str, ...] = ("demo", "realistic")
 REWARD_MODES: tuple[str, ...] = ("click", "engaged")
 MIN_ARMS, MAX_ARMS = 2, 4
+#: Upper bound on an engaged-mode reward (unscaled dwell seconds) the endpoint
+#: accepts (contracts §2). The simulator's largest dwell mean is about 120 s, so
+#: a real dwell never gets near it; it stops a unit mix-up (milliseconds) or a
+#: bad caller from overflowing the float32 posterior.
+MAX_DWELL_S: float = 3600.0
 SCENARIO_DIR = Path(__file__).parent / "scenarios"
 _OVERALL_PARTS = ("ad_copy_overall", "visual_overall")
 
@@ -258,6 +263,17 @@ def _strict_kwargs(cls: Any, data: Mapping[str, Any], what: str) -> dict[str, An
     return dict(data)
 
 
+def _integral_field(name: str, value: Any) -> int:
+    """``value`` as an int if it is an int or an integral float (a JSON number can
+    come back as a float), else ``ValueError``: ``int()`` would truncate 1.7 to 1
+    and parse ``"12"``."""
+    if isinstance(value, int) and not isinstance(value, bool):
+        return value
+    if isinstance(value, float) and math.isfinite(value) and value.is_integer():
+        return int(value)
+    raise ValueError(f"{name} must be an integer, got {value!r}")
+
+
 def arm_from_dict(d: Mapping[str, Any]) -> ArmSpec:
     kw = _strict_kwargs(ArmSpec, d, "arm")
     kw["scores"] = {str(k): float(v) for k, v in dict(kw.get("scores", {})).items()}
@@ -281,7 +297,7 @@ def load_experiment_config(src: str | Path | Mapping[str, Any]) -> ExperimentCon
         )
         for name in ("horizon", "batch_size", "episodes", "seed"):
             if name in kw:
-                kw[name] = int(kw[name])
+                kw[name] = _integral_field(name, kw[name])
         if "scenario_overrides" in kw:
             kw["scenario_overrides"] = scenario_overrides_from_dict(
                 kw["scenario_overrides"]

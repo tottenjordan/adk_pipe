@@ -7,7 +7,9 @@ import math
 import pytest
 
 from bandit.config import (
+    MAX_DWELL_S,
     OVERRIDE_BOUNDS,
+    SCENARIOS,
     ArmSpec,
     ExperimentConfig,
     LinTSParams,
@@ -387,3 +389,42 @@ def test_build_sim_config_accepts_overrides():
         build_sim_config(
             "clear_winner", scenario_overrides=ScenarioOverrides(segment_mix=(1.0,))
         )
+
+
+@pytest.mark.parametrize(
+    "over",
+    [
+        {"horizon": 1.7},
+        {"horizon": "12"},
+        {"batch_size": 99.5},
+        {"episodes": "2"},
+        {"seed": 3.2},
+        {"seed": True},
+        {"horizon": float("nan")},
+        {"horizon": float("inf")},
+    ],
+)
+def test_non_integral_int_fields_are_rejected(over):
+    # int() would quietly truncate 1.7 to 1 and parse "12"
+    (name,) = over
+    with pytest.raises(ValueError, match=f"{name} must be an integer"):
+        load_experiment_config(_cfg(**over))
+
+
+def test_integral_float_int_fields_are_accepted():
+    # a JSON number can come back as a float (e.g. after a protobuf round trip)
+    cfg = load_experiment_config(_cfg(horizon=2000.0, batch_size=100.0, seed=7.0))
+    assert (cfg.horizon, cfg.batch_size, cfg.seed) == (2000, 100, 7)
+    assert all(type(v) is int for v in (cfg.horizon, cfg.batch_size, cfg.seed))
+
+
+@pytest.mark.parametrize("name", SCENARIOS)
+def test_max_dwell_sits_far_above_the_simulated_dwell(name):
+    # engaged rewards above MAX_DWELL_S are refused by the endpoint (contracts
+    # §2), so the simulator's largest dwell mean must sit far below it: the mean
+    # is dwell_base_s x dwell_factor x exp(dwell_score_scale x s), |s| <= 1, and
+    # a dwell is that mean x Exponential(1)
+    sc = load_scenario(name)
+    top = max(seg.dwell_factor for seg in sc.segments)
+    worst_mean = sc.dwell_base_s * top * math.exp(sc.dwell_score_scale)
+    assert MAX_DWELL_S / worst_mean > 25  # P(Exponential(1) > 25) ~ 1e-11
