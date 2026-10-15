@@ -116,10 +116,10 @@ def is_populated(value: object) -> bool:
     """Populated = a non-blank string, or any other truthy value.
 
     Research producers write a non-blank string summary; the image producer
-    (``generate_image``) writes a boolean ``_images_generated`` flag (and a
-    non-empty artifact-keys list). A blank/whitespace string, empty list,
-    ``False``, ``0`` and ``None`` all count as unpopulated so the wrapper
-    retries.
+    (``generate_image``) writes ``_images_generated`` as a non-blank render
+    fingerprint string (legacy sessions: ``True``) and a non-empty
+    artifact-keys list. A blank/whitespace string, empty list, ``False``,
+    ``0`` and ``None`` all count as unpopulated so the wrapper retries.
     """
     if isinstance(value, str):
         return bool(value.strip())
