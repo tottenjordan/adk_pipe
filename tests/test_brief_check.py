@@ -130,6 +130,19 @@ def test_motifs_all_generic():
     assert "generic" in issue
 
 
+def test_non_latin_motifs_are_not_generic():
+    # CA-4: an ASCII-only tokenizer read these as empty, hence "all generic".
+    motifs = ["東京タワー", "渋谷"]
+    assert check_brief(_brief(trend_bridge__motifs=motifs)) == []
+    assert check_brief(_brief(trend_bridge__motifs=["Café crème"])) == []
+
+
+def test_generic_motif_plurals_and_accents_still_count():
+    motifs = ["Phones", "chat bubbles", "the hashtags"]
+    (issue,) = check_brief(_brief(trend_bridge__motifs=motifs))
+    assert "generic" in issue
+
+
 def test_one_specific_motif_is_enough():
     motifs = ["a phone", "a roadrunner dust cloud"]
     assert check_brief(_brief(trend_bridge__motifs=motifs)) == []

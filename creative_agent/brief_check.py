@@ -139,10 +139,12 @@ def _text(value: Any) -> str:
 
 
 def _is_generic_motif(motif: str) -> bool:
-    tokens = re.findall(r"[a-z]+", motif.lower())
-    tokens = [w[:-1] if w.endswith("s") and len(w) > 3 else w for w in tokens]
-    tokens = [w for w in tokens if w not in _FILLER]
-    return not tokens or all(w in _GENERIC_TOKENS for w in tokens)
+    # Unicode words (``text_match.words``), so a motif in any script counts;
+    # ``same_word`` folds plurals ("phones" is generic).
+    tokens = [w for w in words(motif) if w not in _FILLER]
+    return not tokens or all(
+        any(same_word(w, g) for g in _GENERIC_TOKENS) for w in tokens
+    )
 
 
 def _without_abbreviations(text: str) -> str:
