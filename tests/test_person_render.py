@@ -87,6 +87,15 @@ def test_person_image_config_adds_allow_adult():
     assert base.person_generation is None
 
 
+def test_person_image_config_blocks_prominent_people():
+    """Person renders never depict celebrities (a cast person must not be turned
+    into the trending public figure); base renders keep the field unset."""
+    base = types.ImageConfig(aspect_ratio="4:5", image_size="2K")
+    got = person_image_config(base)
+    assert got.prominent_people == types.ProminentPeople.BLOCK_PROMINENT_PEOPLE
+    assert base.prominent_people is None
+
+
 # --- generate_image integration -----------------------------------------------------
 
 
@@ -175,6 +184,11 @@ def test_cast_concept_gets_person_part_and_allow_adult(monkeypatch):
     assert f"Reference image 1 (person): {PERSON_ROLE_INSTRUCTION}" in contents[0]
     assert contents[1].inline_data.data == b"\xff\xd8person"
     assert cast_call["config"].image_config.person_generation == "ALLOW_ADULT"
+    assert (
+        cast_call["config"].image_config.prominent_people
+        == types.ProminentPeople.BLOCK_PROMINENT_PEOPLE
+    )
+    assert plain_call["config"].image_config.prominent_people is None
     assert plain_call["contents"] == (
         "A flat cartoon skate.\n\nNo logos, brand marks or trademarks."
     )
@@ -296,6 +310,38 @@ def test_blocked_person_render_falls_back_without_the_person(monkeypatch):
     assert ctx.state["person_reference__issues"] == [
         "cast: person photo rejected by the safety filter; rendered without the person"
     ]
+
+
+@pytest.mark.usefixtures("image_qa_off")
+@pytest.mark.parametrize(
+    ("finish", "reason"),
+    [
+        (types.FinishReason.IMAGE_PROHIBITED_CONTENT, "image_prohibited_content"),
+        (types.FinishReason.IMAGE_OTHER, "no_image"),
+        (types.FinishReason.NO_IMAGE, "no_image"),
+    ],
+)
+def test_prominent_people_block_falls_back_without_the_person(
+    monkeypatch, finish, reason
+):
+    """However Vertex reports a BLOCK_PROMINENT_PEOPLE hit (a prohibited-content
+    finish or simply no image), the person render falls back like other blocks."""
+
+    def respond(k):
+        if k["config"].image_config.prominent_people:
+            return _response(image=False, finish=finish)
+        return _response()
+
+    models, _ = _patch(monkeypatch, respond)
+    ctx = _ctx([_concept("cast", cast=True)], person=_PERSON)
+    result = asyncio.run(image_tools.generate_image(ctx))
+
+    assert result["status"] == "success"
+    assert len(models.calls) == 2
+    fallback = models.calls[1]["config"].image_config
+    assert fallback.prominent_people is None and fallback.person_generation is None
+    assert ctx.state["person_reference_rejected"] == {"cast": reason}
+    assert ctx.state["generated_images"]["cast"]["cast"] is False
 
 
 @pytest.mark.usefixtures("image_qa_off")

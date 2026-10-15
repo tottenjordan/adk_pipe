@@ -11,6 +11,8 @@ from __future__ import annotations
 import re
 from typing import Any
 
+from google.genai import types
+
 PERSON_REFS_SEGMENT = "person-refs/"
 _PERSON_URI_RE = re.compile(r"^gs://[^/]+/person-refs/[^/]+/[^/]+$")
 
@@ -53,6 +55,10 @@ PERSON_ROLE_INSTRUCTION = (
 # The calibration spike confirmed gemini-nano-banana-2.1 accepts this on person
 # renders (docs/notes/person-reference-calibration.md).
 PERSON_GENERATION = "ALLOW_ADULT"
+# Person renders never depict a celebrity: the cast person must stay themselves,
+# never become the trending public figure. A Vertex-only ImageConfig field (the
+# image client is vertexai=True); base renders leave it unset.
+PROMINENT_PEOPLE = types.ProminentPeople.BLOCK_PROMINENT_PEOPLE
 
 # Finish reasons that mean a safety filter withheld the image.
 SAFETY_FINISH_REASONS = frozenset(
@@ -107,5 +113,11 @@ def person_block_reason(response: Any) -> str | None:
 
 
 def person_image_config(base: Any) -> Any:
-    """``base`` (a genai ``ImageConfig``) with ``person_generation=ALLOW_ADULT``."""
-    return base.model_copy(update={"person_generation": PERSON_GENERATION})
+    """``base`` (a genai ``ImageConfig``) with ``person_generation=ALLOW_ADULT``
+    and ``prominent_people=BLOCK_PROMINENT_PEOPLE``."""
+    return base.model_copy(
+        update={
+            "person_generation": PERSON_GENERATION,
+            "prominent_people": PROMINENT_PEOPLE,
+        }
+    )
