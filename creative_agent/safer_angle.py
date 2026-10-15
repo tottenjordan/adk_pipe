@@ -177,7 +177,11 @@ def visual_rules(reason: str) -> str:
         "\n    *   Draw motifs from the safer angle (era, genre, instruments, "
         "settings); a real person may be evoked through their era, genre, "
         "instruments and settings, never a likeness of the real person and never "
-        "estate-owned imagery." + _floor(likeness=True)
+        "estate-owned imagery."
+        "\n    *   Signature objects or attire of the real person (e.g. a bandana) "
+        "may appear as props or styling cues, on the set, the instrument or an "
+        "anonymous figure who does not resemble them; never a likeness."
+        + _floor(likeness=True)
     )
 
 
