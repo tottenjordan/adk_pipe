@@ -219,6 +219,7 @@ _BRIEF: dict[str, Any] = {
         "motifs": ["a roadrunner dust cloud", "desert mesa road"],
         "risks": ["cartoon violence"],
         "timely_angle": "",
+        "safer_angle": "",
     },
     "mandatories": ["show the ACME logo", "name Rocket Skates"],
     "avoid": ["cliff falls"],
