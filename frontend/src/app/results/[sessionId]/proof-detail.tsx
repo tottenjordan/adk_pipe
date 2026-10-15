@@ -218,6 +218,25 @@ export function CastingSection({ casting }: { casting?: Casting }) {
   );
 }
 
+/** The respectful-tribute caution for a creative whose ad copy names a real person. */
+export const NAMED_PERSON_NOTE =
+  "Respectful tribute only. Check name and likeness rights before using this live.";
+
+/**
+ * "Names a real person" + the tribute caution for a sensitive-trend creative
+ * whose ad copy names the real person. Nothing otherwise.
+ */
+export function NamedPersonSection({ show }: { show?: boolean }) {
+  if (!show) return null;
+  return (
+    <section className="border-t border-border pt-4">
+      <dl>
+        <TextField label="Names a real person" value={NAMED_PERSON_NOTE} />
+      </dl>
+    </section>
+  );
+}
+
 /**
  * The timely slot: "Timely: <reason> · valid until …" for the creative that
  * references the run's validated current moment, "… · Expired on …" once that
@@ -391,6 +410,7 @@ export function ProofDetail({
               <ImageCheckSection check={proof.imageCheck} />
               <CastingSection casting={proof.casting} />
               <TimelySection timely={proof.timely} />
+              <NamedPersonSection show={proof.namesRealPerson} />
               {ratingSlot?.(proof)}
               {personaliseSlot?.(proof)}
               {shareAction && (

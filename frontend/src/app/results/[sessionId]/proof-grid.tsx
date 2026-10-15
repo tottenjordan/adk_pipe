@@ -49,6 +49,21 @@ export function TimelyChip({ timely, className }: { timely?: Timely; className?:
 }
 
 /**
+ * Small mark-pending chip for a creative whose ad copy names the real person
+ * of a sensitive trend (a respectful tribute; check rights before live use).
+ */
+export function NamesRealPersonChip({ show, className }: { show?: boolean; className?: string }) {
+  if (!show) return null;
+  return (
+    <div className={className}>
+      <span className="inline-flex items-center rounded-sm border border-mark-pending px-1.5 py-0.5 text-xs font-medium leading-none text-mark-pending">
+        Names a real person
+      </span>
+    </div>
+  );
+}
+
+/**
  * Contact sheet: every creative as a dense proof (square image, headline, two
  * score marks). Each proof is a button that opens ProofDetail.
  */
@@ -97,7 +112,7 @@ export function ProofGrid({
                 type="button"
                 ref={itemRef(p.index)}
                 onClick={() => onOpen(p.index)}
-                aria-label={`Open creative ${p.index + 1}: ${p.concept.headline}${timelyAria(p.timely)}${rated ? " (rated)" : ""}`}
+                aria-label={`Open creative ${p.index + 1}: ${p.concept.headline}${timelyAria(p.timely)}${p.namesRealPerson ? " · names a real person" : ""}${rated ? " (rated)" : ""}`}
                 className="group flex h-full w-full flex-col rounded-lg border border-border bg-card p-2 text-left transition-colors hover:border-foreground/40"
               >
                 <ProofImage
@@ -128,6 +143,7 @@ export function ProofGrid({
                   <div className="flex flex-wrap gap-1.5 empty:hidden">
                     <CheckFailedChip count={proofFailedChecks(p).length} className="mt-2" />
                     <TimelyChip timely={p.timely} className="mt-2" />
+                    <NamesRealPersonChip show={p.namesRealPerson} className="mt-2" />
                   </div>
                 </div>
               </button>

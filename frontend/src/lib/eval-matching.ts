@@ -12,6 +12,7 @@
  *   together; without session copies, by the concept's id/headline (never index)
  */
 
+import { namedCopyIds } from "@/lib/safer-angle";
 import { formatValidUntil, pairedCopy, timelyStatusFor } from "@/lib/timely";
 
 export interface EvalVerdict {
@@ -355,6 +356,8 @@ export interface Proof {
   casting?: Casting;
   /** The timely slot (absent for evergreen concepts). */
   timely?: Timely;
+  /** The paired ad copy names the real person of a sensitive trend (a respectful tribute). */
+  namesRealPerson?: boolean;
 }
 
 export function buildProofs(
@@ -365,8 +368,11 @@ export function buildProofs(
   personRejected?: unknown,
   trendSituation?: unknown,
   /** Wall clock (ms) for the timely expiry; 0 = not known yet (never expired). */
-  now = 0
+  now = 0,
+  /** `state.safer_angle_named_copies` (ad copy ids naming the real person). */
+  namedCopies?: unknown
 ): Proof[] {
+  const named = namedCopyIds(namedCopies);
   return concepts.map((concept, index) => {
     const match = matchAdCopy(adCopies, concept, index);
     return {
@@ -384,8 +390,25 @@ export function buildProofs(
       imageCheck: imageCheckFor(generatedImages, concept.concept_name),
       casting: castingFor(concept, generatedImages, personRejected),
       timely: timelyFor(concept, trendSituation, adCopies, now),
+      ...(namesRealPersonFor(concept, match, named) && { namesRealPerson: true }),
     };
   });
+}
+
+/**
+ * Whether a proof's paired ad copy is one of `safer_angle_named_copies`: the
+ * concept's own `ad_copy_id`, or the shown copy's id when it was matched by id
+ * or headline (never a positional guess).
+ */
+export function namesRealPersonFor(
+  concept: Pick<VisualConcept, "ad_copy_id">,
+  match: AdCopyMatch<Pick<AdCopy, "original_id">> | null,
+  named: ReadonlySet<string>
+): boolean {
+  if (named.size === 0) return false;
+  const ids = [concept.ad_copy_id];
+  if (match && match.via !== "index") ids.push(match.item.original_id);
+  return ids.some((id) => (typeof id === "number" || typeof id === "string") && named.has(String(id).trim()));
 }
 
 /** Mean of the available overall scores (0–1), or null when unevaluated. */

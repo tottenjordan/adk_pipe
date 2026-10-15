@@ -12,10 +12,12 @@ import { outputDir } from "@/lib/results-paths";
 import { classifyWarnings } from "@/lib/run-warnings";
 import { LearningSummary } from "@/components/learning-summary";
 import { TrendSituationLine } from "@/components/trend-situation-line";
+import { SaferAngleLine } from "@/components/safer-angle-line";
 import {
   buildDisplayFields,
   imagesRetryExhausted,
   RATING_LEARNING_FIELD,
+  SAFER_ANGLE_FIELD,
   VISUAL_DIRECTION_FIELDS,
   type DisplayFieldDef,
 } from "@/lib/utils";
@@ -70,6 +72,7 @@ const CAMPAIGN_FIELD_DEFS: DisplayFieldDef[] = [
   { label: "Selling points", key: "key_selling_points" },
   { label: "Trend", key: "target_search_trends" },
   RATING_LEARNING_FIELD,
+  SAFER_ANGLE_FIELD,
 ];
 
 const EMPTY_STATE: Record<string, unknown> = {};
@@ -172,7 +175,8 @@ export default function ResultsPage({
       state.generated_images,
       state.person_reference_rejected,
       state.trend_situation,
-      now
+      now,
+      state.safer_angle_named_copies
     );
   }, [state, evalReport, now]);
   const sortedProofs = useMemo(() => sortProofs(proofs, sort), [proofs, sort]);
@@ -300,6 +304,7 @@ export default function ResultsPage({
 
       <LearningSummary state={state} className="mb-4" />
       <TrendSituationLine state={state} className="mb-4" />
+      <SaferAngleLine state={state} className="mb-4" />
 
       {hasCreativeView && (
         <>
