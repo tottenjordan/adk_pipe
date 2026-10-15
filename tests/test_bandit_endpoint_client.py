@@ -206,7 +206,8 @@ def test_vertex_client_bounds_each_predict_so_a_stall_is_retried():
     insts = [{"type": "state"}]
     assert client.predict(insts) == _echo(insts)
     assert sdk.timeouts == [ec.PREDICT_TIMEOUT_SECONDS] * 2
-    assert ec.PREDICT_TIMEOUT_SECONDS == 60
+    # capped at 20 s, so a stalled call returns close to the SIGTERM grace window
+    assert ec.PREDICT_TIMEOUT_SECONDS == 20
 
 
 @pytest.mark.parametrize("name", ["123", "projects/p/endpoints/1", ""])
@@ -235,3 +236,106 @@ def test_in_process_client():
 
     with pytest.raises(ec.EndpointError):
         ec.InProcessClient(Short()).predict(insts)
+
+
+# ------------------------------------------------ stop requests (C6, SIGTERM)
+
+
+def test_call_with_retries_checks_stop_before_a_retry_sleep():
+    # SIGTERM lands while the first attempt is stalled: no backoff sleep, no
+    # second attempt, StopRequested instead
+    stop = {"set": False}
+    sleeps, calls = [], []
+
+    def fn():
+        calls.append(1)
+        stop["set"] = True
+        raise ec.TransientEndpointError("504")
+
+    with pytest.raises(ec.StopRequested):
+        ec.call_with_retries(fn, sleep=sleeps.append, should_stop=lambda: stop["set"])
+    assert calls == [1] and sleeps == []
+
+
+def test_call_with_retries_checks_stop_before_every_attempt():
+    calls = []
+    with pytest.raises(ec.StopRequested):
+        ec.call_with_retries(lambda: calls.append(1), should_stop=lambda: True)
+    assert calls == []
+
+
+def test_call_with_retries_checks_stop_after_a_sleep():
+    # the flag set during the backoff sleep stops before the next attempt
+    stop = {"set": False}
+    calls = []
+
+    def fn():
+        calls.append(1)
+        raise ec.TransientEndpointError("503")
+
+    def sleep(_s):
+        stop["set"] = True
+
+    with pytest.raises(ec.StopRequested):
+        ec.call_with_retries(fn, sleep=sleep, should_stop=lambda: stop["set"])
+    assert calls == [1]
+
+
+def test_call_with_retries_retryable_predicate():
+    sleeps = []
+    calls = iter([ValueError("conflict"), "ok"])
+
+    def fn():
+        v = next(calls)
+        if isinstance(v, Exception):
+            raise v
+        return v
+
+    out = ec.call_with_retries(
+        fn, sleep=sleeps.append, retryable=lambda exc: True, what="progress"
+    )
+    assert out == "ok" and len(sleeps) == 1
+
+
+def test_vertex_client_stops_a_stalled_predict_instead_of_retrying():
+    stop = {"set": False}
+
+    class Stalled(FakeAiplatform):
+        def Endpoint(self, **kw):  # noqa: N802
+            inner = super().Endpoint(**kw)
+
+            class _E:
+                def predict(self, **kw):
+                    stop["set"] = True  # SIGTERM arrives during the stall
+                    return inner.predict(**kw)
+
+            return _E()
+
+    sdk = Stalled(fail_times=10, error=DeadlineExceeded)
+    sleeps = []
+    client = ec.VertexEndpointClient(
+        ENDPOINT,
+        aiplatform_module=sdk,
+        sleep=sleeps.append,
+        should_stop=lambda: stop["set"],
+    )
+    with pytest.raises(ec.StopRequested):
+        client.predict([{"type": "state"}])
+    assert len(sdk.predict_calls) == 1 and sleeps == []
+
+
+def test_http_and_in_process_clients_check_stop():
+    session = SimpleNamespace(post=lambda *a, **k: pytest.fail("posted"))
+    with pytest.raises(ec.StopRequested):
+        ec.HttpClient("http://x", session=session, should_stop=lambda: True).predict(
+            [{"type": "state"}]
+        )
+
+    class Target:
+        def predict(self, instances, parameters):
+            pytest.fail("called")
+
+    with pytest.raises(ec.StopRequested):
+        ec.InProcessClient(Target(), should_stop=lambda: True).predict(
+            [{"type": "state"}]
+        )

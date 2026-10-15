@@ -74,7 +74,7 @@ import json
 import logging
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, NoReturn
 
 import jax
 import numpy as np
@@ -104,6 +104,7 @@ from bandit_traffic.endpoint_client import (
     MAX_REQUEST_BYTES,
     MAX_REQUEST_INSTANCES,
     EndpointClient,
+    StopRequested,
     split_instances,
 )
 
@@ -146,7 +147,10 @@ class TrafficSettings:
     the ground truth, e.g. the drift point, matches the horizon)."""
 
     error_threshold: float = 0.05
-    event_flush_rows: int = 2000
+    #: buffered ``bandit_events`` rows per flush; small enough that the rows at
+    #: risk when SIGKILL follows SIGTERM stay few (at most one stalled predict,
+    #: ``PREDICT_TIMEOUT_SECONDS``, can delay the final flush)
+    event_flush_rows: int = 500
     max_request_instances: int = MAX_REQUEST_INSTANCES
     max_request_bytes: int = MAX_REQUEST_BYTES
     baselines: tuple[str, ...] = BASELINES
@@ -346,6 +350,9 @@ class TrafficRunner:
 
     # ------------------------------------------------------------- transport
     def _send(self, instances: list[dict]) -> list[dict]:
+        """Send ``instances`` (split under the request limits). A client that
+        sees the stop flag before an attempt or a retry sleep raises
+        ``StopRequested``: flush the buffered events and stop."""
         preds: list[dict] = []
         for part in split_instances(
             instances,
@@ -353,7 +360,10 @@ class TrafficRunner:
             max_bytes=self.s.max_request_bytes,
         ):
             self.summary.requests += 1
-            preds.extend(self.client.predict(part, self.s.parameters))
+            try:
+                preds.extend(self.client.predict(part, self.s.parameters))
+            except StopRequested as exc:
+                self._stopped(f"during a {part[0].get('type')} request ({exc})")
         return preds
 
     def _flush_events(self, force: bool = False) -> None:
@@ -366,8 +376,10 @@ class TrafficRunner:
         """Between batches / episodes / replays: on a requested stop, flush
         the buffered events and raise ``TrafficStopped`` (finished episodes'
         metrics and progress were written when each one ended)."""
-        if not self._stop():
-            return
+        if self._stop():
+            self._stopped(where)
+
+    def _stopped(self, where: str) -> NoReturn:
         self._flush_events(force=True)
         unit = "segments" if self.continuous else "episodes"
         raise TrafficStopped(
@@ -398,14 +410,36 @@ class TrafficRunner:
             self.writer.write_metrics(rows)
             self.summary.metrics.extend(rows)
             self.summary.episodes_done = e + 1
-            self.writer.update_progress(self.experiment_id, e + 1, total)
+            self._progress(e + 1, total)
             log.info(
                 "episode %d/%d done: %s",
                 e + 1,
                 total,
                 {r["policy"]: r["cumulative_regret"] for r in rows},
             )
+        self._warn_rejected()
         return self.summary
+
+    def _progress(self, done: int, total: int) -> None:
+        self.writer.update_progress(
+            self.experiment_id,
+            done,
+            total,
+            rewards_rejected=self.summary.rewards_rejected,
+        )
+
+    def _warn_rejected(self) -> None:
+        """A rejected reward (``accepted: false``) breaks endpoint/simulator
+        parity quietly; the usual cause is an endpoint restart mid-run (its
+        pending decisions aren't checkpointed, so the in-flight batch's rewards
+        come back ``unknown request_id``)."""
+        if self.summary.rewards_rejected:
+            log.warning(
+                "%d rewards rejected by the endpoint (accepted: false), e.g. "
+                "after an endpoint restart mid-run; the endpoint's posterior "
+                "missed them, so it no longer matches the simulator exactly",
+                self.summary.rewards_rejected,
+            )
 
     def _reset(self, episode: int, k_pol: Any) -> None:
         reset_inst: dict[str, Any] = {
@@ -662,7 +696,7 @@ class TrafficRunner:
             self.writer.write_metrics(rows)
             self.summary.metrics.extend(rows)
             self.summary.episodes_done = seg + 1
-            self.writer.update_progress(self.experiment_id, seg + 1, E)
+            self._progress(seg + 1, E)
             log.info(
                 "segment %d/%d done (rounds %d-%d): %s",
                 seg + 1,
@@ -671,6 +705,7 @@ class TrafficRunner:
                 (seg + 1) * T - 1,
                 {r["policy"]: r["cumulative_regret"] for r in rows},
             )
+        self._warn_rejected()
         return self.summary
 
     @staticmethod
@@ -796,7 +831,9 @@ def run_traffic(
     stop: Callable[[], bool] | None = None,
 ) -> TrafficSummary:
     """Run the traffic; ``stop`` is polled between batches, episodes and
-    replays (``TrafficStopped`` once it returns true)."""
+    replays (``TrafficStopped`` once it returns true). A client built with the
+    same flag as ``should_stop`` also stops inside a stalled request
+    (``StopRequested`` -> flush -> ``TrafficStopped``)."""
     return TrafficRunner(
         cfg,
         client,

@@ -24,9 +24,12 @@ name). Exit codes: 0 done, 1 run failure (endpoint / BigQuery / error rate),
 
 **Early stop.** Cloud Run sends SIGTERM at the task timeout and SIGKILL about
 10 s later. The handler only sets a flag; the traffic loop polls it between
-batches, episodes and replays, flushes the buffered ``bandit_events`` rows
-(finished episodes' metrics and progress are already written), logs "stopped
-early by SIGTERM" and the job exits 143 (non-zero, so the execution fails).
+batches, episodes and replays, and the endpoint client checks it before every
+attempt and every retry sleep (so a stalled endpoint costs at most one bounded
+predict, not a full retry cycle). Then the loop flushes the buffered
+``bandit_events`` rows (finished episodes' metrics and progress are already
+written), logs "stopped early by SIGTERM" and the job exits 143 (non-zero, so
+the execution fails).
 """
 
 from __future__ import annotations
@@ -35,11 +38,12 @@ import argparse
 import dataclasses
 import json
 import logging
+import math
 import os
 import signal
 import sys
 import threading
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 
@@ -156,6 +160,27 @@ def _bool(value: Any, name: str) -> bool | None:
     if text in _FALSE:
         return False
     raise ConfigError(f"{name} must be true or false, got {value!r}")
+
+
+DEFAULT_ERROR_THRESHOLD = 0.05
+
+
+def parse_error_threshold(value: Any) -> float:
+    """``ERROR_THRESHOLD`` (or the flag): a finite rate in [0, 1], default
+    0.05. ``nan`` would turn the error-rate abort off for good
+    (``errors / seen > nan`` is always false), so it is refused like any
+    out-of-range value."""
+    if value is None:
+        return DEFAULT_ERROR_THRESHOLD
+    try:
+        t = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ConfigError(
+            f"ERROR_THRESHOLD must be a number in [0, 1], got {value!r}"
+        ) from exc
+    if not (math.isfinite(t) and 0.0 <= t <= 1.0):
+        raise ConfigError(f"ERROR_THRESHOLD must be a number in [0, 1], got {value!r}")
+    return t
 
 
 @dataclasses.dataclass(frozen=True)
@@ -275,19 +300,25 @@ def resolve_config(
 
 
 def build_client(
-    args: argparse.Namespace, env: Mapping[str, str], cfg: ExperimentConfig
+    args: argparse.Namespace,
+    env: Mapping[str, str],
+    cfg: ExperimentConfig,
+    *,
+    should_stop: Callable[[], bool] | None = None,
 ) -> EndpointClient:
+    """The endpoint client; ``should_stop`` (the SIGTERM flag) lets it stop
+    before an attempt or a retry sleep instead of finishing its retries."""
     if args.in_process:
         from bandit_traffic.fake_endpoint import FakeBanditEndpoint
 
-        return InProcessClient(FakeBanditEndpoint(cfg))
+        return InProcessClient(FakeBanditEndpoint(cfg), should_stop=should_stop)
     url = _pick(args.local_url, env, "LOCAL_URL")
     if url:
-        return HttpClient(url)
+        return HttpClient(url, should_stop=should_stop)
     endpoint_id = _pick(args.endpoint_id, env, "ENDPOINT_ID")
     if endpoint_id:
         try:
-            return VertexEndpointClient(endpoint_id)
+            return VertexEndpointClient(endpoint_id, should_stop=should_stop)
         except ValueError as exc:
             raise ConfigError(str(exc)) from exc
     raise ConfigError("need one of ENDPOINT_ID, --local-url or --in-process")
@@ -331,15 +362,16 @@ def main(
         level=getattr(logging, str(args.log_level).upper(), logging.INFO),
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
+    stop = threading.Event()
     try:
         cfg, experiment_id = resolve_config(args, env)
         options = resolve_run_options(args, env, cfg)
-        client = client or build_client(args, env, cfg)
-        writer = writer or build_writer(args, env)
-        threshold = _pick(args.error_threshold, env, "ERROR_THRESHOLD")
-        settings = TrafficSettings(
-            error_threshold=float(threshold) if threshold is not None else 0.05
+        threshold = parse_error_threshold(
+            _pick(args.error_threshold, env, "ERROR_THRESHOLD")
         )
+        client = client or build_client(args, env, cfg, should_stop=stop.is_set)
+        writer = writer or build_writer(args, env)
+        settings = TrafficSettings(error_threshold=threshold)
     except (ConfigError, ValueError) as exc:
         log.error("configuration error: %s", exc)
         return EXIT_CONFIG
@@ -360,7 +392,6 @@ def main(
         options.forget,
         options.learning,
     )
-    stop = threading.Event()
     previous = install_sigterm_handler(stop)
     try:
         summary = run_traffic(

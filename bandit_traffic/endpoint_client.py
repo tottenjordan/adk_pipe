@@ -17,6 +17,12 @@ The network clients retry transient failures (429 / 5xx / connection errors) wit
 exponential backoff. Retrying a request is safe: decisions are recomputed and
 rewards are deduplicated by ``request_id`` on the server.
 
+Every client takes an optional ``should_stop`` callable (the job's SIGTERM
+flag). ``call_with_retries`` checks it before every attempt and before every
+backoff sleep and raises ``StopRequested`` once it is true, so a stalled
+endpoint can't hold the job past Cloud Run's SIGKILL grace window; the traffic
+loop then flushes its buffered events and stops (exit 143).
+
 No JAX here: this module is importable anywhere.
 """
 
@@ -36,7 +42,10 @@ TRANSIENT_STATUS = frozenset({408, 429, 500, 502, 503, 504})
 #: Per-call bound on ``Endpoint.predict`` (the SDK default ``None`` waits
 #: forever): a stalled predict raises ``DeadlineExceeded``, which
 #: ``call_with_retries`` retries instead of hanging until the job's timeout.
-PREDICT_TIMEOUT_SECONDS = 60.0
+#: 20 s, because a call in flight can't be interrupted cheaply: after SIGTERM the
+#: job waits at most one such call before it sees the stop flag (a 500-instance
+#: request normally takes well under a second).
+PREDICT_TIMEOUT_SECONDS = 20.0
 _TRANSIENT_NAMES = frozenset(
     {
         "ServiceUnavailable",
@@ -75,6 +84,15 @@ class TransientEndpointError(EndpointError):
     """A retryable request-level failure (e.g. HTTP 429/5xx)."""
 
 
+class StopRequested(RuntimeError):
+    """``should_stop`` returned true before an attempt or a backoff sleep."""
+
+
+def _check_stop(should_stop: Callable[[], bool] | None, what: str) -> None:
+    if should_stop is not None and should_stop():
+        raise StopRequested(f"stop requested before {what}")
+
+
 def is_transient(exc: BaseException) -> bool:
     """Whether ``exc`` is worth retrying (429 / 5xx / timeouts / connection)."""
     if isinstance(exc, TransientEndpointError):
@@ -98,14 +116,24 @@ def call_with_retries(
     max_delay: float = 20.0,
     sleep: Callable[[float], None] = time.sleep,
     what: str = "predict",
+    should_stop: Callable[[], bool] | None = None,
+    retryable: Callable[[BaseException], bool] = is_transient,
 ) -> Any:
-    """Call ``fn``, retrying transient failures with jittered exponential backoff."""
+    """Call ``fn``, retrying failures ``retryable`` accepts (default: transient
+    ones) with jittered exponential backoff.
+
+    ``should_stop`` is checked before every attempt and before every backoff
+    sleep; once it returns true, ``StopRequested`` is raised instead."""
     for attempt in range(1, attempts + 1):
+        _check_stop(should_stop, what)
         try:
             return fn()
         except Exception as exc:
-            if attempt == attempts or not is_transient(exc):
+            if attempt == attempts or not retryable(exc):
                 raise
+            # SIGTERM during a stalled call: stop now instead of sleeping and
+            # retrying (the caller flushes its buffered rows)
+            _check_stop(should_stop, f"retrying {what}")
             delay = min(max_delay, base_delay * 2 ** (attempt - 1))
             delay *= 0.5 + random.random() / 2
             log.warning(
@@ -166,12 +194,14 @@ def parse_resource_name(name: str) -> dict[str, str]:
 class InProcessClient:
     """Calls ``target.predict(instances, parameters)`` directly (no network)."""
 
-    def __init__(self, target: Any):
+    def __init__(self, target: Any, *, should_stop: Callable[[], bool] | None = None):
         self.target = target
+        self.should_stop = should_stop
 
     def predict(
         self, instances: Sequence[dict], parameters: dict | None = None
     ) -> list[dict]:
+        _check_stop(self.should_stop, "predict")
         out = self.target.predict(list(instances), parameters)
         if isinstance(out, dict):  # a predictor returning the HTTP envelope
             out = out.get("predictions")
@@ -186,12 +216,14 @@ class HttpClient:
         url: str,
         *,
         session: Any = None,
-        timeout: float = 60.0,
+        timeout: float = PREDICT_TIMEOUT_SECONDS,
         attempts: int = 5,
         base_delay: float = 0.5,
         sleep: Callable[[float], None] = time.sleep,
+        should_stop: Callable[[], bool] | None = None,
     ):
         self.url = url
+        self.should_stop = should_stop
         self.timeout = timeout
         self.attempts = attempts
         self.base_delay = base_delay
@@ -229,6 +261,7 @@ class HttpClient:
             base_delay=self.base_delay,
             sleep=self.sleep,
             what=f"POST {self.url}",
+            should_stop=self.should_stop,
         )
         return _check_predictions(preds, len(instances))
 
@@ -247,8 +280,10 @@ class VertexEndpointClient:
         attempts: int = 6,
         base_delay: float = 1.0,
         sleep: Callable[[float], None] = time.sleep,
+        should_stop: Callable[[], bool] | None = None,
     ):
         parts = parse_resource_name(endpoint_name)
+        self.should_stop = should_stop
         self.endpoint_name = endpoint_name.strip()
         self.project = parts["project"]
         self.location = parts["location"]
@@ -288,6 +323,7 @@ class VertexEndpointClient:
             base_delay=self.base_delay,
             sleep=self.sleep,
             what=f"predict {self.endpoint_name}",
+            should_stop=self.should_stop,
         )
         return _check_predictions(
             list(getattr(resp, "predictions", [])), len(instances)
