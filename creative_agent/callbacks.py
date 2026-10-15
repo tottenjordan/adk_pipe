@@ -52,6 +52,27 @@ log_final_state_summary = observability.make_final_state_summary(
 )
 
 
+def _apply_safer_angle(target: State | dict[str, Any]) -> None:
+    """Opt-in safer angle for a sensitive trend (creative_agent/safer_angle.py).
+
+    Only ``safer_angle_opt_in`` is a client input (the campaign form seeds it;
+    ``setdefault(False)``, only exactly True counts). Every derived key — the
+    trend_scout flag, ``safer_angle_active`` (opt-in AND flag), the reason and
+    the four ``safer_angle_*_rules`` texts — is ASSIGNED from
+    ``derive_state`` (opt-in + ``trend_scout_context``), never setdefault'ed,
+    so a client cannot seed an active state or inject rule text. The rule
+    texts reach the prompts as optional {safer_angle_*_rules?} tokens and are
+    "" otherwise, so runs without the opt-in get unchanged instructions.
+    """
+    target.setdefault("safer_angle_opt_in", False)
+    inputs = {
+        key: target.get(key) for key in ("safer_angle_opt_in", "trend_scout_context")
+    }
+    for key, value in derive_safer_angle_state(inputs).items():
+        if key != "safer_angle_opt_in":
+            target[key] = value
+
+
 def _set_initial_states(source: dict[str, Any], target: State | dict[str, Any]):
     """
     Setting the initial session state given a JSON object of states.
@@ -69,6 +90,9 @@ def _set_initial_states(source: dict[str, Any], target: State | dict[str, Any]):
         extra={"gcs_bucket_name": config.GCS_BUCKET_NAME},
         timezone=config.trend_timezone,
     )
+    # Recomputed on every call, seeded or not (deterministic, so a resumed
+    # session gets the same values); see _apply_safer_angle.
+    _apply_safer_angle(target)
     if not seeded:
         return
 
@@ -150,18 +174,6 @@ def _set_initial_states(source: dict[str, Any], target: State | dict[str, Any]):
     # ({rating_limits?}, written by load_brand_history next to
     # rating_strictness); otherwise their instructions are unchanged.
     target.setdefault("rating_limits", "")
-    # Opt-in safer angle for a sensitive trend (creative_agent/safer_angle.py):
-    # the campaign form seeds safer_angle_opt_in (only exactly True counts); it
-    # is active only when trend_scout flagged the trend (trend_scout_context
-    # "sensitive": true). The four rule texts reach the prompts as optional
-    # {safer_angle_*_rules?} tokens and stay "" otherwise, so runs without the
-    # opt-in get unchanged instructions. Seeded once (setdefault).
-    target.setdefault("safer_angle_opt_in", False)
-    safer_inputs = {
-        key: target.get(key) for key in ("safer_angle_opt_in", "trend_scout_context")
-    }
-    for safer_key, safer_value in derive_safer_angle_state(safer_inputs).items():
-        target.setdefault(safer_key, safer_value)
 
     # Per-session random style shortlist (image diversity): the visual agents
     # pick their 4 styles from it, so runs don't converge on the same looks.
