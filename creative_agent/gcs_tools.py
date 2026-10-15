@@ -7,6 +7,7 @@ import logging
 import os
 import string
 import tempfile
+from collections.abc import Mapping
 
 from google.adk.tools import ToolContext
 from google.api_core import exceptions as gapi_exceptions
@@ -34,6 +35,48 @@ def artifact_key_for(concept_name: str) -> str:
     replace spaces with underscores and append ``.png``.
     """
     return concept_name.translate(REMOVE_PUNCTUATION).replace(" ", "_") + ".png"
+
+
+def unique_artifact_keys(concept_names: list[str]) -> list[str]:
+    """One artifact key per concept name, in order, with no two alike.
+
+    Each name gets ``artifact_key_for(name)``; a key already given to an earlier
+    concept (names differing only in punctuation, e.g. "Game Day!" and "Game
+    Day") becomes ``<stem>_2.png``, ``<stem>_3.png``, … — skipping any key a
+    concept derives on its own, so the first concept with a given key (and every
+    distinct name) keeps the historical key. Without this the second upload
+    overwrote the first and both render records pointed at one image.
+    """
+    bases = [artifact_key_for(name) for name in concept_names]
+    taken = set(bases)
+    used: set[str] = set()
+    keys: list[str] = []
+    for base in bases:
+        key = base
+        if key in used:
+            stem, n = base.removesuffix(".png"), 2
+            while f"{stem}_{n}.png" in taken:
+                n += 1
+            key = f"{stem}_{n}.png"
+            taken.add(key)
+        used.add(key)
+        keys.append(key)
+    return keys
+
+
+def record_artifact_key(record: object, concept_name: str) -> str:
+    """The artifact key a concept was uploaded under: its ``generated_images``
+    record's ``artifact_key`` (de-duplicated by ``unique_artifact_keys``) when it
+    is a plain ``.png`` file name, else ``artifact_key_for(concept_name)``."""
+    key = record.get("artifact_key") if isinstance(record, Mapping) else None
+    if (
+        isinstance(key, str)
+        and key.endswith(".png")
+        and "/" not in key
+        and ".." not in key
+    ):
+        return key
+    return artifact_key_for(concept_name)
 
 
 # Shared lazy getter (agent_common.clients), cached here so creative_agent keeps

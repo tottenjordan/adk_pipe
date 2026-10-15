@@ -47,7 +47,12 @@ from . import image_qa
 from .concept_guard import enforce_person_casting, parse_concepts
 from .config import config
 from .copy_gate import parse_copies
-from .gcs_tools import _download_blob, _save_to_gcs, artifact_key_for
+from .gcs_tools import (
+    _download_blob,
+    _save_to_gcs,
+    artifact_key_for,  # noqa: F401 (re-exported for tests)
+    unique_artifact_keys,
+)
 from .person_render import (
     PERSON_ROLE_INSTRUCTION,
     person_block_reason,
@@ -1027,7 +1032,10 @@ async def generate_image(
                     raise failure
         results = [await task for task in tasks]
 
-        for result in results:
+        planned_keys = unique_artifact_keys(
+            [str(c.get("concept_name") or "") for c in final_visual_concepts_list]
+        )
+        for result, artifact_key in zip(results, planned_keys, strict=True):
             entry = result.concept
             name = str(entry.get("concept_name") or "")
             if result.rejected_reason is not None:
@@ -1038,7 +1046,6 @@ async def generate_image(
                 qa_issues.append(result.qa_issue)
             if result.image_bytes is None:
                 continue
-            artifact_key = artifact_key_for(entry["concept_name"])
             consent_id = (
                 person_consent_id(person_ref) if person_uri and result.cast else None
             )
