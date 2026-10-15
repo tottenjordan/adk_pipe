@@ -425,6 +425,10 @@ class TrendBridge(BaseModel):
         default="",
         description="Only when the current moment is present and timely: one line on how a timely creative may reference it (tone per the timely playbook); otherwise ''.",
     )
+    safer_angle: str = Field(
+        default="",
+        description="Only when the run asks for a safer angle on a sensitive trend: one line (at most 25 words) naming the respectful, positive association to build on (e.g. the subject's legacy), never the sensitive event; otherwise ''.",
+    )
 
 
 class ReasonToBelieve(BaseModel):

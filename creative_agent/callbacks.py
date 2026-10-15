@@ -26,6 +26,7 @@ from .person_render import person_reference_available
 from .prompts import PERSON_CASTING_RULES
 from .rating_signals import strictness_flags
 from .references import reference_roles_summary
+from .safer_angle import derive_state as derive_safer_angle_state
 from .style_shortlist import format_shortlist, pick_style_shortlist
 from .trend_situation import timely_allowed
 
@@ -149,6 +150,18 @@ def _set_initial_states(source: dict[str, Any], target: State | dict[str, Any]):
     # ({rating_limits?}, written by load_brand_history next to
     # rating_strictness); otherwise their instructions are unchanged.
     target.setdefault("rating_limits", "")
+    # Opt-in safer angle for a sensitive trend (creative_agent/safer_angle.py):
+    # the campaign form seeds safer_angle_opt_in (only exactly True counts); it
+    # is active only when trend_scout flagged the trend (trend_scout_context
+    # "sensitive": true). The four rule texts reach the prompts as optional
+    # {safer_angle_*_rules?} tokens and stay "" otherwise, so runs without the
+    # opt-in get unchanged instructions. Seeded once (setdefault).
+    target.setdefault("safer_angle_opt_in", False)
+    safer_inputs = {
+        key: target.get(key) for key in ("safer_angle_opt_in", "trend_scout_context")
+    }
+    for safer_key, safer_value in derive_safer_angle_state(safer_inputs).items():
+        target.setdefault(safer_key, safer_value)
 
     # Per-session random style shortlist (image diversity): the visual agents
     # pick their 4 styles from it, so runs don't converge on the same looks.
