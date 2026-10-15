@@ -33,6 +33,9 @@ class TrendQueryList(BaseModel):
 
 
 # --- AGENT DEFINITIONS ---
+# Each instruction's last <INSTRUCTIONS> line ends with {safer_angle_research_rules?}:
+# the opt-in safer angle's research rules (creative_agent/safer_angle.py), "" unless
+# the run opted in on a trend flagged sensitive, so other runs see unchanged text.
 gs_web_planner = Agent(
     model=build_gemini(config.lite_planner_model),
     name="gs_web_planner",
@@ -55,7 +58,7 @@ gs_web_planner = Agent(
     To complete the task, you must follow these steps precisely:
     1.  Review the trending topic and target audience provided in the <CONTEXT> block.
     2.  Follow the guidelines in the <KEY_GUIDANCE> block to generate a list of **exactly 5** highly effective search queries.
-    3.  **CRITICAL FOR COMPLETION:** Ensure your output is a single, valid JSON object containing the generated queries.
+    3.  **CRITICAL FOR COMPLETION:** Ensure your output is a single, valid JSON object containing the generated queries.{safer_angle_research_rules?}
     </INSTRUCTIONS>
 
     <CONTEXT>
@@ -122,7 +125,7 @@ gs_web_searcher = Agent(
     <INSTRUCTIONS>
     1.  **Access Queries:** Retrieve the list of web search queries from the `initial_gs_queries` input in the <CONTEXT> block. If no queries are listed, search the intersection of the trend ({target_search_trends}) and the target audience ({target_audience}) instead: why the trend is happening now, its key dates and how it connects to the audience.
     2.  **Execute Research:** Use the `google_search` tool to exhaustively execute **all** retrieved queries.
-    3.  **Report RAW Findings:** For each query, list the concrete facts, quotes, entities, dates, numbers, and sentiment you found, grouped by query. Do NOT write a polished report and do NOT omit specifics — the next agent needs the raw material to synthesize from. Plain text with light markdown is fine.
+    3.  **Report RAW Findings:** For each query, list the concrete facts, quotes, entities, dates, numbers, and sentiment you found, grouped by query. Do NOT write a polished report and do NOT omit specifics — the next agent needs the raw material to synthesize from. Plain text with light markdown is fine.{safer_angle_research_rules?}
     </INSTRUCTIONS>
 
     <CONTEXT>
@@ -170,7 +173,7 @@ gs_web_synthesizer = Agent(
         + """
 
     <INSTRUCTIONS>
-    Synthesize **only** the data in <gs_web_search_raw> and present it as a detailed, structured, and objective trend report following the <REPORT_STRUCTURE> block.
+    Synthesize **only** the data in <gs_web_search_raw> and present it as a detailed, structured, and objective trend report following the <REPORT_STRUCTURE> block.{safer_angle_research_rules?}
     </INSTRUCTIONS>
 
     <CONTEXT>

@@ -462,7 +462,9 @@ CREATIVE_BRIEF_WRITER_INSTR = (
     + """
     16. """
     + TIMELY_ANGLE_RULE
-    + """
+    # The opt-in safer angle's brief rules (creative_agent/safer_angle.py),
+    # "" unless the run opted in on a trend flagged sensitive.
+    + """{safer_angle_brief_rules?}
     </INSTRUCTIONS>
 
     <CONTEXT>
