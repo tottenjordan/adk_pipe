@@ -1062,3 +1062,104 @@ def test_judge_version_defaults_empty_for_old_reports():
         },
     }
     assert CreativeEvaluationReport.model_validate(payload).judge_version == ""
+
+
+# --- The batch's sync genai client is closed once every judge call finished ---
+
+
+class _RecordingClient:
+    """Stands in for genai.Client: counts close() and supports ``with``."""
+
+    def __init__(self):
+        self.closed = 0
+
+    def close(self):
+        self.closed += 1
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        self.close()
+
+
+def _stub_judges(monkeypatch, ev, seen):
+    def judge(item, ctx, config, client, **kwargs):
+        # Called from the pool: the client must still be open here.
+        seen.append((client, client.closed))
+        return item
+
+    monkeypatch.setattr(ev, "evaluate_ad_copy", judge)
+    monkeypatch.setattr(ev, "evaluate_visual_concept", judge)
+
+
+def test_evaluate_all_concurrently_closes_its_own_client_after_the_pool(monkeypatch):
+    import creative_eval.evaluate as ev
+    from creative_eval.config import EvalConfig
+
+    made = []
+
+    def make(cfg):
+        made.append(_RecordingClient())
+        return made[-1]
+
+    seen = []
+    monkeypatch.setattr(ev, "_get_client", make)
+    _stub_judges(monkeypatch, ev, seen)
+    ads, visuals = ev.evaluate_all_concurrently(
+        [{"id": 1}, {"id": 2}], [{"concept_name": "c"}], {}, EvalConfig()
+    )
+    assert len(ads) == 2 and len(visuals) == 1
+    assert len(made) == 1
+    assert [closed for _, closed in seen] == [0, 0, 0]
+    assert all(c is made[0] for c, _ in seen)
+    assert made[0].closed == 1
+
+
+def test_evaluate_all_concurrently_leaves_a_caller_client_open(monkeypatch):
+    import creative_eval.evaluate as ev
+    from creative_eval.config import EvalConfig
+
+    def no_client(cfg):
+        raise AssertionError("a passed-in client must be used")
+
+    monkeypatch.setattr(ev, "_get_client", no_client)
+    _stub_judges(monkeypatch, ev, [])
+    client = _RecordingClient()
+    ev.evaluate_all_concurrently([{"id": 1}], [], {}, EvalConfig(), client)
+    assert client.closed == 0
+
+
+def test_evaluate_all_concurrently_builds_no_client_for_an_empty_batch(monkeypatch):
+    import creative_eval.evaluate as ev
+    from creative_eval.config import EvalConfig
+
+    def no_client(cfg):
+        raise AssertionError("no judge calls, no client")
+
+    monkeypatch.setattr(ev, "_get_client", no_client)
+    assert ev.evaluate_all_concurrently([], [], {}, EvalConfig()) == ([], [])
+
+
+def test_evaluate_creatives_closes_the_judge_client(monkeypatch):
+    import creative_eval.evaluate as ev
+    from creative_eval.config import EvalConfig
+
+    made = []
+
+    def make(cfg):
+        made.append(_RecordingClient())
+        return made[-1]
+
+    used = []
+
+    def fake_all(ads, visuals, ctx, config, client=None, **kwargs):
+        used.append((client, client.closed))
+        return [], []
+
+    monkeypatch.setattr(ev, "_get_client", make)
+    monkeypatch.setattr(ev, "evaluate_all_concurrently", fake_all)
+    ctx = {"brand": "B", "target_product": "P", "target_search_trend": "t"}
+    ev.evaluate_creatives(ctx, [], [], EvalConfig())
+    assert used == [(made[0], 0)]
+    assert made[0].closed == 1

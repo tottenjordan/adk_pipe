@@ -826,12 +826,27 @@ def evaluate_all_concurrently(
     ``paired_ad_copies`` (default ``ad_copies``; pass the full list when only
     some copies are judged here).
     """
-    if client is None:
-        client = _get_client(config)
-
     total = len(ad_copies) + len(visual_concepts)
     if total == 0:
         return [], []
+
+    if client is None:
+        # Own the client for this batch: closed (google-genai ``with`` support)
+        # only after the pool below has finished every judge call.
+        with _get_client(config) as owned:
+            return evaluate_all_concurrently(
+                ad_copies,
+                visual_concepts,
+                campaign_context,
+                config,
+                owned,
+                brief=brief,
+                generated_images=generated_images,
+                person_reference=person_reference,
+                trend_situation=trend_situation,
+                sources=sources,
+                paired_ad_copies=paired_ad_copies,
+            )
 
     images = generated_images if isinstance(generated_images, Mapping) else {}
     photo = person_photo_uri(person_reference)
@@ -956,25 +971,27 @@ def evaluate_creatives(
     if config is None:
         config = EvalConfig()
 
-    client = _get_client(config)
-
     logger.info(
         f"Evaluating {len(ad_copies)} ad copies and {len(visual_concepts)} visual "
         f"concepts concurrently (max {config.workers_for(len(ad_copies), len(visual_concepts))} workers)..."
     )
 
-    ad_evals, visual_evals = evaluate_all_concurrently(
-        ad_copies,
-        visual_concepts,
-        campaign_context,
-        config,
-        client,
-        brief=brief,
-        generated_images=generated_images,
-        person_reference=person_reference,
-        trend_situation=trend_situation,
-        sources=sources,
-    )
+    # The sync genai client holds an httpx connection pool: close it once the
+    # batch is done (evaluate_all_concurrently returns only after its pool has
+    # joined every judge call, so nothing uses the client past this block).
+    with _get_client(config) as client:
+        ad_evals, visual_evals = evaluate_all_concurrently(
+            ad_copies,
+            visual_concepts,
+            campaign_context,
+            config,
+            client,
+            brief=brief,
+            generated_images=generated_images,
+            person_reference=person_reference,
+            trend_situation=trend_situation,
+            sources=sources,
+        )
 
     summary = _build_summary(ad_evals, visual_evals)
 
