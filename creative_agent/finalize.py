@@ -241,6 +241,8 @@ async def _run_step(
 ) -> dict[str, Any] | None:
     """Run one persistence tool; on exception or error dict record ``<key>__issues``.
 
+    A success clears an earlier run's ``<key>__issues`` (to ``None``).
+
     A transient error (:func:`_transient_exceptions`) is retried after each
     ``_RETRY_DELAYS`` backoff (3 attempts in total); the tools are idempotent
     (session-derived BigQuery keys + MERGE, overwriting GCS uploads). Other
@@ -282,6 +284,10 @@ async def _run_step(
         logger.warning("finalize: %s: %s", label, message)
         ctx.state[f"{key}__issues"] = f"{label} failed: {message}"[:_ISSUE_MAX_CHARS]
         return None
+    if ctx.state.get(f"{key}__issues"):
+        # A re-run that succeeds clears an earlier run's failure note (None
+        # reads as clean everywhere, like a cleared __retry_exhausted marker).
+        ctx.state[f"{key}__issues"] = None
     return result if isinstance(result, dict) else {}
 
 
@@ -361,7 +367,15 @@ def _failed_gate_labels(score: Mapping[str, Any]) -> list[str]:
 
 
 def _judge_failed(score: Mapping[str, Any]) -> bool:
-    """True for the zero-score placeholder of a failed judge call."""
+    """True for the zero-score placeholder of a failed judge call.
+
+    Reads the code-set ``judge_failed`` (like ``creative_eval.evaluate._is_failed``);
+    only a report written before that key existed falls back to the old
+    ``"evaluation_failed"`` improvements marker, so a judge that writes that
+    phrase into its improvements is never mistaken for a failed call.
+    """
+    if "judge_failed" in score:
+        return score.get("judge_failed") is True
     return "evaluation_failed" in (score.get("improvements") or [])
 
 
