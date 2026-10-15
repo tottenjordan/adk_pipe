@@ -135,10 +135,10 @@ def test_casting_rules_come_only_from_state(name):
     instr = _person_prompts()[name]
     assert instr.count("{person_casting_rules?}") == 1, name
     # Last in the instructions, followed only by the timely slot's (and the
-    # rating limits') own tokens.
+    # rating limits' and the safer angle's) own tokens.
     assert re.search(
         r"\{person_casting_rules\?\}\{timely_rules\?\}(\{rating_limits\?\})?"
-        r"\n    </INSTRUCTIONS>",
+        r"\{safer_angle_visual_rules\?\}\n    </INSTRUCTIONS>",
         instr,
     ), name
     without = instr.replace("{person_casting_rules?}", "").lower()

@@ -557,7 +557,7 @@ AD_COPY_DRAFTER_INSTR = (
     + """
     9.  """
     + COPY_TREND_TIE_RULE
-    + """{timely_rules?}
+    + """{timely_rules?}{safer_angle_copy_rules?}
     </INSTRUCTIONS>
 
     <CONTEXT>
@@ -634,7 +634,7 @@ AD_COPY_CRITIC_INSTR = (
     + COPY_CLAIMS_RULE
     + " Remove any such claim from the copies you select."
     + """
-    8.  **Strict Output:** Output the final selection as a single JSON object, strictly following the schema in the `<OUTPUT_FORMAT>` block.{timely_rules?}{rating_limits?}
+    8.  **Strict Output:** Output the final selection as a single JSON object, strictly following the schema in the `<OUTPUT_FORMAT>` block.{timely_rules?}{rating_limits?}{safer_angle_copy_rules?}
     </INSTRUCTIONS>
 
     <CONTEXT>
@@ -699,7 +699,7 @@ AD_COPY_REVISER_INSTR = (
     3.  **Keep the idea:** a revised copy keeps its `original_id`, `tone_style`, `angle_id` and core idea; re-rate `typicality` only if the idea changed.
     4.  **Checklist:** refresh `brief_checks` on every copy you revise (one entry per item, judged accurately against the revised copy; mark an item failed only when the copy clearly fails it); leave the other copies' checks unchanged.
     5.  **User feedback:** when <user_ad_copy_feedback> is non-empty, honour it in the copies you revise.
-    6.  **Output:** return ALL the copies from <final_ad_copies>, in the same order with unchanged `original_id`s, as a single JSON object.{timely_rules?}{rating_limits?}
+    6.  **Output:** return ALL the copies from <final_ad_copies>, in the same order with unchanged `original_id`s, as a single JSON object.{timely_rules?}{rating_limits?}{safer_angle_copy_rules?}
     </INSTRUCTIONS>
 
     <CONTEXT>
@@ -758,7 +758,7 @@ ART_DIRECTOR_INSTR = (
     + TREND_RISKS_RULE
     + " For visuals: no disaster damage, victims, warning maps or storm graphics played for fun."
     + """
-    This brief is guidance for the drafter; it does not select final concepts.{person_casting_rules?}{timely_rules?}
+    This brief is guidance for the drafter; it does not select final concepts.{person_casting_rules?}{timely_rules?}{safer_angle_visual_rules?}
     </INSTRUCTIONS>
 
     <CONTEXT>
@@ -1002,7 +1002,7 @@ VISUAL_CONCEPT_DRAFTER_INSTR = (
     3.  **Choose the Style (do NOT default to photorealism):** Choose 4 DIFFERENT `visual_style` families from <style_shortlist> (when non-empty), matching each ad copy's tone via the guide's mapping preference. Exception: when <user_style_preference> is non-empty, keep that family for every concept and vary lighting and composition instead. Use the <IMAGE_PROMPT_GUIDE> below and the <visual_direction> brief. Record the chosen family's exact palette name in the `visual_style` field.
     4.  **Composition variety (across the set):** Give each concept a different hero placement and camera distance: choose from centred hero, off-centre rule-of-thirds, small subject in a wide environment, extreme close-up detail, top-down flat lay, over-the-shoulder POV, environmental portrait. Use at most ONE centred hero per set. In-image text in at most 2 concepts (see the guide; meme captions and comic speech bubbles are exempt), never both placed at the top. Every concept shows a trend motif.
     5.  **Prompt Engineering:** For each concept, write the `image_generation_prompt` following the <IMAGE_PROMPT_GUIDE> and honouring the <visual_direction> brief's mood, palette, motifs, and brand cues. Name the chosen style first, then build the scene. Also choose and record the `aspect_ratio` per concept (unless the campaign-wide override in <user_aspect_ratio> is set).
-    6.  **Strict Output Format:** Ensure the entire output is a single JSON object containing all generated concepts, strictly following the schema in the <OUTPUT_FORMAT> block (including `visual_style`, `aspect_ratio`, `trend_motif`, `brand_cue` and `angle_id` for each).{person_casting_rules?}{timely_rules?}{rating_limits?}
+    6.  **Strict Output Format:** Ensure the entire output is a single JSON object containing all generated concepts, strictly following the schema in the <OUTPUT_FORMAT> block (including `visual_style`, `aspect_ratio`, `trend_motif`, `brand_cue` and `angle_id` for each).{person_casting_rules?}{timely_rules?}{rating_limits?}{safer_angle_visual_rules?}
     </INSTRUCTIONS>
 
     <CONTEXT>
@@ -1121,7 +1121,7 @@ VISUAL_CONCEPT_CRITIC_INSTR = (
     + """
         *   **Carry-through:** Keep `trend_motif`, `brand_cue` and their verbatim presence in the prompt, and carry `angle_id` unchanged. Keep the `aspect_ratio` field (adjust only if the composition demands it). When <user_aspect_ratio> is non-empty, set every concept's `aspect_ratio` to this value and compose for it.
         *   **Set-level checks:** families come from <style_shortlist> and are all different; at most ONE centred hero; in-image text in at most 2 concepts (meme/comic captions excepted), short and punchy, no small print or style terms; every concept has a trend motif, and each `trend_motif` is SPECIFIC and recognisable: replace generic ones (phones, feeds, chat bubbles, notifications, screens) with signature imagery of the trend; no readable or gibberish background text. Fix violations by rewriting the weakest concept.
-    3.  **Strict Output Format:** The output must be a single, structured JSON object containing the **revised** concepts (including `visual_style`, `aspect_ratio`, `trend_motif`, `brand_cue` and `angle_id`). Do not include any external commentary or separate critique text.{person_casting_rules?}{timely_rules?}{rating_limits?}
+    3.  **Strict Output Format:** The output must be a single, structured JSON object containing the **revised** concepts (including `visual_style`, `aspect_ratio`, `trend_motif`, `brand_cue` and `angle_id`). Do not include any external commentary or separate critique text.{person_casting_rules?}{timely_rules?}{rating_limits?}{safer_angle_visual_rules?}
     </INSTRUCTIONS>
 
     <CONTEXT>
@@ -1206,7 +1206,7 @@ VISUAL_CONCEPT_FINALIZER_INSTR = (
     + VISUAL_CONCEPT_RULES
     + """
     4.  **Finalize and Enrich:** For each concept, combine the original ad copy details with the revised visual details to create a final, unified creative brief, honouring <user_visual_direction> when non-empty. Set `angle_id` to the matching ad copy's `angle_id` ("" when it has none).
-    5.  **Strict Output Format:** Output the final concepts as a single JSON object, strictly following the schema in the `<OUTPUT_FORMAT>` block (including `visual_style`, `aspect_ratio`, `trend_motif`, `brand_cue` and `angle_id` per concept).{person_casting_rules?}{timely_rules?}{rating_limits?}
+    5.  **Strict Output Format:** Output the final concepts as a single JSON object, strictly following the schema in the `<OUTPUT_FORMAT>` block (including `visual_style`, `aspect_ratio`, `trend_motif`, `brand_cue` and `angle_id` per concept).{person_casting_rules?}{timely_rules?}{rating_limits?}{safer_angle_visual_rules?}
     </INSTRUCTIONS>
 
     <CONTEXT>
@@ -1290,7 +1290,7 @@ VISUAL_CONCEPT_FIXER_INSTR = (
     + VISUAL_CONCEPT_RULES
     + """
     4.  **Keep the idea:** a fixed concept keeps its `ad_copy_id`, `concept_name`, `visual_style`, `aspect_ratio`, `brand_cue`, `angle_id`, `headline`, `social_caption` and `call_to_action`.
-    5.  **Output:** return ALL the concepts from <final_visual_concepts>, in the same order with unchanged `ad_copy_id`s, as a single JSON object.{person_casting_rules?}{timely_rules?}{rating_limits?}
+    5.  **Output:** return ALL the concepts from <final_visual_concepts>, in the same order with unchanged `ad_copy_id`s, as a single JSON object.{person_casting_rules?}{timely_rules?}{rating_limits?}{safer_angle_visual_rules?}
     </INSTRUCTIONS>
 
     <CONTEXT>

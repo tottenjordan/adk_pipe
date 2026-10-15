@@ -197,7 +197,9 @@ def _timely_prompts() -> dict[str, str]:
 # hashlib.sha256(instr.replace("{timely_rules?}", "")
 # .replace("{rating_limits?}", "").encode()).hexdigest()[:16]). `rating_limits`
 # (opt-in rating learning's stricter limits) is "" too unless the checks
-# effect flagged something, so it is stripped the same way.
+# effect flagged something, so it is stripped the same way, as are the
+# safer-angle rule tokens (`safer_angle_copy_rules` / `safer_angle_visual_rules`,
+# "" unless a sensitive trend's safer angle is active; see `_strip_optional`).
 _PRE_TIMELY_SHA256 = {
     "ART_DIRECTOR_INSTR": "760ea3944a0b921e",
     "VISUAL_CONCEPT_DRAFTER_INSTR": "7163d0d3f0f69d49",
@@ -211,10 +213,24 @@ _PRE_TIMELY_SHA256 = {
 }
 
 
+# State tokens that render to "" on a run without the feature they belong to.
+_OPTIONAL_TOKENS = (
+    "{timely_rules?}",
+    "{rating_limits?}",
+    "{safer_angle_copy_rules?}",
+    "{safer_angle_visual_rules?}",
+)
+
+
+def _strip_optional(instr: str) -> str:
+    for token in _OPTIONAL_TOKENS:
+        instr = instr.replace(token, "")
+    return instr
+
+
 @pytest.mark.parametrize("name", list(_PRE_TIMELY_SHA256))
 def test_instructions_without_timely_rules_are_byte_identical(name):
-    instr = _timely_prompts()[name]
-    without = instr.replace("{timely_rules?}", "").replace("{rating_limits?}", "")
+    without = _strip_optional(_timely_prompts()[name])
     assert (
         hashlib.sha256(without.encode()).hexdigest()[:16] == (_PRE_TIMELY_SHA256[name])
     ), name
@@ -225,8 +241,13 @@ def test_timely_rules_come_only_from_state(name):
     instr = _timely_prompts()[name]
     assert instr.count("{timely_rules?}") == 1, name
     # The last thing in the instructions, after the casting rules when present
-    # and followed only by the rating limits' own token where read.
+    # and followed only by the rating limits' and the safer angle's own tokens.
     end = "{rating_limits?}" if name in _RATING_LIMITS_READERS else ""
+    end += (
+        "{safer_angle_copy_rules?}"
+        if name.startswith("AD_COPY_")
+        else "{safer_angle_visual_rules?}"
+    )
     assert "{timely_rules?}" + end + "\n    </INSTRUCTIONS>" in instr, name
     if "{person_casting_rules?}" in instr:
         assert "{person_casting_rules?}{timely_rules?}" in instr, name
