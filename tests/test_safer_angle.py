@@ -14,6 +14,7 @@ import pytest
 from creative_agent import prompts
 from creative_agent.brief_check import check_brief
 from creative_agent.brief_render import render_brief_markdown
+from creative_agent.run_policy import RunPolicy
 from creative_agent.safer_angle import (
     MAX_REASON_CHARS,
     RULE_KEYS,
@@ -401,7 +402,7 @@ def _safer_brief(**bridge_changes):
 
 
 def _active(brief, **kwargs):
-    return check_brief(brief, safer_angle_active=True, **kwargs)
+    return check_brief(brief, RunPolicy(safer_angle_active=True, **kwargs))
 
 
 def test_active_clean_safer_brief_passes():

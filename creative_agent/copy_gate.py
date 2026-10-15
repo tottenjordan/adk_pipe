@@ -1,6 +1,6 @@
 """Deterministic checks on the ad copy critic's final copies.
 
-Pure logic (no ADK imports) behind ``creative_agent.agent.copy_gate``. Gating
+Pure logic (no ADK imports) behind ``creative_agent.copy_stage.copy_gate``. Gating
 policy (each needless revision costs a worker LLM call, latency and possibly a
 user-visible warning, so false positives are kept low):
 
@@ -44,7 +44,9 @@ At least half of the copies (ceil(n/2)) must tie to the safer angle: name the
 subject or use one of ``safer_angle_tie_words`` (the angle's distinctive
 words; generic words like "soul" / "studio", product / brand words and risk /
 avoid words never count). Below that, EVERY untied copy is flagged (the
-simplest deterministic rule: no choice of which copies to rewrite).
+simplest deterministic rule: no choice of which copies to rewrite). The tie
+words and the at-least-half rule live in ``safer_angle``
+(``safer_angle_tie_avoid``, ``safer_angle_tie_words``, ``untied_copy_issues``).
 
 Matching (product named, avoid terms) uses ``text_match``: accent-folded,
 Unicode-aware, plural-insensitive (s / es / ies↔y), and brands written with
@@ -67,26 +69,37 @@ the copies the gate flagged, so every other copy (and any copy it dropped or
 duplicated) is put back to its pre-revision value.
 """
 
+from __future__ import annotations
+
 import json
 import re
 from collections.abc import Iterable, Mapping, Sequence
 from copy import deepcopy
 from dataclasses import dataclass
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from .brief_check import clean_term, parse_brief
 from .claims import unsupported_claims
 from .endorsement import endorsement_terms
+from .safer_angle import (
+    named_subject_keys,
+    safer_angle_tie_avoid,
+    untied_copy_issues,
+)
 from .temporal_terms import temporal_terms
 from .text_match import (
+    MIN_TOKEN_CHARS,
     PACKAGING_WORDS,
+    PRODUCT_STOPWORDS,
     contains_phrase,
-    content_tokens,
     fold,
     same_word,
     words,
 )
-from .trend_tie import distinctive_trend_tokens, has_trend_tie, tie_terms
+from .trend_tie import has_trend_tie, tie_terms
+
+if TYPE_CHECKING:  # run_policy imports this module (the brief term readers)
+    from .run_policy import RunPolicy
 
 MAX_HEADLINE_CHARS = 60
 MAX_CAPTION_CHARS = 2200
@@ -101,31 +114,6 @@ MAX_AVOID_TERM_WORDS = 4
 
 # Final copies the critic must select (CREATIVE prompts: "exactly 4").
 EXPECTED_COPIES = 4
-# Words that never identify a product on their own ("The New Rocket Skates").
-_STOPWORDS = frozenset(
-    {
-        "a",
-        "all",
-        "an",
-        "and",
-        "at",
-        "by",
-        "for",
-        "from",
-        "in",
-        "its",
-        "new",
-        "of",
-        "on",
-        "or",
-        "our",
-        "the",
-        "to",
-        "with",
-        "your",
-    }
-)
-_MIN_TOKEN_CHARS = 3
 # Self-reported brief_checks items that gate a revision: the brief's hard
 # contract, its trend risks (never joking about a real disaster) and the trend
 # tie (a clear, specific connection a trend follower would recognise: the
@@ -271,24 +259,12 @@ def brief_safer_angle(brief: Any) -> str:
     return angle.strip() if isinstance(angle, str) else ""
 
 
-def safer_angle_tie_avoid(
-    trend: str,
-    *,
-    avoid: Sequence[str] = (),
-    risks: Sequence[str] = (),
-    safer_angle: str = "",
-) -> list[str]:
-    """``avoid`` plus the trend's distinctive tokens that a brief risk names
-    but the safer angle does not: the sensitive event's words ("murder",
-    "trial" in "tupac shakur murder trial") never count as a trend tie, while
-    the subject's name, which the safer angle uses, still does."""
-    extra = [
-        token
-        for token in distinctive_trend_tokens(trend, avoid)
-        if any(contains_phrase(risk, token) for risk in risks)
-        and not contains_phrase(safer_angle, token)
+def _copy_texts(parsed: Sequence[Mapping[str, Any]]) -> list[tuple[str, str]]:
+    """Each copy's ``(copy_keys key, text of every copy field)``."""
+    return [
+        (key, " ".join(_text(copy.get(f)) for f in _COPY_FIELDS))
+        for key, copy in zip(copy_keys(parsed), parsed, strict=True)
     ]
-    return [*avoid, *extra]
 
 
 def safer_angle_named_copies(
@@ -300,154 +276,16 @@ def safer_angle_named_copies(
     safer_angle: str = "",
 ) -> list[str]:
     """The keys (``copy_keys``) of the copies whose text names the trend's
-    subject: the trend phrase or one of its distinctive words, minus the
-    ``safer_angle_tie_avoid`` words (motifs do not count). [] without a trend."""
-    if not words(trend_terms):
-        return []
-    tie_avoid = safer_angle_tie_avoid(
-        trend_terms, avoid=avoid, risks=risks, safer_angle=safer_angle
-    )
-    parsed = parse_copies(copies)
-    named: list[str] = []
-    for key, copy in zip(copy_keys(parsed), parsed, strict=True):
-        text = " ".join(_text(copy.get(f)) for f in _COPY_FIELDS)
-        if has_trend_tie(text, trend=trend_terms, avoid=tie_avoid):
-            named.append(key)
-    return named
-
-
-# Words a safer angle shares with any music / craft / feel-good tribute: they
-# never make a copy's tie specific ("Own the Spark of Golden-Era Soul" is not
-# tied to "Tupac Shakur's ... soulful, analog groove"), so only the angle's
-# other content words (plus the subject's name) count. Pronouns and filler
-# are here too (text_match.STOPWORDS are already out).
-GENERIC_SAFER_ANGLE_WORDS = frozenset(
-    {
-        "legacy", "enduring", "lasting", "artistic", "art", "artist", "artistry",
-        "soul", "soulful", "heart", "heartfelt", "spirit", "passion",
-        "music", "musical", "musician", "sound", "sounds", "song", "songs",
-        "studio", "analog", "analogue", "organic", "groove", "grooves",
-        "craft", "crafted", "craftsmanship", "handcrafted", "expression",
-        "expressive", "creative", "creativity", "inspiration", "inspired",
-        "inspiring", "tribute", "honor", "honour", "celebrated", "celebrating",
-        "celebration", "iconic", "icon", "legend", "legendary", "timeless",
-        "classic", "golden", "era", "culture", "cultural", "style", "story",
-        "vibe", "vibes", "energy", "spark", "magic", "rhythm", "driven",
-        "voice", "love", "life", "dream", "dreams", "chasing", "community",
-        "positive", "influence", "influential", "impact", "work", "works",
-        "known", "famous", "beloved", "generation", "generations",
-        "he", "she", "him", "his", "her", "hers", "they", "them", "you",
-        "your", "we", "our", "who", "that", "was", "were", "be", "been",
-        "has", "have", "had", "not", "no", "all", "after", "before",
-    }
-)  # fmt: skip
-SAFER_ANGLE_MIN_WORD_CHARS = 4
-_SHORT_ANGLE_WORDS = 8
-_MAX_SAFER_EXAMPLES = 3
-
-
-def safer_angle_tie_words(
-    safer_angle: str,
-    *,
-    trend_terms: str = "",
-    target_product: str = "",
-    brand: str = "",
-    avoid: Sequence[str] = (),
-    risks: Sequence[str] = (),
-) -> list[str]:
-    """The safer angle's distinctive content words (folded, first occurrence
-    order): its ``content_tokens`` minus ``GENERIC_SAFER_ANGLE_WORDS``, words
-    under ``SAFER_ANGLE_MIN_WORD_CHARS`` characters, the trend's own words
-    (naming the subject is checked separately), the product / brand words and
-    the words of ``avoid`` / ``risks`` (singular/plural alike)."""
-    if not isinstance(safer_angle, str):
-        return []
-    excluded = [
-        w
-        for phrase in (trend_terms, target_product, brand, *avoid, *risks)
-        if isinstance(phrase, str)
-        for w in words(phrase)
-    ]
-    out: list[str] = []
-    for word in content_tokens(safer_angle):
-        if (
-            word in GENERIC_SAFER_ANGLE_WORDS
-            or len(word) < SAFER_ANGLE_MIN_WORD_CHARS
-            or word in out
-            or any(same_word(word, other) for other in excluded)
-        ):
-            continue
-        out.append(word)
-    return out
-
-
-def _short_angle(safer_angle: str) -> str:
-    parts = safer_angle.split()
-    if len(parts) <= _SHORT_ANGLE_WORDS:
-        return safer_angle.strip()
-    return " ".join(parts[:_SHORT_ANGLE_WORDS]).rstrip(",;:.") + "…"
-
-
-def _safer_angle_untied(
-    parsed: list[Mapping[str, Any]],
-    *,
-    trend_terms: str,
-    target_product: str,
-    brand: str,
-    avoid: Sequence[str],
-    risks: Sequence[str],
-    safer_angle: str,
-) -> dict[str, str]:
-    """The safer-angle tie issue per untied copy key, when fewer than
-    ceil(n/2) copies tie (name the subject, as ``safer_angle_named_copies``,
-    or use a ``safer_angle_tie_words`` word); {} otherwise or without a
-    trend."""
-    if not parsed or not words(trend_terms):
-        return {}
-    named = set(
-        safer_angle_named_copies(
-            parsed,
-            trend_terms=trend_terms,
-            avoid=avoid,
-            risks=risks,
-            safer_angle=safer_angle,
-        )
-    )
-    angle_words = safer_angle_tie_words(
-        safer_angle,
+    subject (``safer_angle.named_subject_keys``: the trend phrase or one of
+    its distinctive words, minus the ``safer_angle_tie_avoid`` words; motifs
+    do not count). [] without a trend."""
+    return named_subject_keys(
+        _copy_texts(parse_copies(copies)),
         trend_terms=trend_terms,
-        target_product=target_product,
-        brand=brand,
         avoid=avoid,
         risks=risks,
+        safer_angle=safer_angle,
     )
-    untied: list[str] = []
-    for key, copy in zip(copy_keys(parsed), parsed, strict=True):
-        text_words = words(" ".join(_text(copy.get(f)) for f in _COPY_FIELDS))
-        if key not in named and not any(
-            same_word(a, w) for a in angle_words for w in text_words
-        ):
-            untied.append(key)
-    need = -(-len(parsed) // 2)
-    if len(parsed) - len(untied) >= need:
-        return {}
-    tie_avoid = safer_angle_tie_avoid(
-        trend_terms, avoid=avoid, risks=risks, safer_angle=safer_angle
-    )
-    examples = ", ".join(
-        [
-            *tie_terms(trend_terms, avoid=tie_avoid)[:1],
-            *(w.title() for w in angle_words),
-        ][:_MAX_SAFER_EXAMPLES]
-    )
-    angle = f" ({_short_angle(safer_angle)})" if safer_angle.strip() else ""
-    issue = (
-        f"not tied to the safer angle{angle}: name the subject in tribute or use "
-        "a distinctive part of its legacy, not just generic words"
-        + (f" (e.g. {examples})" if examples else "")
-        + f"; at least {need} of the {len(parsed)} copies must."
-    )
-    return dict.fromkeys(untied, issue)
 
 
 def _text(value: Any) -> str:
@@ -468,8 +306,8 @@ def product_words(target_product: str) -> list[str]:
     return [
         word
         for word in words(target_product)
-        if len(word) >= _MIN_TOKEN_CHARS
-        and word not in _STOPWORDS
+        if len(word) >= MIN_TOKEN_CHARS
+        and word not in PRODUCT_STOPWORDS
         and word not in PACKAGING_WORDS
         and not word.isdigit()
     ]
@@ -665,21 +503,24 @@ def cap_timely_flags(
     return out, cleared
 
 
-def _deterministic_issues(
-    copy: Mapping[str, Any],
-    *,
-    target_product: str,
-    avoid: list[str],
-    max_cta: int = MAX_CTA_WORDS,
-    allowed_claims_text: str = "",
-    timely_ok: bool = False,
-    timely_room: bool = False,
-    trend_terms: str = "",
-    motifs: Sequence[str] = (),
-    trend_sensitive: bool = False,
-    safer_angle_active: bool = False,
-    tie_avoid: Sequence[str] | None = None,
-) -> list[str]:
+@dataclass(frozen=True)
+class _CopyChecks:
+    """The per-run inputs every copy check shares, derived once by
+    ``gate_copies``: the policy, the avoid terms to match literally
+    (``_avoid_terms``), whether the timely cap has room, and the terms that
+    never count as a trend tie."""
+
+    policy: RunPolicy
+    avoid: list[str]
+    timely_room: bool
+    tie_avoid: list[str]
+
+
+def _deterministic_issues(copy: Mapping[str, Any], checks: _CopyChecks) -> list[str]:
+    policy = checks.policy
+    target_product = policy.target_product
+    max_cta = max_cta_words(policy.strictness)
+    trend_terms = policy.trend
     issues: list[str] = []
     copy_text = " ".join(_text(copy.get(f)) for f in _COPY_FIELDS)
 
@@ -717,7 +558,7 @@ def _deterministic_issues(
             f"{MAX_CAPTION_CHARS} characters."
         )
 
-    if claims := unsupported_claims(copy_text, allowed_text=allowed_claims_text):
+    if claims := unsupported_claims(copy_text, allowed_text=policy.claims_allowed_text):
         issues.append(
             f"unsupported absolute claim ({', '.join(claims)}): remove it or "
             "state a verifiable benefit instead, unless the user's selling "
@@ -727,11 +568,11 @@ def _deterministic_issues(
     # The timely slot: with a timely moment, an evergreen copy must stay
     # timeless (no dates, results or "tonight"); the timely copy may not.
     # Making it the timely copy is offered only while the cap has room.
-    if timely_ok and copy.get("uses_trend_state") is not True:
+    if policy.timely_ok and copy.get("uses_trend_state") is not True:
         if terms := temporal_terms(copy_text):
             fix = (
                 "remove it or make this the timely copy."
-                if timely_room
+                if checks.timely_room
                 else ("remove it.")
             )
             issues.append(
@@ -739,13 +580,13 @@ def _deterministic_issues(
                 f"({', '.join(terms)}): {fix}"
             )
 
-    if safer_angle_active and (terms := endorsement_terms(copy_text)):
+    if policy.safer_angle_active and (terms := endorsement_terms(copy_text)):
         issues.append(
             f"implies endorsement or speaks for the real person "
             f"({', '.join(terms)}): remove it."
         )
 
-    for term in avoid:
+    for term in checks.avoid:
         if contains_phrase(copy_text, term):
             issues.append(
                 f"contains the avoided term '{term}': remove it or rephrase "
@@ -757,15 +598,16 @@ def _deterministic_issues(
     # creative work must not reference, unless the run takes a safer angle
     # (then the event's words never count, ``tie_avoid``); an avoid term never
     # counts as a tie.
-    tie_avoid = list(avoid) if tie_avoid is None else list(tie_avoid)
     if (
         trend_terms.strip()
-        and (safer_angle_active or not trend_sensitive)
+        and (policy.safer_angle_active or not policy.trend_sensitive)
         and not has_trend_tie(
-            copy_text, trend=trend_terms, motifs=motifs, avoid=tie_avoid
+            copy_text, trend=trend_terms, motifs=policy.motifs, avoid=checks.tie_avoid
         )
     ):
-        examples = ", ".join(tie_terms(trend_terms, motifs, avoid=tie_avoid))
+        examples = ", ".join(
+            tie_terms(trend_terms, policy.motifs, avoid=checks.tie_avoid)
+        )
         issues.append(
             "not clearly tied to the trend: name it or one of its motifs"
             + (f" (e.g. {examples})" if examples else "")
@@ -794,148 +636,90 @@ def _self_reported_issues(
     return issues
 
 
-def _check_copy(
-    copy: Mapping[str, Any],
-    *,
-    target_product: str,
-    avoid: list[str],
-    strictness: Sequence[str] = (),
-    allowed_claims_text: str = "",
-    timely_ok: bool = False,
-    timely_room: bool = False,
-    trend_terms: str = "",
-    motifs: Sequence[str] = (),
-    trend_sensitive: bool = False,
-    safer_angle_active: bool = False,
-    tie_avoid: Sequence[str] | None = None,
-) -> list[CopyIssue]:
-    deterministic = _deterministic_issues(
-        copy,
-        target_product=target_product,
-        avoid=avoid,
-        max_cta=max_cta_words(strictness),
-        allowed_claims_text=allowed_claims_text,
-        timely_ok=timely_ok,
-        timely_room=timely_room,
-        trend_terms=trend_terms,
-        motifs=motifs,
-        trend_sensitive=trend_sensitive,
-        safer_angle_active=safer_angle_active,
-        tie_avoid=tie_avoid,
+def _check_copy(copy: Mapping[str, Any], checks: _CopyChecks) -> list[CopyIssue]:
+    deterministic = _deterministic_issues(copy, checks)
+    self_reported = _self_reported_issues(
+        copy, gating_brief_checks(checks.policy.strictness)
     )
-    self_reported = _self_reported_issues(copy, gating_brief_checks(strictness))
     return [CopyIssue("deterministic", text) for text in deterministic] + [
         CopyIssue("self_reported", text) for text in self_reported
     ]
 
 
-def gate_copies(
-    copies: Any,
-    *,
-    target_product: str,
-    avoid: Iterable[str] | str = (),
-    mandatories: Iterable[str] = (),
-    trend: str = "",
-    brand: str = "",
-    strictness: Sequence[str] = (),
-    allowed_claims_text: str = "",
-    timely_ok: bool = False,
-    max_timely: int = 1,
-    trend_terms: str = "",
-    motifs: Sequence[str] = (),
-    trend_sensitive: bool = False,
-    safer_angle_active: bool = False,
-    risks: Sequence[str] = (),
-    safer_angle: str = "",
-) -> dict[str, list[CopyIssue]]:
+def gate_copies(copies: Any, policy: RunPolicy) -> dict[str, list[CopyIssue]]:
     """The copies' gating issues, keyed by ``copy_keys``.
 
-    ``copies`` is the ``ad_copy_critique`` state value (see ``parse_copies``).
-    Deterministic checks, per copy: the product is named (``target_product``,
-    ANY of its significant words, or a punctuation-stripped brand form; the
-    ``brand`` alone never counts: it is used only by the safer-angle tie;
-    accent/case/plural-insensitive, see ``_names_product``) in the
-    headline/body/caption/CTA — skipped when the product yields nothing to
-    match; the CTA is non-empty and at most 8 words; the headline is at most 60
-    characters; the social caption at most 2200; no term from ``avoid`` (the
-    creative brief's avoid list; a string is split on newlines/commas/
-    semicolons) appears as a whole word/phrase (entries over
-    ``MAX_AVOID_TERM_WORDS`` words, and entries contained in the product name,
-    a non-negative brief mandatory or a proper-name chunk of ``trend``, are
-    skipped; see ``_avoid_terms``); no unsupported absolute claim
-    (``claims.ABSOLUTE_CLAIM_TERMS``) that ``allowed_claims_text`` (the
-    user's key selling points + the brief's mandatories) does not state.
-    Self-reported: each failed
-    ``brief_checks`` item in ``GATING_BRIEF_CHECKS``. ``strictness`` (the
-    run's ``rating_strictness`` flags; default none = the rules above) only
+    ``copies`` is the ``ad_copy_critique`` state value (see ``parse_copies``);
+    ``policy`` is the run's ``RunPolicy``. Deterministic checks, per copy: the
+    product is named (``policy.target_product``, ANY of its significant words,
+    or a punctuation-stripped brand form; ``policy.brand`` alone never counts:
+    it is used only by the safer-angle tie; accent/case/plural-insensitive,
+    see ``_names_product``) in the headline/body/caption/CTA — skipped when
+    the product yields nothing to match; the CTA is non-empty and at most 8
+    words; the headline is at most 60 characters; the social caption at most
+    2200; no term from ``policy.avoid`` (the creative brief's avoid list; a
+    string is split on newlines/commas/semicolons) appears as a whole
+    word/phrase (entries over ``MAX_AVOID_TERM_WORDS`` words, and entries
+    contained in the product name, a non-negative brief mandatory or a
+    proper-name chunk of ``policy.trend``, are skipped; see ``_avoid_terms``);
+    no unsupported absolute claim (``claims.ABSOLUTE_CLAIM_TERMS``) that
+    ``policy.claims_allowed_text`` (the user's key selling points) does not
+    state. Self-reported: each failed ``brief_checks`` item in
+    ``GATING_BRIEF_CHECKS``. ``policy.strictness`` (the run's
+    ``rating_strictness`` flags; default none = the rules above) only
     tightens: ``weak_cta`` caps the CTA at ``STRICT_CTA_WORDS`` words and
     ``off_brief`` adds ``OFF_BRIEF_BRIEF_CHECKS`` to the gating items. Only
-    copies with issues are returned ({} = clean). ``timely_ok`` (the run has a
-    timely moment and the slot is on) adds one deterministic check: an
-    evergreen copy (``uses_trend_state`` not True) must contain no dated or
+    copies with issues are returned ({} = clean). ``policy.timely_ok`` (the
+    run has a timely moment and the slot is on) adds one deterministic check:
+    an evergreen copy (``uses_trend_state`` not True) must contain no dated or
     outcome term (``temporal_terms``; the fix offers "make this the timely
-    copy" only while fewer than ``max_timely`` copies are timely; default 1,
-    the ``MAX_TIMELY_CONCEPTS`` default, so a larger knob not passed here only
-    makes the offer conservative); without it the checks are unchanged.
-    ``trend_terms`` (the run's trend, ``target_search_trends``; default ""
-    = off) adds the trend-tie check, appended last: a copy that names none of
-    the trend's distinctive words, the trend phrase or one of ``motifs`` (the
-    brief's ``trend_bridge.motifs``) is flagged (``trend_tie.has_trend_tie``;
-    an avoid term never counts as a tie); skipped when ``trend_sensitive``
-    (the current moment is sensitive and must not be referenced). It is
-    separate from ``trend``, which only exempts avoid terms.
-    ``safer_angle_active`` (the run takes a safer angle on a sensitive trend;
-    default False = the checks above, unchanged) flags any endorsement term
-    (``endorsement.endorsement_terms``) and checks the trend tie even when
-    ``trend_sensitive``, never counting the trend words that ``risks`` (the
-    brief's ``trend_bridge.risks``) name unless ``safer_angle`` (its
-    ``trend_bridge.safer_angle``) uses them (``safer_angle_tie_avoid``),
-    and requires at least ceil(n/2) copies to tie to the safer angle (name the
-    subject or use a ``safer_angle_tie_words`` word; ``brand`` words never
-    count), else every untied copy gets a deterministic issue, appended last.
-    Never raises.
+    copy" only while fewer than ``policy.max_timely`` copies are timely);
+    without it the checks are unchanged. ``policy.trend`` (default "" = off)
+    adds the trend-tie check, appended last: a copy that names none of the
+    trend's distinctive words, the trend phrase or one of ``policy.motifs``
+    (the brief's ``trend_bridge.motifs``) is flagged
+    (``trend_tie.has_trend_tie``; an avoid term never counts as a tie);
+    skipped when ``policy.trend_sensitive`` (the current moment is sensitive
+    or trend_scout flagged the trend, so it must not be referenced).
+    ``policy.safer_angle_active`` (the run takes a safer angle on a sensitive
+    trend; default False = the checks above, unchanged) flags any endorsement
+    term (``endorsement.endorsement_terms``) and checks the trend tie even
+    when ``trend_sensitive``, never counting the trend words that
+    ``policy.risks`` (the brief's ``trend_bridge.risks``) name unless
+    ``policy.safer_angle_text`` (its ``trend_bridge.safer_angle``) uses them
+    (``safer_angle_tie_avoid``), and requires at least ceil(n/2) copies to
+    tie to the safer angle (name the subject or use a
+    ``safer_angle_tie_words`` word; brand words never count), else every
+    untied copy gets a deterministic issue, appended last. Never raises.
     """
     terms = _avoid_terms(
-        avoid, product=target_product, mandatories=mandatories, trend=trend
+        policy.avoid,
+        product=policy.target_product,
+        mandatories=policy.mandatories,
+        trend=policy.trend,
     )
     parsed = parse_copies(copies)
-    timely_room = sum(c.get("uses_trend_state") is True for c in parsed) < max_timely
-    tie_avoid = (
-        safer_angle_tie_avoid(
-            trend_terms, avoid=terms, risks=risks, safer_angle=safer_angle
-        )
-        if safer_angle_active
-        else None
+    active = policy.safer_angle_active
+    checks = _CopyChecks(
+        policy=policy,
+        avoid=terms,
+        timely_room=sum(c.get("uses_trend_state") is True for c in parsed)
+        < policy.max_timely,
+        tie_avoid=(
+            safer_angle_tie_avoid(
+                policy.trend,
+                avoid=terms,
+                risks=policy.risks,
+                safer_angle=policy.safer_angle_text,
+            )
+            if active
+            else list(terms)
+        ),
     )
-    untied = (
-        _safer_angle_untied(
-            parsed,
-            trend_terms=trend_terms,
-            target_product=target_product,
-            brand=brand,
-            avoid=terms,
-            risks=risks,
-            safer_angle=safer_angle,
-        )
-        if safer_angle_active
-        else {}
-    )
+    untied = untied_copy_issues(_copy_texts(parsed), policy, terms) if active else {}
     issues: dict[str, list[CopyIssue]] = {}
     for key, copy in zip(copy_keys(parsed), parsed, strict=True):
-        found = _check_copy(
-            copy,
-            target_product=target_product,
-            avoid=terms,
-            strictness=strictness,
-            allowed_claims_text=allowed_claims_text,
-            timely_ok=timely_ok,
-            timely_room=timely_room,
-            trend_terms=trend_terms,
-            motifs=motifs,
-            trend_sensitive=trend_sensitive,
-            safer_angle_active=safer_angle_active,
-            tie_avoid=tie_avoid,
-        )
+        found = _check_copy(copy, checks)
         if key in untied:
             found.append(CopyIssue("deterministic", untied[key]))
         if found:

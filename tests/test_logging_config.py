@@ -49,3 +49,32 @@ def test_ensure_default_logging_only_fills_an_unconfigured_root(monkeypatch):
     observability.ensure_default_logging()
     assert root.handlers == [existing]
     assert root.level == logging.WARNING
+
+
+def test_creative_graph_and_gate_modules_never_call_basicconfig():
+    """creative_agent's composition root, stage modules and pure gate modules
+    leave the root logger to the entrypoints (a static check: importing them
+    still imports modules outside this list)."""
+    import ast
+
+    modules = (
+        "agent",
+        "research_stage",
+        "copy_stage",
+        "visual_stage",
+        "run_policy",
+        "copy_gate",
+        "brief_check",
+        "text_match",
+        "safer_angle",
+    )
+    for name in modules:
+        tree = ast.parse((REPO / "creative_agent" / f"{name}.py").read_text())
+        calls = [
+            node
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "basicConfig"
+        ]
+        assert not calls, f"creative_agent/{name}.py calls logging.basicConfig"

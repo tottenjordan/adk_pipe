@@ -48,7 +48,7 @@ def _state(**extra):
 
 
 def _claim_texts(state):
-    from creative_agent.agent import _copy_issues
+    from creative_agent.copy_stage import _copy_issues
 
     issues = _copy_issues(state).get("1", [])
     return [str(i) for i in issues if "guaranteed" in str(i)]
@@ -64,7 +64,7 @@ def test_copy_claim_in_the_selling_points_is_allowed():
 
 
 def test_brief_issues_flag_the_invented_mandatory():
-    from creative_agent.agent import _brief_issues
+    from creative_agent.research_stage import _brief_issues
 
     issues = _brief_issues(_state())
     assert any("mandator" in i and "guaranteed" in i for i in issues)

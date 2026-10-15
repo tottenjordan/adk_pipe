@@ -6,6 +6,7 @@ import json
 
 from creative_agent.concept_guard import concept_issues, enforce_timely_cap
 from creative_agent.copy_gate import enforce_timely_copy_cap, gate_copies
+from creative_agent.run_policy import RunPolicy
 from creative_agent.trend_situation import timely_allowed
 
 
@@ -146,14 +147,12 @@ def test_without_a_timely_moment_concept_checks_are_unchanged():
 def test_evergreen_copy_with_temporal_terms_is_flagged():
     issues = gate_copies(
         [_copy(1, headline="We won tonight", uses_trend_state=True), _copy(2)],
-        target_product="Rocket Skates",
-        timely_ok=True,
+        RunPolicy(target_product="Rocket Skates", timely_ok=True),
     )
     assert issues == {}
     issues = gate_copies(
         [_copy(2, body_text="Rocket Skates, ready for tomorrow's kickoff.")],
-        target_product="Rocket Skates",
-        timely_ok=True,
+        RunPolicy(target_product="Rocket Skates", timely_ok=True),
     )
     (issue,) = issues["2"]
     assert issue.kind == "deterministic"
@@ -166,17 +165,20 @@ def test_copy_offers_the_timely_option_only_while_the_cap_has_room():
     dated = _copy(2, body_text="Rocket Skates, ready for tomorrow's kickoff.")
     timely = _copy(1, headline="Big game tomorrow", uses_trend_state=True)
     # No timely copy yet: making this one timely is viable.
-    (issue,) = gate_copies([dated], target_product="Rocket Skates", timely_ok=True)["2"]
+    (issue,) = gate_copies(
+        [dated], RunPolicy(target_product="Rocket Skates", timely_ok=True)
+    )["2"]
     assert issue.text.endswith("remove it or make this the timely copy.")
     # The cap (1 by default) is already full: only removing the term is.
     issues = gate_copies(
-        [timely, dated], target_product="Rocket Skates", timely_ok=True
+        [timely, dated], RunPolicy(target_product="Rocket Skates", timely_ok=True)
     )
     (issue,) = issues["2"]
     assert issue.text.endswith("remove it.")
     # A larger cap leaves room again.
     issues = gate_copies(
-        [timely, dated], target_product="Rocket Skates", timely_ok=True, max_timely=2
+        [timely, dated],
+        RunPolicy(target_product="Rocket Skates", timely_ok=True, max_timely=2),
     )
     assert issues["2"][0].text.endswith("make this the timely copy.")
 
@@ -185,15 +187,14 @@ def test_copy_idioms_and_no_moment_pass():
     assert (
         gate_copies(
             [_copy(2, body_text="Rocket Skates: never miss a beat.")],
-            target_product="Rocket Skates",
-            timely_ok=True,
+            RunPolicy(target_product="Rocket Skates", timely_ok=True),
         )
         == {}
     )
     assert (
         gate_copies(
             [_copy(2, body_text="Rocket Skates won tonight.")],
-            target_product="Rocket Skates",
+            RunPolicy(target_product="Rocket Skates"),
         )
         == {}
     )
@@ -271,6 +272,37 @@ def test_copy_gate_without_a_moment_only_clears_stray_flags():
         max_rounds=1,
     )
     assert "ad_copy_critique" not in clean
+
+
+def test_flagged_sensitive_trend_is_never_timely_at_the_gates():
+    """CA-1 floor through RunPolicy: trend_scout's sensitivity hint beats a
+    timely moment, so the copy gate clears the flag ("no validated current
+    moment") and checks no evergreen terms, and the concept gate raises no
+    timely pairing issue."""
+    from creative_agent.agent import concept_gate_decision, copy_gate_decision
+
+    flagged = {**_TIMELY_STATE, "trend_sensitive_hint": "yes"}
+    critique = {
+        "ad_copies": [
+            _copy(1, uses_trend_state=True),
+            _copy(2, body_text="Rocket Skates, ready for tomorrow's kickoff."),
+        ]
+    }
+    route, delta = copy_gate_decision({**flagged, "ad_copy_critique": critique}, 1)
+    assert route == "ok"
+    (first, _) = delta["ad_copy_critique"]["ad_copies"]
+    assert first["uses_trend_state"] is False
+    assert "no validated current moment" in first["timely_reason"]
+    # The same copies with the moment honoured: copy 2's "tomorrow" is flagged.
+    route, _ = copy_gate_decision({**_TIMELY_STATE, "ad_copy_critique": critique}, 1)
+    assert route == "revise"
+
+    dated = "Rocket Skates in a roadrunner dust cloud before tomorrow's kickoff."
+    concepts = {"visual_concepts": [_concept(2, prompt=dated)]}
+    state = {**flagged, "final_visual_concepts": concepts, "ad_copy_critique": None}
+    assert concept_gate_decision(state, 1)[0] == "ok"
+    timely = {**state, "trend_sensitive_hint": ""}
+    assert concept_gate_decision(timely, 1)[0] == "revise"
 
 
 def test_concept_guard_callback_applies_the_timely_cap():
