@@ -13,7 +13,7 @@ from pathlib import Path
 
 import pytest
 
-from creative_agent import image_qa, image_tools
+from creative_agent import image_qa, image_tools, references
 from creative_agent.image_qa import ImageQAResult
 from tests._fakes import FakeToolContext, noop_async
 
@@ -919,9 +919,9 @@ def test_logo_reference_flag_passed_to_inspect(monkeypatch):
     flow = _Flow(monkeypatch, [_result()])
     flow.ctx.state["reference_images"] = [{"uri": "gs://b/logo.png", "role": "logo"}]
     monkeypatch.setattr(
-        image_tools,
-        "_fetch_reference_image",
-        lambda uri: image_tools.types.Part.from_bytes(
+        references,
+        "fetch_reference_image",
+        lambda uri, download=None: image_tools.types.Part.from_bytes(
             data=b"logo", mime_type="image/png"
         ),
     )

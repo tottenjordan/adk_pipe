@@ -169,11 +169,12 @@ def test_gallery_links_original_images_without_upscale(monkeypatch, tmp_path):
     assert len(destinations) == 1  # only the gallery HTML itself
     (html,) = written
     assert "resized/" not in html and "XL_local_" not in html
+    assert "authuser" not in html  # no developer-specific account index
     for concept in concepts:
         url = (
             "https://storage.mtls.cloud.google.com/"
             f"{gcs_tools.config.GCS_BUCKET_NAME}/run_a/creative_output/"
-            f"{gcs_tools.artifact_key_for(concept['concept_name'])}?authuser=3"
+            f"{gcs_tools.artifact_key_for(concept['concept_name'])}"
         )
         assert f'data-high-res-src="{url}"' in html
         assert f'src="{url}"' in html
@@ -221,5 +222,5 @@ def test_gallery_uses_the_records_deduplicated_artifact_key(monkeypatch, tmp_pat
         "https://storage.mtls.cloud.google.com/"
         f"{gcs_tools.config.GCS_BUCKET_NAME}/run_a/creative_output/"
     )
-    assert f'src="{base}Game_Day.png?authuser=3"' in html
-    assert f'src="{base}Game_Day_2.png?authuser=3"' in html
+    assert f'src="{base}Game_Day.png"' in html
+    assert f'src="{base}Game_Day_2.png"' in html

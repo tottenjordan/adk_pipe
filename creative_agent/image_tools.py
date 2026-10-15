@@ -4,8 +4,8 @@ Split out of ``tools.py``; the genai client is now created lazily so importing
 this module has no side effects.
 
 Post-render image QA (``image_qa``, on unless ``IMAGE_QA_ENABLED=false``): each
-render gets one vision check (pipelined: image N is inspected while image N+1
-renders; renders themselves stay sequential); a failing image is re-rendered at most
+render gets one vision check (pipelined: image N is inspected while other
+images render, at most ``IMAGE_RENDER_CONCURRENCY`` at once); a failing image is re-rendered at most
 ``IMAGE_QA_MAX_RERENDERS`` times (and at most ``IMAGE_QA_MAX_RERENDERS_PER_RUN``
 across the whole call) with a quote-free correction appended to the prompt,
 the better attempt is kept (critical failures — unsafe, third-party logo —
@@ -25,16 +25,13 @@ gated on the ``unwanted_logo`` rating-strictness flag. Opt-in rating learning
 import asyncio
 import functools
 import hashlib
-import ipaddress
 import json
 import logging
 import random
-import socket
-import urllib.request
-from collections.abc import Mapping, Sequence
+import threading
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
-from typing import Any
-from urllib.parse import urlparse
+from typing import TYPE_CHECKING, Any
 
 import httpx
 from google import genai
@@ -66,11 +63,17 @@ from .person_render import (
 from .rating_signals import strictness_flags
 from .references import (
     MAX_REFERENCE_IMAGES,
+    REFERENCE_MAX_BYTES,
     REFERENCE_ROLES,
+    UnsafeReferenceURL,
+    reference_mime_for,
     reference_roles_summary,
     resolve_references,
 )
 from .trend_situation import timely_allowed
+
+if TYPE_CHECKING:
+    from .render_concept import RenderReferences, RenderResult
 
 __all__ = [
     "MAX_REFERENCE_IMAGES",
@@ -81,146 +84,6 @@ __all__ = [
     "reference_roles_summary",
     "resolve_references",
 ]
-
-# Fetch timeout for an http(s) reference image (stdlib urllib, no new dep).
-_REFERENCE_FETCH_TIMEOUT_SECS = 20
-
-# Largest reference image accepted (http(s) body or gs:// object).
-_REFERENCE_MAX_BYTES = 10 * 1024 * 1024
-
-# Map a reference-image extension to a mime type (default image/png).
-_REFERENCE_MIME_BY_EXT = {
-    ".png": "image/png",
-    ".jpg": "image/jpeg",
-    ".jpeg": "image/jpeg",
-    ".webp": "image/webp",
-    ".gif": "image/gif",
-}
-
-
-def _reference_mime_for(path: str) -> str:
-    """Best-effort mime type from a reference-image path/URL extension."""
-    lower = path.lower()
-    for ext, mime in _REFERENCE_MIME_BY_EXT.items():
-        if lower.endswith(ext):
-            return mime
-    return "image/png"
-
-
-class UnsafeReferenceURL(ValueError):
-    """An http(s) reference URL that must not be fetched (SSRF guard)."""
-
-
-def _is_public_ip(raw: str) -> bool:
-    """False for loopback/private/link-local/reserved/multicast/unspecified and
-    any other non-global address (e.g. 100.64.0.0/10 shared address space).
-
-    The explicit checks stay alongside ``is_global``: some special-purpose
-    addresses report ``is_global`` True (e.g. ``64:ff9b::a9fe:a9fe``, the NAT64
-    form of the metadata address, is caught only by ``is_reserved``)."""
-    ip = ipaddress.ip_address(raw.split("%", 1)[0])  # drop an IPv6 zone id
-    mapped = getattr(ip, "ipv4_mapped", None)
-    if mapped is not None:
-        ip = mapped
-    return not (
-        ip.is_loopback
-        or ip.is_private
-        or ip.is_link_local
-        or ip.is_reserved
-        or ip.is_multicast
-        or ip.is_unspecified
-        or not ip.is_global
-    )
-
-
-def _validate_reference_url(url: str) -> None:
-    """Raise UnsafeReferenceURL unless ``url`` is http(s) to a public host.
-
-    Every address the hostname resolves to must be public (a mixed answer is
-    refused). Note: urllib re-resolves on connect, so this does not pin the
-    address (DNS-rebinding window); it blocks the plain metadata/private-host
-    cases a user-supplied URL could otherwise reach.
-    """
-    parsed = urlparse(url)
-    if parsed.scheme not in ("http", "https") or not parsed.hostname:
-        raise UnsafeReferenceURL(f"not an http(s) URL with a host: '{url}'")
-    port = parsed.port or (443 if parsed.scheme == "https" else 80)
-    infos = socket.getaddrinfo(parsed.hostname, port, type=socket.SOCK_STREAM)
-    if not infos:
-        raise UnsafeReferenceURL(f"'{parsed.hostname}' did not resolve")
-    for info in infos:
-        address = str(info[4][0])
-        if not _is_public_ip(address):
-            raise UnsafeReferenceURL(
-                f"'{parsed.hostname}' resolves to non-public address {address}"
-            )
-
-
-class _RevalidatingRedirectHandler(urllib.request.HTTPRedirectHandler):
-    """Follow at most 3 redirects, re-validating every hop's URL."""
-
-    max_redirections = 3
-
-    def redirect_request(self, req, fp, code, msg, headers, newurl):
-        _validate_reference_url(newurl)
-        return super().redirect_request(req, fp, code, msg, headers, newurl)
-
-
-def _reference_opener() -> urllib.request.OpenerDirector:
-    """A urllib opener whose redirect handler re-validates each hop."""
-    return urllib.request.build_opener(_RevalidatingRedirectHandler)
-
-
-def _fetch_http_reference(uri: str) -> tuple[bytes, str]:
-    """(bytes, mime) of a public http(s) image ≤ the size cap, else raise."""
-    _validate_reference_url(uri)
-    with _reference_opener().open(uri, timeout=_REFERENCE_FETCH_TIMEOUT_SECS) as resp:
-        mime = resp.headers.get_content_type()
-        if not mime.startswith("image/"):
-            raise ValueError(f"Content-Type {mime!r} is not an image")
-        data = resp.read(_REFERENCE_MAX_BYTES + 1)
-    if len(data) > _REFERENCE_MAX_BYTES:
-        raise ValueError(f"larger than {_REFERENCE_MAX_BYTES} bytes")
-    return data, mime
-
-
-def _fetch_reference_image(uri: str) -> types.Part | None:
-    """Fetch a product/brand reference image as a genai Part, or None on failure.
-
-    Supports ``gs://bucket/object`` (via the GCS client) and ``http(s)://`` URLs
-    (via stdlib urllib, hardened: public hosts only, ≤ 3 re-validated
-    redirects, an ``image/*`` Content-Type). Both are capped at
-    ``_REFERENCE_MAX_BYTES``. Any failure is logged and swallowed so image
-    generation always falls back to the text-only path rather than aborting.
-    """
-    uri = (uri or "").strip()
-    if not uri:
-        return None
-    try:
-        if uri.startswith("gs://"):
-            without_scheme = uri[len("gs://") :]
-            bucket, _, obj = without_scheme.partition("/")
-            if not bucket or not obj:
-                logging.warning(f"Malformed gs:// reference image URI: '{uri}'")
-                return None
-            data = _download_blob(bucket, obj)
-            if len(data) > _REFERENCE_MAX_BYTES:
-                raise ValueError(f"larger than {_REFERENCE_MAX_BYTES} bytes")
-            mime = _reference_mime_for(obj)
-        elif uri.startswith("http://") or uri.startswith("https://"):
-            data, mime = _fetch_http_reference(uri)
-        else:
-            logging.warning(
-                f"Unsupported reference image URI scheme (want gs:// or http(s)://): '{uri}'"
-            )
-            return None
-        return types.Part.from_bytes(data=data, mime_type=mime)
-    except Exception as exc:
-        logging.warning(
-            f"Failed to fetch reference image '{uri}'; "
-            f"falling back to text-only prompt: {exc}"
-        )
-        return None
 
 
 @functools.cache
@@ -404,31 +267,6 @@ def _reference_prompt(
     return prompt_text + "\n\n" + "\n".join(lines)
 
 
-async def _fetch_references(
-    refs: list[tuple[str, str]],
-) -> tuple[list[tuple[str, types.Part]], list[str]]:
-    """Fetch every reference concurrently (off the event loop).
-
-    Returns ``(fetched, missing_roles)``: the ``(role, Part)`` pairs that
-    fetched, in order, and the roles whose fetch failed
-    (``_fetch_reference_image`` returned None and logged a warning). A failed
-    fetch drops only that reference.
-    """
-    parts = await asyncio.gather(
-        *(asyncio.to_thread(_fetch_reference_image, uri) for uri, _ in refs)
-    )
-    fetched = []
-    missing = []
-    for (uri, role), part in zip(refs, parts, strict=True):
-        if part is None:
-            logging.warning(f"Skipping {role} reference image '{uri}' (fetch failed)")
-            missing.append(role)
-            continue
-        logging.info(f"Using {role} reference image: {uri}")
-        fetched.append((role, part))
-    return fetched, missing
-
-
 def _final_image_part(parts):
     """The part carrying the FINAL rendered image, or None.
 
@@ -516,7 +354,7 @@ async def _render_person_image(
 def _fetch_person_photo(uri: str) -> types.Part | None:
     """The person photo (a ``gs://…/person-refs/…`` object) as a Part, or None.
 
-    Unlike ``_fetch_reference_image`` it never logs the URI, and only ``gs://``
+    Unlike ``references.fetch_reference_image`` it never logs the URI, and only ``gs://``
     objects under ``person-refs/`` in the run's bucket (when configured) are
     fetched."""
     without_scheme = uri.removeprefix("gs://")
@@ -527,9 +365,9 @@ def _fetch_person_photo(uri: str) -> types.Part | None:
         return None
     try:
         data = _download_blob(bucket, obj)
-        if not data or len(data) > _REFERENCE_MAX_BYTES:
+        if not data or len(data) > REFERENCE_MAX_BYTES:
             raise ValueError("empty or too large")
-        return types.Part.from_bytes(data=data, mime_type=_reference_mime_for(obj))
+        return types.Part.from_bytes(data=data, mime_type=reference_mime_for(obj))
     except Exception as exc:
         logging.warning(
             "Person reference photo unavailable (%s); not cast", type(exc).__name__
@@ -554,8 +392,13 @@ async def _store_image(
     mime_type: str,
     artifact_key: str,
     consent_id: str | None = None,
+    *,
+    before_upload: Callable[[], None] | None = None,
 ) -> str | None:
     """Upload to GCS + save the ADK artifact → the gs:// URI, or None.
+
+    ``before_upload`` runs in the upload's worker thread right before
+    ``_save_to_gcs`` (``_upload_all`` uses it to start uploads in order).
 
     A per-image GCS failure is logged and returns None so one bad upload
     doesn't abort the whole batch (_save_to_gcs raises on failure — it never
@@ -563,15 +406,26 @@ async def _store_image(
     A cast render carries blob metadata ``consent_id`` (the consent revoke
     deletes only objects that carry it) and is not saved as an ADK artifact.
     """
-    extra = {"metadata": {"consent_id": consent_id}} if consent_id else {}
-    try:
-        img_gcs_uri = await asyncio.to_thread(
-            _save_to_gcs,
+    extra: dict[str, Any] = (
+        {"metadata": {"consent_id": consent_id}} if consent_id else {}
+    )
+    if mime_type and mime_type != "image/png":
+        # Only a non-default type is passed: _save_to_gcs defaults to image/png,
+        # so PNG uploads keep their historical call shape.
+        extra["content_type"] = mime_type
+
+    def upload() -> str:
+        if before_upload is not None:
+            before_upload()
+        return _save_to_gcs(
             tool_context=tool_context,
             image_bytes=image_bytes,
             filename=artifact_key,
             **extra,
         )
+
+    try:
+        img_gcs_uri = await asyncio.to_thread(upload)
     except Exception as gcs_exc:
         logging.error(
             f"GCS upload failed for '{artifact_key}', skipping image: {gcs_exc}"
@@ -599,52 +453,6 @@ async def _store_image(
         return img_gcs_uri
     logging.info(f"Saved image artifact, '{artifact_key}', to '{img_gcs_uri}'")
     return img_gcs_uri
-
-
-async def _inspect(
-    rendered: tuple[bytes, str],
-    entry: dict,
-    brand: str,
-    product: str,
-    has_logo_reference: bool = False,
-    strictness: Sequence[str] = (),
-    person_image: tuple[bytes, str] | None = None,
-    original_image: tuple[bytes, str] | None = None,
-    *,
-    safer_angle_active: bool = False,
-) -> image_qa.ImageQAResult | None:
-    """One QA call off the event loop → the verdict, or None (fail-open).
-    ``person_image`` (cast concepts only) adds the likeness comparison;
-    ``original_image`` (personalised variant edits only) the composition check;
-    ``safer_angle_active`` (a sensitive trend's safer angle) the public-figure
-    likeness check."""
-    image_bytes, mime = rendered
-    extra: dict[str, Any] = {}
-    if person_image is not None:
-        extra["person_image"] = person_image
-    if original_image is not None:
-        extra["original_image"] = original_image
-    if safer_angle_active:
-        extra["safer_angle_active"] = True
-    try:
-        return await asyncio.to_thread(
-            image_qa.inspect_image,
-            image_bytes,
-            mime,
-            entry,
-            brand=brand,
-            target_product=product,
-            client=image_qa._get_qa_client(),
-            model=config.image_qa_model,
-            has_logo_reference=has_logo_reference,
-            strictness=strictness,
-            **extra,
-        )
-    except Exception as exc:
-        logging.warning(
-            f"Image QA unavailable for '{entry.get('concept_name')}': {exc}"
-        )
-        return None
 
 
 def _qa_record(
@@ -697,142 +505,6 @@ class _RerenderBudget:
     """QA re-renders left for the whole generate_image call (shared)."""
 
     remaining: int
-
-
-BUDGET_REACHED = "re-render budget reached"
-
-
-async def _inspect_and_rerender(
-    entry: dict,
-    rendered: tuple[bytes, str],
-    prompt_text: str,
-    aspect_ratio: str,
-    contents_for,
-    brand: str,
-    product: str,
-    budget: _RerenderBudget,
-    has_logo_reference: bool = False,
-    *,
-    render=None,
-    claim_after: asyncio.Event | None = None,
-    claims_done: asyncio.Event | None = None,
-    strictness: Sequence[str] = (),
-    person_image: tuple[bytes, str] | None = None,
-    original_image: tuple[bytes, str] | None = None,
-    safer_angle_active: bool = False,
-) -> tuple[tuple[bytes, str], int, dict | None, str | None]:
-    """Inspect a render; re-render (bounded) while it fails; keep the best.
-
-    Returns ``(kept_image, attempts, qa_record, issue)``. Each re-render
-    appends ``image_qa.correction_text`` (quote-free, "no new text") to the
-    prompt (same references / aspect ratio) and is inspected again;
-    ``_keep_retry`` decides which attempt is kept. Re-renders are bounded per
-    image (``config.image_qa_max_rerenders``) and per run (``budget``, spent
-    here). ``issue`` is the ``image_qa__issues`` entry: "<concept>:
-    <failures>" when the kept image still fails (suffixed "(re-render budget
-    reached)" when the run cap stopped a re-render), else None. ``qa_record``
-    is None when the first check errored (fail-open; the render is kept and
-    the caller records the concept as unavailable). A re-render or re-check
-    that errors stops the loop and keeps the best inspected image so far.
-
-    Pipelining (``generate_image``): ``render`` is the serialized render
-    callable (default :func:`_render_image`); the budget is claimed in concept
-    order — this concept decides only after the previous one set
-    ``claim_after`` — and ``claims_done`` is set once this concept will claim
-    no more (always set on exit, so a failure never blocks later concepts).
-    """
-    render = render or _render_image
-
-    async def my_turn() -> None:
-        # Wait until every earlier concept has made its budget claims, so the
-        # per-run cap goes to concepts in concept order (as when sequential).
-        if claim_after is not None:
-            await claim_after.wait()
-
-    try:
-        name = entry.get("concept_name", "")
-        result = await _inspect(
-            rendered,
-            entry,
-            brand,
-            product,
-            has_logo_reference,
-            strictness,
-            person_image,
-            original_image,
-            safer_angle_active=safer_angle_active,
-        )
-        if result is None:
-            await my_turn()
-            return rendered, 1, None, None
-        attempts = 1
-        kept, kept_result = rendered, result
-        kept_rules = image_qa.qa_failed_rules(result, entry, target_product=product)
-        budget_reached = False
-        max_rerenders = config.image_qa_max_rerenders
-        for round_ in range(max_rerenders):
-            if not kept_rules:
-                break
-            await my_turn()
-            if budget.remaining <= 0:
-                budget_reached = True
-                break
-            budget.remaining -= 1
-            if round_ == max_rerenders - 1 and claims_done is not None:
-                claims_done.set()  # last possible claim made: let the next decide
-            logging.warning(
-                f"Image QA failed for '{name}' ({kept_rules}); re-rendering"
-            )
-            attempts += 1
-            correction = image_qa.correction_text(
-                kept_result, entry, target_product=product
-            )
-            try:
-                retry = await render(
-                    contents_for(prompt_text + "\n\n" + correction), aspect_ratio
-                )
-            except Exception as exc:
-                logging.warning(
-                    f"Re-render failed for '{name}'; keeping previous: {exc}"
-                )
-                break
-            if retry is None:
-                break
-            retry_result = await _inspect(
-                retry,
-                entry,
-                brand,
-                product,
-                has_logo_reference,
-                strictness,
-                person_image,
-                original_image,
-                safer_angle_active=safer_angle_active,
-            )
-            if retry_result is None:
-                break
-            retry_rules = image_qa.qa_failed_rules(
-                retry_result, entry, target_product=product
-            )
-            if _keep_retry(kept_rules, retry_rules):
-                kept, kept_result, kept_rules = retry, retry_result, retry_rules
-        await my_turn()
-        record = _qa_record(
-            kept_result,
-            entry,
-            product,
-            compared_to_original=original_image is not None,
-            safer_angle_active=safer_angle_active,
-        )
-        issue = None
-        if record["failures"]:
-            issue = f"{name}: {'; '.join(record['failures'])}"
-            if budget_reached:
-                issue += f" ({BUDGET_REACHED})"
-        return kept, attempts, record, issue
-    finally:
-        if claims_done is not None:
-            claims_done.set()
 
 
 def timely_record_valid_until(state: Any) -> str:
@@ -896,265 +568,383 @@ def render_fingerprint(final_visual_concepts: Any, person_reference: Any) -> str
     return f"render-v1:{digest[:16]}"
 
 
-async def generate_image(
-    tool_context: ToolContext,
-):
-    """Render one image per concept in the 'final_visual_concepts' state key and save them as artifacts. Takes no arguments; call it exactly once."""
-    # Renders with config.image_gen_model; returns a dict with 'status' and a
-    # 'message' listing the saved artifact keys.
-    # Idempotency guard: skip if these concepts were already rendered. The
-    # marker is the render fingerprint, so a re-run of the visual stage (new
-    # concepts, or a new person reference) renders again instead of returning
-    # stale images; a legacy boolean True (sessions written before the
-    # fingerprint) still skips.
-    fingerprint = render_fingerprint(
-        tool_context.state.get("final_visual_concepts"),
-        tool_context.state.get("person_reference"),
-    )
-    marker = tool_context.state.get("_images_generated")
-    if marker is True or (isinstance(marker, str) and marker == fingerprint):
-        existing_keys = tool_context.state.get("_generated_artifact_keys", [])
-        return {
-            "status": "success",
-            "message": f"Images already generated: {existing_keys}",
-        }
+@dataclass
+class RenderPlan:
+    """What ``generate_image`` renders, decided before any image-model call.
 
-    # get constants
-    gcs_folder = tool_context.state["gcs_folder"]
-    gcs_subdir = tool_context.state["agent_output_dir"]
+    ``concepts`` are the concepts after the render-time casting and timely
+    guards, with their ``aspect_ratios`` and de-duplicated ``artifact_keys``
+    (same order); ``references`` / ``person_part`` are fetched once for every
+    concept; ``person_uri`` is "" unless a usable, consented person reference
+    exists (never logged); ``person_notes`` collects the person run notes.
+    """
 
-    # get artifact details
-    # parse_concepts never raises: a missing / null / malformed value (e.g. a
-    # failed concept stage) is an empty list, which renders nothing and takes
-    # the normal success path instead of crashing creative_pipeline.
-    final_visual_concepts_list = parse_concepts(
-        tool_context.state.get("final_visual_concepts")
-    )
+    fingerprint: str
+    gcs_folder: str
+    gcs_subdir: str
+    concepts: list[dict]
+    aspect_ratios: list[str]
+    artifact_keys: list[str]
+    references: "RenderReferences"
+    person_part: types.Part | None
+    person_uri: str
+    consent_id: str
+    person_notes: list[str]
+    brand: str
+    product: str
+    strictness: tuple[str, ...]
+    safer_angle_active: bool
+    timely_valid_until: str
+    copies_by_id: dict[str, Mapping[str, Any]]
 
-    # Imported here: render_concept builds on this module's helpers.
-    from .render_concept import (
-        RenderPacing,
-        fetch_person_photo,
-        fetch_references,
-        render_concept,
-    )
 
-    # Optional reference images (product / logo / style; `reference_images` plus
-    # the legacy single `reference_image_uri`), applied to every concept. All
-    # fetched ONCE, concurrently, before the loop; none fetched → text-only.
-    references = await fetch_references(resolve_references(tool_context.state))
+def _person_reference(state: Any, notes: list[str]) -> tuple[str, str]:
+    """``(uri, consent_id)`` of the usable person reference, else ``("", "")``.
 
-    # Optional user-supplied deterministic aspect-ratio override. When set to a
-    # valid value it pins EVERY concept to that ratio; when empty/invalid, each
-    # concept keeps its own LLM-chosen ratio (preserving diversity). Read once.
-    aspect_ratio_override = valid_aspect_ratio_override(
-        tool_context.state.get("visual_aspect_ratio")
-    )
-
-    brand = tool_context.state.get("brand") or ""
-    # Opt-in rating learning: the run's check-backed fail-reason flags.
-    strictness = strictness_flags(tool_context.state.get("rating_strictness"))
-    # A sensitive trend's safer angle: image QA also checks for a real public
-    # figure's likeness (critical).
-    safer_angle_active = tool_context.state.get("safer_angle_active") == "yes"
-
-    # Optional consented person reference (consent-checked by the api at
-    # kick-off). Only a gs:// URI under person-refs/ is used; the casting guard
-    # is re-applied here (a checkpoint-3 edit may have bypassed it), and the
-    # photo is fetched once, only when a concept casts it. Never log the URI.
-    person_ref = tool_context.state.get("person_reference")
+    Only a gs:// URI under person-refs/ with a consent id is used (consent-
+    checked by the api at kick-off; adk web / direct engine sessions skip that
+    check, so without a consent id nothing is cast and no render lacks the
+    revoke metadata — ``PERSON_NO_CONSENT_NOTE`` goes to ``notes``). Never logs
+    the URI."""
+    person_ref = state.get("person_reference")
     person_uri = person_reference_uri(person_ref)
     if person_ref and not person_uri:
         logging.warning(
             "Person reference ignored: not a gs:// photo under person-refs/"
         )
-    person_notes: list[str] = []
     if person_uri and not person_reference_available(person_ref):
-        # No consent id (adk web / direct engine sessions skip the api's
-        # consent check): never cast, so no render lacks the revoke metadata.
         logging.warning("Person reference ignored: no consent id")
-        person_uri = ""
-        person_notes.append(PERSON_NO_CONSENT_NOTE)
-    final_visual_concepts_list, cast_warnings = enforce_person_casting(
-        [c for c in final_visual_concepts_list if isinstance(c, dict)],
-        available=bool(person_uri),
+        notes.append(PERSON_NO_CONSENT_NOTE)
+        return "", ""
+    return person_uri, (person_consent_id(person_ref) if person_uri else "")
+
+
+def _guarded_concepts(state: Any, *, person_available: bool) -> list[dict]:
+    """The concepts to render, with the casting guard and the timely cap
+    re-applied (a checkpoint-3 edit, or any path that bypassed the after-agent
+    guard, must not cast without a reference or render more timely concepts
+    than MAX_TIMELY_CONCEPTS). parse_concepts never raises: a missing / null /
+    malformed value (e.g. a failed concept stage) renders nothing."""
+    concepts, cast_warnings = enforce_person_casting(
+        [
+            c
+            for c in parse_concepts(state.get("final_visual_concepts"))
+            if isinstance(c, dict)
+        ],
+        available=person_available,
         max_cast=config.max_cast_concepts,
         safe_styles=config.person_safe_styles,
     )
     for warning in cast_warnings:
         logging.warning(f"casting guard (render): {warning}")
-    # The timely cap too, like the after-agent guard: a checkpoint-3 edit (or
-    # any path that bypassed the guard) must not render more timely concepts
-    # than MAX_TIMELY_CONCEPTS (or any without a validated timely moment).
-    final_visual_concepts_list, timely_warnings = enforce_timely_cap(
-        final_visual_concepts_list,
-        timely_ok=timely_allowed(tool_context.state, config.max_timely_concepts),
+    concepts, timely_warnings = enforce_timely_cap(
+        concepts,
+        timely_ok=timely_allowed(state, config.max_timely_concepts),
         max_timely=config.max_timely_concepts,
     )
     for warning in timely_warnings:
         logging.warning(f"timely guard (render): {warning}")
-    any_cast = any(
-        c.get("casts_person_reference") is True for c in final_visual_concepts_list
-    )
-    person_part = await fetch_person_photo(person_uri) if any_cast else None
-    person_rejected: dict[str, str] = {}
+    return concepts
 
-    product = tool_context.state.get("target_product") or ""
-    timely_valid_until = timely_record_valid_until(tool_context.state)
-    copies_by_id = (
-        copies_by_original_id(tool_context.state.get("ad_copy_critique"))
-        if timely_valid_until
-        else {}
-    )
-    artifact_keys_list = []
-    generated_images: dict[str, dict] = {}
-    qa_issues: list[str] = []
-    qa_unavailable: list[str] = []
-    budget = _RerenderBudget(config.image_qa_max_rerenders_per_run)
 
-    # Pipelined: one render_concept task per concept. At most n image-model
-    # calls are in flight (the image quota) behind one semaphore, re-renders
-    # included. First renders are staggered by concept: concept i's first render
-    # waits for concept i-n's (so the first n start at once and each returned
-    # render lets one more concept in), and each image's QA (+ any re-render)
-    # overlaps the other renders. asyncio.Semaphore wakes waiters FIFO, so a
-    # re-render queued while all slots are busy runs as soon as one frees, ahead
-    # of later first renders. n=1 is the old strictly sequential pipeline
-    # (concept i waits for concept i-1). The per-run budget is claimed in
-    # concept order. Uploads happen afterwards, in concept order, for the kept
-    # image only.
+async def _plan_renders(state: Any, *, fingerprint: str) -> RenderPlan:
+    """Resolve everything the renders share: references (fetched once,
+    concurrently; none → text-only), the aspect ratios (a valid
+    ``visual_aspect_ratio`` pins every concept, else each keeps its own), the
+    guarded concepts, the person photo (fetched once, only when a concept casts
+    it), the artifact keys and the timely record inputs."""
+    # Imported here: render_concept builds on this module's helpers.
+    from .render_concept import fetch_person_photo, fetch_references
+
+    gcs_folder = state["gcs_folder"]
+    gcs_subdir = state["agent_output_dir"]
+    references = await fetch_references(resolve_references(state))
+    override = valid_aspect_ratio_override(state.get("visual_aspect_ratio"))
+    person_notes: list[str] = []
+    person_uri, consent_id = _person_reference(state, person_notes)
+    concepts = _guarded_concepts(state, person_available=bool(person_uri))
+    any_cast = any(c.get("casts_person_reference") is True for c in concepts)
+    timely_valid_until = timely_record_valid_until(state)
+    return RenderPlan(
+        fingerprint=fingerprint,
+        gcs_folder=gcs_folder,
+        gcs_subdir=gcs_subdir,
+        concepts=concepts,
+        # .get() inside keeps concepts that only carry image_generation_prompt
+        # working (see test_tools_retry).
+        aspect_ratios=[
+            _resolve_aspect_ratio(
+                c,
+                override,
+                config.image_aspect_ratios_allowed,
+                config.image_aspect_ratio_default,
+            )
+            for c in concepts
+        ],
+        artifact_keys=unique_artifact_keys(
+            [str(c.get("concept_name") or "") for c in concepts]
+        ),
+        references=references,
+        person_part=await fetch_person_photo(person_uri) if any_cast else None,
+        person_uri=person_uri,
+        consent_id=consent_id,
+        person_notes=person_notes,
+        brand=state.get("brand") or "",
+        product=state.get("target_product") or "",
+        # Opt-in rating learning: the run's check-backed fail-reason flags.
+        strictness=tuple(strictness_flags(state.get("rating_strictness"))),
+        # A sensitive trend's safer angle: image QA also checks for a real
+        # public figure's likeness (critical).
+        safer_angle_active=state.get("safer_angle_active") == "yes",
+        timely_valid_until=timely_valid_until,
+        copies_by_id=(
+            copies_by_original_id(state.get("ad_copy_critique"))
+            if timely_valid_until
+            else {}
+        ),
+    )
+
+
+# Longest exception text kept in a "render failed" issue.
+_RENDER_FAILURE_MAX_CHARS = 200
+
+
+async def _contained(
+    entry: dict, render: Awaitable["RenderResult"]
+) -> tuple["RenderResult", Exception | None]:
+    """``(result, None)``, or for a render that raised ``(a no-image result
+    whose qa_issue is "<concept>: render failed: <Type>: <message>", exc)``."""
+    from .render_concept import RenderResult
+
+    try:
+        return await render, None
+    except Exception as exc:
+        name = str(entry.get("concept_name") or "")
+        logging.warning(f"Render failed for '{name}'; skipping it: {exc!r}")
+        detail = f"{type(exc).__name__}: {exc}"[:_RENDER_FAILURE_MAX_CHARS]
+        issue = f"{name}: render failed: {detail}"
+        return RenderResult(None, "", 1, None, issue, False, None, entry), exc
+
+
+async def _run_pipelined(plan: RenderPlan) -> list["RenderResult"]:
+    """One ``render_concept`` task per concept → their results, in concept order.
+
+    At most ``IMAGE_RENDER_CONCURRENCY`` (n) image-model calls are in flight
+    (the image quota) behind one semaphore, re-renders included. First renders
+    are staggered by concept: concept i's first render waits for concept
+    i-n's (so the first n start at once and each returned render lets one more
+    concept in), and each image's QA (+ any re-render) overlaps the other
+    renders. asyncio.Semaphore wakes waiters FIFO, so a re-render queued while
+    all slots are busy runs as soon as one frees, ahead of later first renders.
+    n=1 is the old strictly sequential pipeline (concept i waits for concept
+    i-1). The per-run re-render budget is claimed in concept order.
+
+    A concept whose render raises (after ``_generate_image_with_backoff``'s
+    retries) becomes a no-image result with a "render failed" issue, so the
+    other concepts still render and upload; only when every concept raised does
+    the first error propagate (the node's INFRA_RETRY then retries the call).
+    On cancellation the in-flight tasks are stopped and every task's outcome
+    retrieved.
+    """
+    from .render_concept import RenderPacing, render_concept
+
     n = config.image_render_concurrency
     render_slots = asyncio.Semaphore(n)
+    budget = _RerenderBudget(config.image_qa_max_rerenders_per_run)
     tasks: list[asyncio.Task] = []
     rendered: list[asyncio.Event] = []
     previous_done: asyncio.Event | None = None
     try:
-        for entry in final_visual_concepts_list:
-            # Per-concept aspect ratio, unless a valid state override pins all
-            # concepts. .get() keeps concepts that only carry
-            # image_generation_prompt working (see test_tools_retry).
-            aspect_ratio = _resolve_aspect_ratio(
-                entry,
-                aspect_ratio_override,
-                config.image_aspect_ratios_allowed,
-                config.image_aspect_ratio_default,
-            )
-            i = len(rendered)
+        for i, (entry, aspect_ratio) in enumerate(
+            zip(plan.concepts, plan.aspect_ratios, strict=True)
+        ):
             rendered_event, done = asyncio.Event(), asyncio.Event()
+            pacing = RenderPacing(
+                lock=render_slots,
+                start_after=rendered[i - n] if i >= n else None,
+                rendered=rendered_event,
+                claim_after=previous_done,
+                claims_done=done,
+            )
             tasks.append(
                 asyncio.create_task(
-                    render_concept(
+                    _contained(
                         entry,
-                        aspect_ratio=aspect_ratio,
-                        references=references,
-                        person=person_part,
-                        strictness=strictness,
-                        safer_angle_active=safer_angle_active,
-                        qa=config.image_qa_enabled,
-                        brand=brand,
-                        target_product=product,
-                        budget=budget,
-                        pacing=RenderPacing(
-                            lock=render_slots,
-                            start_after=rendered[i - n] if i >= n else None,
-                            rendered=rendered_event,
-                            claim_after=previous_done,
-                            claims_done=done,
+                        render_concept(
+                            entry,
+                            aspect_ratio=aspect_ratio,
+                            references=plan.references,
+                            person=plan.person_part,
+                            strictness=plan.strictness,
+                            safer_angle_active=plan.safer_angle_active,
+                            qa=config.image_qa_enabled,
+                            brand=plan.brand,
+                            target_product=plan.product,
+                            budget=budget,
+                            pacing=pacing,
                         ),
                     )
                 )
             )
             rendered.append(rendered_event)
             previous_done = done
-
-        # A first-render failure aborts the batch at once (later concepts are
-        # still waiting for their turn); nothing is uploaded.
-        if tasks:
-            await asyncio.wait(tasks, return_when=asyncio.FIRST_EXCEPTION)
-        for task in tasks:
-            if task.done() and not task.cancelled():
-                failure = task.exception()
-                if failure is not None:
-                    raise failure
-        results = [await task for task in tasks]
-
-        planned_keys = unique_artifact_keys(
-            [str(c.get("concept_name") or "") for c in final_visual_concepts_list]
-        )
-        for result, artifact_key in zip(results, planned_keys, strict=True):
-            entry = result.concept
-            name = str(entry.get("concept_name") or "")
-            if result.rejected_reason is not None:
-                person_rejected[name] = result.rejected_reason
-            if result.qa_unavailable:
-                qa_unavailable.append(entry["concept_name"])
-            if result.qa_issue:
-                qa_issues.append(result.qa_issue)
-            if result.image_bytes is None:
-                continue
-            consent_id = (
-                person_consent_id(person_ref) if person_uri and result.cast else None
-            )
-            img_gcs_uri = await _store_image(
-                tool_context,
-                result.image_bytes,
-                result.mime,
-                artifact_key,
-                consent_id=consent_id,
-            )
-            if img_gcs_uri is None:
-                continue
-            artifact_keys_list.append(artifact_key)
-            record = {
-                "gcs_uri": img_gcs_uri,
-                "artifact_key": artifact_key,
-                "attempts": result.attempts,
-                "qa": result.qa,
-            }
-            if person_uri:
-                # Only runs with a person reference carry the cast flag; the
-                # judge's person gate and the UI read `cast is True`.
-                record["cast"] = result.cast
-                if result.cast:
-                    record["consent_id"] = consent_id
-            if timely_valid_until and is_timely_concept(entry, copies_by_id):
-                # Only timely concepts carry these keys, so every other record
-                # stays byte-identical to the pre-timely shape.
-                record["timely"] = True
-                record["valid_until"] = timely_valid_until
-            generated_images[entry["concept_name"]] = record
-    except Exception as e:
-        # Propagate so ADK 2.0 RetryConfig can retry transient infra failures.
-        logging.exception(f"No images generated. {e}")
-        raise
+        outcomes = await asyncio.gather(*tasks)
+        failures = [exc for _, exc in outcomes if exc is not None]
+        if failures and len(failures) == len(outcomes):
+            raise failures[0]
+        return [result for result, _ in outcomes]
     finally:
-        # On failure/cancellation stop the in-flight render / QA tasks (and
-        # retrieve every task's outcome); on success they are all done already.
         for task in tasks:
             if not task.done():
                 task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
+
+
+def _image_record(
+    plan: RenderPlan, result: "RenderResult", artifact_key: str, gcs_uri: str
+) -> dict:
+    """One ``generated_images`` record. Only runs with a person reference carry
+    ``cast`` (+ ``consent_id`` when cast; the judge's person gate and the UI
+    read ``cast is True``), and only timely concepts carry ``timely`` /
+    ``valid_until``, so every other record keeps the pre-timely shape."""
+    record = {
+        "gcs_uri": gcs_uri,
+        "artifact_key": artifact_key,
+        "attempts": result.attempts,
+        "qa": result.qa,
+    }
+    if plan.person_uri:
+        record["cast"] = result.cast
+        if result.cast:
+            record["consent_id"] = plan.consent_id
+    if plan.timely_valid_until and is_timely_concept(result.concept, plan.copies_by_id):
+        record["timely"] = True
+        record["valid_until"] = plan.timely_valid_until
+    return record
+
+
+# Kept images uploaded at once (GCS writes are independent; small bound).
+UPLOAD_CONCURRENCY = 4
+# Safety bound on an upload waiting for the previous one to start.
+_UPLOAD_ORDER_WAIT_SECS = 30.0
+
+
+async def _upload_all(
+    tool_context: ToolContext, jobs: list[tuple[bytes, str, str, str | None]]
+) -> list[str | None | BaseException]:
+    """Upload ``(image_bytes, mime, artifact_key, consent_id)`` jobs
+    concurrently (at most ``UPLOAD_CONCURRENCY`` in flight) → per job, in job
+    order, the gs:// URI, None (upload failed, logged) or the exception.
+
+    Uploads start in job order, so the ``_save_to_gcs`` calls keep concept order
+    while their I/O overlaps: the semaphore (FIFO, acquired with no await
+    before it) submits the worker threads in job order, and each thread waits
+    until the previous job's thread has entered ``_save_to_gcs`` (a
+    ``threading.Event``; the executor queue is FIFO, so the previous job is
+    always already running and the wait can't starve it)."""
+    slots = asyncio.Semaphore(UPLOAD_CONCURRENCY)
+    started = [threading.Event() for _ in jobs]
+
+    async def one(i: int, job: tuple[bytes, str, str, str | None]) -> str | None:
+        image_bytes, mime, artifact_key, consent_id = job
+
+        def entered() -> None:  # in the worker thread, right before the upload
+            if i:
+                started[i - 1].wait(_UPLOAD_ORDER_WAIT_SECS)
+            started[i].set()
+
+        try:
+            async with slots:
+                return await _store_image(
+                    tool_context,
+                    image_bytes,
+                    mime,
+                    artifact_key,
+                    consent_id=consent_id,
+                    before_upload=entered,
+                )
+        finally:
+            started[i].set()  # never leave the next upload waiting
+
+    return await asyncio.gather(
+        *(one(i, job) for i, job in enumerate(jobs)), return_exceptions=True
+    )
+
+
+async def _persist_results(
+    plan: RenderPlan, results: list["RenderResult"], tool_context: ToolContext
+) -> list[str]:
+    """Upload the kept images (concurrently, ``_upload_all``) and write the
+    run's state → the saved artifact keys; records keep concept order.
+
+    Every finished upload reaches ``generated_images`` in a ``finally``, even
+    when a later step raised: a cast render in GCS must stay visible to
+    ``cast_renders`` and the consent revoke cascade (an INFRA_RETRY re-run
+    overwrites it). The idempotency marker is written only on success.
+    """
+    state = tool_context.state
+    saved_keys: list[str] = []
+    generated_images: dict[str, dict] = {}
+    qa_issues: list[str] = []
+    qa_unavailable: list[str] = []
+    person_rejected: dict[str, str] = {}
+    kept: list[tuple[RenderResult, str]] = []
+    for result, artifact_key in zip(results, plan.artifact_keys, strict=True):
+        name = str(result.concept.get("concept_name") or "")
+        if result.rejected_reason is not None:
+            person_rejected[name] = result.rejected_reason
+        if result.qa_unavailable:
+            qa_unavailable.append(result.concept["concept_name"])
+        if result.qa_issue:
+            qa_issues.append(result.qa_issue)
+        if result.image_bytes is not None:
+            kept.append((result, artifact_key))
+    failure: BaseException | None = None
+    try:
+        uploaded = await _upload_all(
+            tool_context,
+            [
+                (
+                    result.image_bytes or b"",
+                    result.mime,
+                    artifact_key,
+                    plan.consent_id if plan.person_uri and result.cast else None,
+                )
+                for result, artifact_key in kept
+            ],
+        )
+        for (result, artifact_key), gcs_uri in zip(kept, uploaded, strict=True):
+            if isinstance(gcs_uri, BaseException):
+                failure = failure or gcs_uri
+                continue
+            if gcs_uri is None:
+                continue
+            saved_keys.append(artifact_key)
+            generated_images[result.concept["concept_name"]] = _image_record(
+                plan, result, artifact_key, gcs_uri
+            )
+        if failure is not None:
+            raise failure
+    finally:
         if generated_images:
-            # Every finished upload reaches state, even when a later step
-            # raised: a cast render in GCS must stay visible to cast_renders and
-            # the consent revoke cascade (an INFRA_RETRY re-run overwrites it).
-            tool_context.state["generated_images"] = generated_images
+            state["generated_images"] = generated_images
 
     # Mark as done so subsequent calls are idempotent
-    tool_context.state["_images_generated"] = fingerprint
-    tool_context.state["_generated_artifact_keys"] = artifact_keys_list
-    tool_context.state["generated_images"] = generated_images
+    state["_images_generated"] = plan.fingerprint
+    state["_generated_artifact_keys"] = saved_keys
+    state["generated_images"] = generated_images
     if qa_issues:
         # Generic `<key>__issues` marker → collect_degradation_warnings.
-        tool_context.state["image_qa__issues"] = qa_issues
+        state["image_qa__issues"] = qa_issues
     if qa_unavailable:
         # Deliberately NOT a `__issues` key: a failed check is not a quality
         # issue, so collect_degradation_warnings does not surface it.
-        tool_context.state["image_qa__unavailable"] = qa_unavailable
+        state["image_qa__unavailable"] = qa_unavailable
+    person_notes = list(plan.person_notes)
     if person_rejected:
         # {concept: reason} for the results page, plus a run note (generic
         # `<key>__issues` marker → collect_degradation_warnings).
-        tool_context.state["person_reference_rejected"] = person_rejected
+        state["person_reference_rejected"] = person_rejected
         person_notes.extend(
             (
                 PERSON_UNAVAILABLE_NOTE
@@ -1164,9 +954,42 @@ async def generate_image(
             for name, reason in person_rejected.items()
         )
     if person_notes:
-        tool_context.state["person_reference__issues"] = person_notes
+        state["person_reference__issues"] = person_notes
+    return saved_keys
 
+
+async def generate_image(
+    tool_context: ToolContext,
+):
+    """Render one image per concept in the 'final_visual_concepts' state key and save them as artifacts. Takes no arguments; call it exactly once."""
+    # Renders with config.image_gen_model; returns a dict with 'status' and a
+    # 'message' listing the saved artifact keys.
+    state = tool_context.state
+    # Idempotency guard: skip if these concepts were already rendered. The
+    # marker is the render fingerprint, so a re-run of the visual stage (new
+    # concepts, or a new person reference) renders again instead of returning
+    # stale images; a legacy boolean True (sessions written before the
+    # fingerprint) still skips.
+    fingerprint = render_fingerprint(
+        state.get("final_visual_concepts"), state.get("person_reference")
+    )
+    marker = state.get("_images_generated")
+    if marker is True or (isinstance(marker, str) and marker == fingerprint):
+        existing_keys = state.get("_generated_artifact_keys", [])
+        return {
+            "status": "success",
+            "message": f"Images already generated: {existing_keys}",
+        }
+
+    plan = await _plan_renders(state, fingerprint=fingerprint)
+    try:
+        results = await _run_pipelined(plan)
+        saved_keys = await _persist_results(plan, results, tool_context)
+    except Exception as e:
+        # Propagate so ADK 2.0 RetryConfig can retry transient infra failures.
+        logging.exception(f"No images generated. {e}")
+        raise
     return {
         "status": "success",
-        "message": f"Saved img artifacts: {artifact_keys_list} to `gs://{config.GCS_BUCKET_NAME}/{gcs_folder}/{gcs_subdir}`",
+        "message": f"Saved img artifacts: {saved_keys} to `gs://{config.GCS_BUCKET_NAME}/{plan.gcs_folder}/{plan.gcs_subdir}`",
     }

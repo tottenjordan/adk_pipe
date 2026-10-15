@@ -166,3 +166,92 @@ def test_render_reapplies_the_timely_cap(monkeypatch):
     images = run.ctx.state["generated_images"]
     timely = [name for name, rec in images.items() if rec.get("timely") is True]
     assert timely == ["T0"]
+
+
+# --- CV-8: concurrent uploads -------------------------------------------------------
+
+
+@pytest.mark.usefixtures("image_qa_off")
+def test_uploads_run_concurrently_bounded_and_records_stay_in_concept_order(
+    monkeypatch,
+):
+    """Kept images upload in parallel (at most UPLOAD_CONCURRENCY at once), start
+    in concept order, and generated_images / _generated_artifact_keys keep
+    concept order whatever order the uploads finish in."""
+    import threading
+    import time
+
+    names = [f"N{i}" for i in range(1, 7)]
+    run = _Run(monkeypatch, [_concept(n) for n in names])
+    lock = threading.Lock()
+    calls: list[str] = []
+    in_flight = 0
+    peak = 0
+
+    def save(*, tool_context, image_bytes, filename, metadata=None):
+        nonlocal in_flight, peak
+        with lock:
+            calls.append(filename)
+            in_flight += 1
+            peak = max(peak, in_flight)
+        # earlier uploads finish last, so completion order is reversed
+        time.sleep(0.05 * (len(names) - len(calls) + 1))
+        with lock:
+            in_flight -= 1
+        return f"gs://b/f/d/{filename}"
+
+    monkeypatch.setattr(image_tools, "_save_to_gcs", save)
+    run.go()
+
+    keys = [f"{n}.png" for n in names]
+    assert image_tools.UPLOAD_CONCURRENCY == 4
+    assert peak == image_tools.UPLOAD_CONCURRENCY
+    assert calls == keys  # started in concept order
+    assert list(run.ctx.state["generated_images"]) == names
+    assert run.ctx.state["_generated_artifact_keys"] == keys
+
+
+# --- Nits: upload content type ------------------------------------------------------
+
+
+@pytest.mark.usefixtures("image_qa_off")
+def test_upload_content_type_follows_the_models_mime(monkeypatch):
+    """A JPEG from the image model is uploaded as image/jpeg (was always
+    image/png); a PNG keeps _save_to_gcs's image/png default."""
+    run = _Run(monkeypatch, [_concept("A"), _concept("B")])
+    mimes = iter(["image/jpeg", "image/png"])
+
+    async def render(contents, aspect_ratio, image_config=None):
+        return b"img", next(mimes)
+
+    seen: dict[str, str | None] = {}
+
+    def save(*, tool_context, image_bytes, filename, metadata=None, **kw):
+        seen[filename] = kw.get("content_type")
+        return f"gs://b/f/d/{filename}"
+
+    monkeypatch.setattr(image_tools, "_render_image", render)
+    monkeypatch.setattr(image_tools, "_save_to_gcs", save)
+    run.go()
+    assert seen == {"A.png": "image/jpeg", "B.png": None}
+
+
+def test_save_to_gcs_uploads_with_the_given_content_type(monkeypatch):
+    from types import SimpleNamespace
+
+    from creative_agent import gcs_tools
+
+    uploads = []
+
+    class _Blob:
+        metadata = None
+
+        def upload_from_string(self, data, content_type=None):
+            uploads.append(content_type)
+
+    client = SimpleNamespace(bucket=lambda _n: SimpleNamespace(blob=lambda _p: _Blob()))
+    monkeypatch.setattr(gcs_tools, "_get_gcs_client", lambda: client)
+    ctx = FakeToolContext({"gcs_folder": "f", "agent_output_dir": "d"})
+    gcs_tools._save_to_gcs(ctx, b"x", "a.png", content_type="image/jpeg")
+    gcs_tools._save_to_gcs(ctx, b"x", "b.png")
+    assert uploads == ["image/jpeg", "image/png"]

@@ -10,7 +10,7 @@ import urllib.request
 
 import pytest
 
-from creative_agent import image_tools
+from creative_agent import image_tools, references
 from tests._fakes import FakeToolContext, noop_async
 
 # Image QA is covered in test_image_qa.py; these count image-model calls.
@@ -714,8 +714,8 @@ class _FakeOpener:
 
 def _patch_http(monkeypatch, resp, *ips):
     opener = _FakeOpener(resp)
-    monkeypatch.setattr(image_tools.socket, "getaddrinfo", _addrinfo(*ips))
-    monkeypatch.setattr(image_tools, "_reference_opener", lambda: opener)
+    monkeypatch.setattr(references.socket, "getaddrinfo", _addrinfo(*ips))
+    monkeypatch.setattr(references, "_reference_opener", lambda: opener)
     return opener
 
 
@@ -723,7 +723,7 @@ class TestFetchReferenceHardening:
     def test_public_https_image_ok(self, monkeypatch):
         resp = _FakeResp(b"jpegbytes", "image/jpeg")
         opener = _patch_http(monkeypatch, resp, "93.184.216.34")
-        part = image_tools._fetch_reference_image("https://example.com/a")
+        part = references.fetch_reference_image("https://example.com/a")
         assert part is not None
         assert part.inline_data.data == b"jpegbytes"
         assert part.inline_data.mime_type == "image/jpeg"
@@ -731,22 +731,22 @@ class TestFetchReferenceHardening:
 
     def test_plain_http_allowed(self, monkeypatch):
         _patch_http(monkeypatch, _FakeResp(), "93.184.216.34")
-        assert image_tools._fetch_reference_image("http://example.com/a.png")
+        assert references.fetch_reference_image("http://example.com/a.png")
 
     def test_read_is_capped_at_max_plus_one(self, monkeypatch):
         resp = _FakeResp()
         _patch_http(monkeypatch, resp, "93.184.216.34")
-        image_tools._fetch_reference_image("https://example.com/a.png")
-        assert resp.read_sizes == [image_tools._REFERENCE_MAX_BYTES + 1]
+        references.fetch_reference_image("https://example.com/a.png")
+        assert resp.read_sizes == [references.REFERENCE_MAX_BYTES + 1]
 
     def test_oversized_body_rejected(self, monkeypatch):
-        monkeypatch.setattr(image_tools, "_REFERENCE_MAX_BYTES", 4)
+        monkeypatch.setattr(references, "REFERENCE_MAX_BYTES", 4)
         _patch_http(monkeypatch, _FakeResp(b"12345"), "93.184.216.34")
-        assert image_tools._fetch_reference_image("https://example.com/a.png") is None
+        assert references.fetch_reference_image("https://example.com/a.png") is None
 
     def test_non_image_content_type_rejected(self, monkeypatch):
         _patch_http(monkeypatch, _FakeResp(b"<html>", "text/html"), "93.184.216.34")
-        assert image_tools._fetch_reference_image("https://example.com/a.png") is None
+        assert references.fetch_reference_image("https://example.com/a.png") is None
 
     @pytest.mark.parametrize(
         "ip",
@@ -767,24 +767,24 @@ class TestFetchReferenceHardening:
     )
     def test_non_public_address_rejected(self, monkeypatch, ip):
         opener = _patch_http(monkeypatch, _FakeResp(), ip)
-        assert image_tools._fetch_reference_image("https://evil.example/a.png") is None
+        assert references.fetch_reference_image("https://evil.example/a.png") is None
         assert opener.opened == []
 
     def test_any_private_resolved_address_rejects(self, monkeypatch):
         opener = _patch_http(monkeypatch, _FakeResp(), "93.184.216.34", "10.0.0.1")
-        assert image_tools._fetch_reference_image("https://mixed.example/a") is None
+        assert references.fetch_reference_image("https://mixed.example/a") is None
         assert opener.opened == []
 
     def test_dns_failure_is_fail_soft(self, monkeypatch):
         def boom(*a, **k):
             raise OSError("no such host")
 
-        monkeypatch.setattr(image_tools.socket, "getaddrinfo", boom)
-        assert image_tools._fetch_reference_image("https://nope.example/a") is None
+        monkeypatch.setattr(references.socket, "getaddrinfo", boom)
+        assert references.fetch_reference_image("https://nope.example/a") is None
 
     def test_redirect_to_private_host_rejected(self, monkeypatch):
         monkeypatch.setattr(
-            image_tools.socket,
+            references.socket,
             "getaddrinfo",
             lambda host, port, *a, **k: [
                 (
@@ -796,18 +796,18 @@ class TestFetchReferenceHardening:
                 )
             ],
         )
-        handler = image_tools._RevalidatingRedirectHandler()
+        handler = references._RevalidatingRedirectHandler()
         req = urllib.request.Request("https://example.com/a")
-        with pytest.raises(image_tools.UnsafeReferenceURL):
+        with pytest.raises(references.UnsafeReferenceURL):
             handler.redirect_request(
                 req, None, 302, "Found", {}, "http://internal/latest"
             )
 
     def test_redirect_to_public_host_revalidated_and_followed(self, monkeypatch):
         monkeypatch.setattr(
-            image_tools.socket, "getaddrinfo", _addrinfo("93.184.216.34")
+            references.socket, "getaddrinfo", _addrinfo("93.184.216.34")
         )
-        handler = image_tools._RevalidatingRedirectHandler()
+        handler = references._RevalidatingRedirectHandler()
         req = urllib.request.Request("https://example.com/a")
         new = handler.redirect_request(
             req, None, 302, "Found", {}, "https://cdn.example.com/a.png"
@@ -816,20 +816,20 @@ class TestFetchReferenceHardening:
 
     def test_redirect_to_other_scheme_rejected(self, monkeypatch):
         monkeypatch.setattr(
-            image_tools.socket, "getaddrinfo", _addrinfo("93.184.216.34")
+            references.socket, "getaddrinfo", _addrinfo("93.184.216.34")
         )
-        handler = image_tools._RevalidatingRedirectHandler()
+        handler = references._RevalidatingRedirectHandler()
         req = urllib.request.Request("https://example.com/a")
-        with pytest.raises(image_tools.UnsafeReferenceURL):
+        with pytest.raises(references.UnsafeReferenceURL):
             handler.redirect_request(req, None, 302, "Found", {}, "file:///etc/passwd")
 
     def test_at_most_three_redirects(self):
-        assert image_tools._RevalidatingRedirectHandler.max_redirections == 3
+        assert references._RevalidatingRedirectHandler.max_redirections == 3
 
     def test_real_opener_uses_revalidating_handler(self):
-        opener = image_tools._reference_opener()
+        opener = references._reference_opener()
         assert any(
-            isinstance(h, image_tools._RevalidatingRedirectHandler)
+            isinstance(h, references._RevalidatingRedirectHandler)
             for h in opener.handlers
         )
         assert not any(
@@ -837,13 +837,18 @@ class TestFetchReferenceHardening:
         )
 
     def test_gs_object_over_cap_rejected(self, monkeypatch):
-        monkeypatch.setattr(image_tools, "_REFERENCE_MAX_BYTES", 4)
-        monkeypatch.setattr(image_tools, "_download_blob", lambda b, o: b"12345")
-        assert image_tools._fetch_reference_image("gs://b/big.png") is None
+        monkeypatch.setattr(references, "REFERENCE_MAX_BYTES", 4)
+        assert (
+            references.fetch_reference_image(
+                "gs://b/big.png", download=lambda b, o: b"12345"
+            )
+            is None
+        )
 
-    def test_gs_object_within_cap_ok(self, monkeypatch):
-        monkeypatch.setattr(image_tools, "_download_blob", lambda b, o: b"1234")
-        part = image_tools._fetch_reference_image("gs://b/ok.jpg")
+    def test_gs_object_within_cap_ok(self):
+        part = references.fetch_reference_image(
+            "gs://b/ok.jpg", download=lambda b, o: b"1234"
+        )
         assert part is not None
         assert part.inline_data.mime_type == "image/jpeg"
 

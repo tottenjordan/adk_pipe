@@ -7,7 +7,7 @@ import pytest
 from google.api_core import exceptions as gapi_exceptions
 from google.genai import errors as genai_errors
 
-from creative_agent import gcs_tools, image_tools
+from creative_agent import gcs_tools, image_tools, references
 
 # --- research PDF -------------------------------------------------------------
 
@@ -95,17 +95,17 @@ def test_report_pdf_does_not_read_images_from_the_cwd(tmp_path, monkeypatch):
     ],
 )
 def test_is_public_ip(ip, public):
-    assert image_tools._is_public_ip(ip) is public
+    assert references._is_public_ip(ip) is public
 
 
 def test_shared_address_space_host_is_refused(monkeypatch):
     monkeypatch.setattr(
-        image_tools.socket,
+        references.socket,
         "getaddrinfo",
         lambda host, port, *a, **k: [(2, 1, 6, "", ("100.64.0.1", port))],
     )
-    with pytest.raises(image_tools.UnsafeReferenceURL):
-        image_tools._validate_reference_url("https://cgnat.example/a.png")
+    with pytest.raises(references.UnsafeReferenceURL):
+        references._validate_reference_url("https://cgnat.example/a.png")
 
 
 # --- gs:// size cap -----------------------------------------------------------
@@ -179,7 +179,7 @@ def test_download_blob_missing_object_raises_not_found(monkeypatch):
 def test_oversized_gs_reference_is_skipped_without_download(monkeypatch):
     blob = _Blob(size=50 * 1024 * 1024)
     _patch_gcs(monkeypatch, blob)
-    assert image_tools._fetch_reference_image("gs://b/huge.png") is None
+    assert references.fetch_reference_image("gs://b/huge.png") is None
     assert blob.download_calls == []
 
 
