@@ -527,7 +527,7 @@ def evaluate_ad_copy(
                 system_instruction=prompts.AD_COPY_EVAL_SYSTEM,
                 response_mime_type="application/json",
                 response_schema=AdCopyJudgeOutput,
-                temperature=0.3,
+                temperature=config.judge_temperature,
             ),
         )
 
@@ -686,7 +686,7 @@ def evaluate_visual_concept(
                 system_instruction=prompts.VISUAL_CONCEPT_EVAL_SYSTEM,
                 response_mime_type="application/json",
                 response_schema=VisualJudgeOutput,
-                temperature=0.3,
+                temperature=config.judge_temperature,
             ),
         )
         judged = VisualJudgeOutput.model_validate_json(response.text or "")

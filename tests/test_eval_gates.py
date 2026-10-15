@@ -939,6 +939,22 @@ class TestJudgeSchemas:
         cfg = client.models.generate_content.call_args.kwargs["config"]
         assert cfg.response_schema is VisualJudgeOutput
 
+    @pytest.mark.parametrize(
+        ("config", "expected"),
+        [(EvalConfig(), 0.3), (EvalConfig(judge_temperature=1.0), 1.0)],
+    )
+    def test_calls_use_the_configured_judge_temperature(self, config, expected):
+        from creative_eval.evaluate import evaluate_ad_copy, evaluate_visual_concept
+
+        client = _client(_judge_json("ad", dict.fromkeys(AD_COPY_GATES, True)))
+        evaluate_ad_copy(AD_COPY, CAMPAIGN, config, client=client, brief=BRIEF)
+        cfg = client.models.generate_content.call_args.kwargs["config"]
+        assert cfg.temperature == expected
+        client = _client(_judge_json("visual", dict.fromkeys(VISUAL_GATES, True)))
+        evaluate_visual_concept(CONCEPT, CAMPAIGN, config, client=client)
+        cfg = client.models.generate_content.call_args.kwargs["config"]
+        assert cfg.temperature == expected
+
     def test_judge_returning_zero_gates_does_not_pass(self):
         from creative_eval.evaluate import evaluate_ad_copy
 
