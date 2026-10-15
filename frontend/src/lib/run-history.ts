@@ -2,6 +2,7 @@ import { SELF_USER_ID } from "@/lib/api";
 import { agentInfo, agentLabel, isAgentId, isCreativeAgent, type AgentId } from "@/lib/agents";
 import type { CampaignInput, Session } from "@/lib/types";
 import { referenceRowsFromState } from "@/lib/reference-images";
+import { contextSensitivity } from "@/lib/trend-flags";
 import { formatStateValue } from "@/lib/utils";
 
 /**
@@ -227,6 +228,10 @@ export function briefFromState(state: Record<string, unknown>): Brief {
   if (trend) brief.targetSearchTrend = trend;
   if (state.interactive_trend_pick === true) brief.interactiveTrendPick = true;
   if (state.learn_from_ratings === true) brief.learnFromRatings = true;
+  // The respectful-angle opt-in only makes sense for a sensitive trend context.
+  if (state.safer_angle_opt_in === true && contextSensitivity(brief.trendContext).sensitive) {
+    brief.saferAngle = true;
+  }
   // The chosen person (the form drops it if the consent was revoked since).
   const person = state.person_reference;
   if (person && typeof person === "object") {
