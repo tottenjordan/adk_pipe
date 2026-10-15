@@ -75,7 +75,7 @@ def _grounded_event(url: str, title: str, segment: str, confidence: float):
 
 def _ctx(events, state):
     return SimpleNamespace(
-        _invocation_context=SimpleNamespace(session=SimpleNamespace(events=events)),
+        session=SimpleNamespace(events=events),
         state=state,
     )
 

@@ -403,7 +403,7 @@ def collect_research_sources_callback(callback_context: CallbackContext) -> None
         callback_context (CallbackContext): The context object providing access to the agent's
             session events and persistent state.
     """
-    session = callback_context._invocation_context.session
+    session = callback_context.session
     url_to_short_id = callback_context.state.get("url_to_short_id", {})
     sources = callback_context.state.get("sources", {})
     id_counter = len(url_to_short_id) + 1
