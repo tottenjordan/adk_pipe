@@ -76,7 +76,10 @@ whichever judge graded that run, and a changed rubric changes what "pass" means.
 calibration is **versioned**:
 
 - `creative_eval.JUDGE_VERSION` (in `creative_eval/dimensions.py`, next to the gate
-  definitions) names the current judge, currently **`2026-10-15.1`**: stricter pass
+  definitions) names the current judge, currently **`2026-10-15.2`**: a visual's
+  `trend_motif_visible` passes in code with note "no trend" on a run without a target
+  trend (like `trend_connected`; before, the judge looked for a motif of an empty
+  trend). Before it, **`2026-10-15.1`**: stricter pass
   rules (a dimension the judge did not score, or a blocking gate it had to decide but
   left out, now fails the creative instead of passing it unchecked; identifiers come
   from the input creative) and prompt wording (tagged creative/brief/research text is

@@ -1031,7 +1031,7 @@ def evaluate_visual_concept(
             judged,
             config,
             brief_used=brief is not None,
-            trend_given=True,
+            trend_given=_trend_given(campaign_context),
             person_cast=person_cast,
             timely=timely,
             safer_angle=safer_angle,
