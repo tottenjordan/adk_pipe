@@ -6,7 +6,7 @@ blocking ``query().result()`` or GCS upload in a sync tool stalls every
 concurrent run and poll. The tools are ``async def`` with the blocking body in
 ``asyncio.to_thread``; their state writes stay on the loop. The model-facing
 declarations must not change (golden: the declarations of the former sync
-tools, ``tests/fixtures/trend_scout_tool_declarations.json``).
+tools per backend variant, ``tests/fixtures/trend_scout_tool_declarations.json``).
 """
 
 import asyncio
@@ -33,11 +33,21 @@ _TOOLS = {
 }
 
 
+# ADK builds a different declaration per backend variant (Vertex AI adds a
+# ``response_json_schema``), chosen from GOOGLE_GENAI_USE_ENTERPRISE (or the
+# deprecated GOOGLE_GENAI_USE_VERTEXAI), so the variant is pinned per case. The
+# deployed engines run on Vertex AI.
+_VARIANT_FLAGS = {"vertex_ai": "true", "gemini_api": "false"}
+
+
+@pytest.mark.parametrize("variant", sorted(_VARIANT_FLAGS))
 @pytest.mark.parametrize("name", sorted(_TOOLS))
-def test_tool_is_async_with_an_unchanged_declaration(name):
+def test_tool_is_async_with_an_unchanged_declaration(monkeypatch, name, variant):
+    monkeypatch.setenv("GOOGLE_GENAI_USE_ENTERPRISE", _VARIANT_FLAGS[variant])
+    monkeypatch.delenv("GOOGLE_GENAI_USE_VERTEXAI", raising=False)
     tool = _TOOLS[name]
     assert inspect.iscoroutinefunction(tool)
-    golden = json.loads(_GOLDEN.read_text())[name]
+    golden = json.loads(_GOLDEN.read_text())[variant][name]
     declaration = FunctionTool(tool)._get_declaration()
     assert declaration is not None
     assert declaration.model_dump(mode="json", exclude_none=True) == golden

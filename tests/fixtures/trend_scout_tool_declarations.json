@@ -1,46 +1,79 @@
 {
-  "get_daily_gtrends": {
-    "description": "Retrieves the top 25 Google Search Trends (term, rank, refresh_date).\n\nArgs:\n    tool_context (ToolContext): The tool context.\n\nReturns:\n    str: A markdown-formatted string listing the Google Search Trends and their corresponding\n         rank, or an error message if the query fails.\n         The table includes columns for 'term', 'rank', and 'refresh_date'.\n         Returns 25 rows of results.",
-    "name": "get_daily_gtrends",
-    "response_json_schema": {
-      "type": "string"
-    }
-  },
-  "save_session_state_to_gcs": {
-    "description": "Writes the session state to JSON. Saves the JSON file to Cloud Storage.\n\nArgs:\n    tool_context (ToolContext): The tool context.\n\nReturns:\n    dict: A dictionary containing the status and the json file's Cloud Storage URI (gcs_uri).",
-    "name": "save_session_state_to_gcs",
-    "response_json_schema": {
-      "additionalProperties": true,
-      "type": "object"
-    }
-  },
-  "write_to_file": {
-    "description": "Writes the given content to a markdown file. Saves the file to Google Cloud Storage.\n\nArgs:\n    content (str): Full markdown content as a string to be saved to disk.\n    tool_context (ToolContext): The tool context.\n\nReturns:\n    dict: A dictionary containing the status and the markdown file's Cloud Storage URI (gcs_uri).",
-    "name": "write_to_file",
-    "parameters_json_schema": {
-      "properties": {
-        "content": {
-          "title": "Content",
-          "type": "string"
-        }
-      },
-      "required": [
-        "content"
-      ],
-      "title": "write_to_fileParams",
-      "type": "object"
+  "gemini_api": {
+    "get_daily_gtrends": {
+      "description": "Retrieves the top 25 Google Search Trends (term, rank, refresh_date).\n\nArgs:\n    tool_context (ToolContext): The tool context.\n\nReturns:\n    str: A markdown-formatted string listing the Google Search Trends and their corresponding\n         rank, or an error message if the query fails.\n         The table includes columns for 'term', 'rank', and 'refresh_date'.\n         Returns 25 rows of results.",
+      "name": "get_daily_gtrends"
     },
-    "response_json_schema": {
-      "additionalProperties": true,
-      "type": "object"
+    "save_session_state_to_gcs": {
+      "description": "Writes the session state to JSON. Saves the JSON file to Cloud Storage.\n\nArgs:\n    tool_context (ToolContext): The tool context.\n\nReturns:\n    dict: A dictionary containing the status and the json file's Cloud Storage URI (gcs_uri).",
+      "name": "save_session_state_to_gcs"
+    },
+    "write_to_file": {
+      "description": "Writes the given content to a markdown file. Saves the file to Google Cloud Storage.\n\nArgs:\n    content (str): Full markdown content as a string to be saved to disk.\n    tool_context (ToolContext): The tool context.\n\nReturns:\n    dict: A dictionary containing the status and the markdown file's Cloud Storage URI (gcs_uri).",
+      "name": "write_to_file",
+      "parameters_json_schema": {
+        "properties": {
+          "content": {
+            "title": "Content",
+            "type": "string"
+          }
+        },
+        "required": [
+          "content"
+        ],
+        "title": "write_to_fileParams",
+        "type": "object"
+      }
+    },
+    "write_trends_to_bq": {
+      "description": "Writes the trends saved in the 'target_search_trends' state key to a BigQuery\ntable. Call `save_search_trends_to_session_state` for each trend first.\n\nArgs:\n    tool_context (ToolContext): The tool context.\n\nReturns:\n    dict: A dictionary containing a 'status' key ('success' or 'error').\n          On success, status is 'success' and includes a 'trends' key with the inserted terms\n          On failure, status is 'error' and includes an 'error_message'.",
+      "name": "write_trends_to_bq"
     }
   },
-  "write_trends_to_bq": {
-    "description": "Writes the trends saved in the 'target_search_trends' state key to a BigQuery\ntable. Call `save_search_trends_to_session_state` for each trend first.\n\nArgs:\n    tool_context (ToolContext): The tool context.\n\nReturns:\n    dict: A dictionary containing a 'status' key ('success' or 'error').\n          On success, status is 'success' and includes a 'trends' key with the inserted terms\n          On failure, status is 'error' and includes an 'error_message'.",
-    "name": "write_trends_to_bq",
-    "response_json_schema": {
-      "additionalProperties": true,
-      "type": "object"
+  "vertex_ai": {
+    "get_daily_gtrends": {
+      "description": "Retrieves the top 25 Google Search Trends (term, rank, refresh_date).\n\nArgs:\n    tool_context (ToolContext): The tool context.\n\nReturns:\n    str: A markdown-formatted string listing the Google Search Trends and their corresponding\n         rank, or an error message if the query fails.\n         The table includes columns for 'term', 'rank', and 'refresh_date'.\n         Returns 25 rows of results.",
+      "name": "get_daily_gtrends",
+      "response_json_schema": {
+        "type": "string"
+      }
+    },
+    "save_session_state_to_gcs": {
+      "description": "Writes the session state to JSON. Saves the JSON file to Cloud Storage.\n\nArgs:\n    tool_context (ToolContext): The tool context.\n\nReturns:\n    dict: A dictionary containing the status and the json file's Cloud Storage URI (gcs_uri).",
+      "name": "save_session_state_to_gcs",
+      "response_json_schema": {
+        "additionalProperties": true,
+        "type": "object"
+      }
+    },
+    "write_to_file": {
+      "description": "Writes the given content to a markdown file. Saves the file to Google Cloud Storage.\n\nArgs:\n    content (str): Full markdown content as a string to be saved to disk.\n    tool_context (ToolContext): The tool context.\n\nReturns:\n    dict: A dictionary containing the status and the markdown file's Cloud Storage URI (gcs_uri).",
+      "name": "write_to_file",
+      "parameters_json_schema": {
+        "properties": {
+          "content": {
+            "title": "Content",
+            "type": "string"
+          }
+        },
+        "required": [
+          "content"
+        ],
+        "title": "write_to_fileParams",
+        "type": "object"
+      },
+      "response_json_schema": {
+        "additionalProperties": true,
+        "type": "object"
+      }
+    },
+    "write_trends_to_bq": {
+      "description": "Writes the trends saved in the 'target_search_trends' state key to a BigQuery\ntable. Call `save_search_trends_to_session_state` for each trend first.\n\nArgs:\n    tool_context (ToolContext): The tool context.\n\nReturns:\n    dict: A dictionary containing a 'status' key ('success' or 'error').\n          On success, status is 'success' and includes a 'trends' key with the inserted terms\n          On failure, status is 'error' and includes an 'error_message'.",
+      "name": "write_trends_to_bq",
+      "response_json_schema": {
+        "additionalProperties": true,
+        "type": "object"
+      }
     }
   }
 }
