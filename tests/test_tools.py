@@ -679,15 +679,16 @@ class TestWriteEvalReportIdempotent:
     """write_eval_report_to_bq must derive eval_uuid from the session and MERGE,
     never stream (insert_rows_json can't dedupe an at-least-once re-run)."""
 
-    def _patch(self, monkeypatch, errors=None):
+    def _patch(self, monkeypatch, result_error=None):
         import creative_agent.bq_tools as t
 
         class _NoStreamingBQ(FakeBigQueryClient):
             def insert_rows_json(self, *a, **k):
                 raise AssertionError("streaming insert is not idempotent")
 
-        bq = _NoStreamingBQ(job_errors=errors)
+        bq = _NoStreamingBQ(result_error=result_error)
         monkeypatch.setattr(t, "_get_bigquery_client", lambda: bq)
+        self.bq = bq
         return t, bq.queries
 
     @staticmethod
@@ -725,9 +726,11 @@ class TestWriteEvalReportIdempotent:
         assert ctx.state["eval_bq_row_uuid"] == result["eval_uuid"]
 
     def test_failure_leaves_eval_row_uuid_unset(self, monkeypatch):
-        t, _ = self._patch(monkeypatch, errors=[{"reason": "invalid"}])
+        from google.api_core.exceptions import BadRequest
+
+        t, _ = self._patch(monkeypatch, result_error=BadRequest("invalid"))
         ctx = self._ctx()
-        with pytest.raises(RuntimeError):
+        with pytest.raises(BadRequest):
             t.write_eval_report_to_bq(ctx)
         assert "eval_bq_row_uuid" not in ctx.state
 
@@ -737,10 +740,22 @@ class TestWriteEvalReportIdempotent:
         b = t.write_eval_report_to_bq(self._ctx("sess-2"))
         assert a["eval_uuid"] != b["eval_uuid"]
 
-    def test_raises_on_job_errors(self, monkeypatch):
-        t, _ = self._patch(monkeypatch, errors=[{"reason": "invalid"}])
-        with pytest.raises(RuntimeError, match="BigQuery insert returned errors"):
+    def test_raises_when_the_job_fails(self, monkeypatch):
+        """QueryJob.result() raises on a failed job; the error propagates."""
+        from google.api_core.exceptions import BadRequest
+
+        t, _ = self._patch(monkeypatch, result_error=BadRequest("invalid"))
+        with pytest.raises(BadRequest):
             t.write_eval_report_to_bq(self._ctx())
+
+    def test_merge_is_bounded(self, monkeypatch):
+        """The MERGE carries a server-side job timeout and a bounded wait."""
+        t, captured = self._patch(monkeypatch)
+        t.write_eval_report_to_bq(self._ctx())
+        _, job_config = captured[0]
+        assert int(job_config.job_timeout_ms) == t.BQ_WRITE_JOB_TIMEOUT_MS
+        assert self.bq.jobs[0].result_timeout == t.BQ_WRITE_RESULT_TIMEOUT_SECS
+        assert 0 < t.BQ_WRITE_RESULT_TIMEOUT_SECS * 1000 >= t.BQ_WRITE_JOB_TIMEOUT_MS
 
     def test_missing_report_returns_error(self, monkeypatch):
         t, captured = self._patch(monkeypatch)
@@ -856,6 +871,19 @@ class TestWriteTrendsIdempotent:
         b, _ = self._run(monkeypatch, "sess-2")
         assert a != b
 
+    def test_merge_is_bounded(self, monkeypatch):
+        """The MERGE carries a server-side job timeout and a bounded wait."""
+        import creative_agent.bq_tools as t
+
+        bq = FakeBigQueryClient()
+        monkeypatch.setattr(t, "_get_bigquery_client", lambda: bq)
+        ctx = FakeToolContext(session_id="sess-1")
+        ctx.state.update(self.STATE)
+        t.write_trends_to_bq(ctx)
+        _, job_config = bq.queries[0]
+        assert int(job_config.job_timeout_ms) == t.BQ_WRITE_JOB_TIMEOUT_MS
+        assert bq.jobs[0].result_timeout == t.BQ_WRITE_RESULT_TIMEOUT_SECS
+
     def test_sql_is_parameterized_merge(self, monkeypatch):
         uid, captured = self._run(monkeypatch, "sess-1")
         (sql, job_config), *_ = captured
@@ -882,9 +910,16 @@ class TestWriteTrendsRaisesOnBqErrors:
         )
 
     def test_creative_agent_write_trends_raises(self, monkeypatch):
+        """creative_agent relies on QueryJob.result() raising on a failed job."""
+        from google.api_core.exceptions import BadRequest
+
         import creative_agent.bq_tools as t
 
-        monkeypatch.setattr(t, "_get_bigquery_client", self._failing_bq)
+        monkeypatch.setattr(
+            t,
+            "_get_bigquery_client",
+            lambda: FakeBigQueryClient(result_error=BadRequest("boom")),
+        )
 
         ctx = FakeToolContext()
         ctx.state.update(
@@ -898,7 +933,7 @@ class TestWriteTrendsRaisesOnBqErrors:
                 "key_selling_points": "wide tonal range",
             }
         )
-        with pytest.raises(RuntimeError, match="BigQuery insert returned errors"):
+        with pytest.raises(BadRequest):
             t.write_trends_to_bq(ctx)
 
     def test_trend_scout_write_trends_raises(self, monkeypatch):

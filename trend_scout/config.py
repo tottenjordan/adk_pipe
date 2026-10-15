@@ -1,10 +1,14 @@
 from dataclasses import dataclass
 
+from google.genai import errors as genai_errors
+
 from agent_common.config import BaseAgentConfiguration
 from agent_common.retry import build_infra_retry
 
-# Shared transient-error retry (no direct genai calls here, so no ServerError).
-INFRA_RETRY = build_infra_retry()
+# Shared transient-error retry plus the genai 5xx ServerError: ADK's Gemini model
+# raises google.genai errors (google/adk/models/google_llm.py), so without it a
+# model 5xx that escapes the genai HTTP retry would never trigger the node retry.
+INFRA_RETRY = build_infra_retry(extra_exceptions=[genai_errors.ServerError])
 
 
 @dataclass

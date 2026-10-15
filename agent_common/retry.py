@@ -1,14 +1,16 @@
 """Factory for the shared ADK infra-retry config.
 
-ADK 2.0 retries a node when the raised exception's EXACT class name is in the
-``RetryConfig.exceptions`` list (it does NOT use ``isinstance``), so we enumerate
-the concrete transient classes Google clients actually raise — base classes like
-``GoogleAPICallError`` never match.
+``RetryConfig.exceptions`` is stored as class-name strings. ADK 2.10 retries a
+node when any class in the raised exception's MRO (``object`` excluded) has a
+listed name (``google/adk/workflow/utils/_retry_utils.py`` ``_should_retry_node``),
+so a listed class also covers its subclasses. We still enumerate the concrete
+transient classes rather than a broad base like ``GoogleAPICallError``, which
+would also retry permanent 4xx errors.
 
-``trend_scout`` and ``creative_agent`` shared this list verbatim except that
-creative_agent also calls genai directly (image gen) and so must retry the genai
-``ServerError``. ``build_infra_retry(extra_exceptions=...)`` is the one place that
-list is defined; callers pass their extras.
+Every agent's models raise genai errors (ADK's ``Gemini`` uses google-genai), so
+agents pass the genai ``ServerError`` as an extra.
+``build_infra_retry(extra_exceptions=...)`` is the one place the base list is
+defined; callers pass their extras.
 """
 
 from google.adk.workflow import RetryConfig

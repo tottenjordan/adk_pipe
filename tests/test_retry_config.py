@@ -17,8 +17,35 @@ class TestTrendTrawlerRetryConfig:
             "ConnectionError",
             "TimeoutError",
         } <= names
-        # trend_scout has no direct genai calls
-        assert "ServerError" not in names
+        # ADK's Gemini model raises genai errors, so the genai 5xx must be listed
+        assert "ServerError" in names
+
+    def test_model_server_error_is_retried(self):
+        """A genai 5xx from a trend_scout model call makes ADK retry the node."""
+        from google.adk.workflow._node_state import NodeState
+        from google.adk.workflow.utils._retry_utils import _should_retry_node
+        from google.genai import errors as genai_errors
+
+        from trend_scout.config import INFRA_RETRY
+
+        exc = genai_errors.ServerError(503, {"error": {"message": "unavailable"}})
+        assert _should_retry_node(exc, INFRA_RETRY, NodeState())
+
+
+class TestRetryMatchesSubclasses:
+    """ADK 2.10 matches RetryConfig names against the exception's MRO."""
+
+    def test_subclass_of_listed_class_is_retried(self):
+        from google.adk.workflow._node_state import NodeState
+        from google.adk.workflow.utils._retry_utils import _should_retry_node
+
+        from agent_common.retry import build_infra_retry
+
+        class SlowConnection(ConnectionError):
+            pass
+
+        assert _should_retry_node(SlowConnection(), build_infra_retry(), NodeState())
+        assert not _should_retry_node(ValueError(), build_infra_retry(), NodeState())
 
 
 class TestCreativeAgentRetryConfig:

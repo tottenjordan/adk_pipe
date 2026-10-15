@@ -17,6 +17,23 @@ from .config import config
 # so call sites + test monkeypatch points are unchanged.
 _get_bigquery_client = get_bigquery_client
 
+# Bounds on the two single-row MERGEs. ``job_timeout_ms`` asks BigQuery to stop a
+# job running longer than this (QueryJobConfig.job_timeout_ms); the client-side
+# ``QueryJob.result(timeout=...)`` caps the wait, which is otherwise indefinite
+# ("If unset ... we still wait indefinitely for the job to finish") and raises
+# ``concurrent.futures.TimeoutError`` (a builtin ``TimeoutError``, retried by
+# the node RetryConfig and finalize's transient retry). The wait gets a little
+# headroom over the job timeout so the server-side cancel normally wins.
+BQ_WRITE_JOB_TIMEOUT_MS = 60_000
+BQ_WRITE_RESULT_TIMEOUT_SECS = 75.0
+
+
+def _bounded_merge_config(query_params: list) -> bigquery.QueryJobConfig:
+    """A parameterised QueryJobConfig with the write job timeout set."""
+    return bigquery.QueryJobConfig(
+        query_parameters=query_params, job_timeout_ms=BQ_WRITE_JOB_TIMEOUT_MS
+    )
+
 
 def build_eval_bq_row(
     *,
@@ -212,20 +229,12 @@ def write_trends_to_bq(tool_context: ToolContext) -> dict:
             ),
         ]
         # make API request
-        job = bq_client.query(
-            sql_query,
-            job_config=bigquery.QueryJobConfig(query_parameters=query_params),
+        job = bq_client.query(sql_query, job_config=_bounded_merge_config(query_params))
+        # Raises GoogleAPICallError on a failed job, TimeoutError past the bound.
+        job.result(timeout=BQ_WRITE_RESULT_TIMEOUT_SECS)
+        logging.info(
+            f"DML MERGE job {job.job_id} for trend: '{target_trend}' completed; added {job.num_dml_affected_rows} rows."
         )
-        job.result()  # wait for job to complete
-        if job.errors:
-            logging.error(
-                f"DML MERGE job for trend: '{target_trend}' failed: {job.errors}"
-            )
-            raise RuntimeError(f"BigQuery insert returned errors: {job.errors}")
-        else:
-            logging.info(
-                f"DML MERGE job {job.job_id} for trend: '{target_trend}' completed; added {job.num_dml_affected_rows} rows."
-            )
         return {
             "status": "success",
             "trend": target_trend,
@@ -276,14 +285,9 @@ def write_eval_report_to_bq(tool_context: ToolContext) -> dict:
         bq_client = _get_bigquery_client()
         # DML MERGE rather than streaming insert_rows_json, which can't dedupe.
         sql_query, query_params = _build_eval_merge_sql(table_id, row)
-        job = bq_client.query(
-            sql_query,
-            job_config=bigquery.QueryJobConfig(query_parameters=query_params),
-        )
-        job.result()  # wait for job to complete
-        if job.errors:
-            logging.error(f"Eval-row MERGE into {table_id} failed: {job.errors}")
-            raise RuntimeError(f"BigQuery insert returned errors: {job.errors}")
+        job = bq_client.query(sql_query, job_config=_bounded_merge_config(query_params))
+        # Raises GoogleAPICallError on a failed job, TimeoutError past the bound.
+        job.result(timeout=BQ_WRITE_RESULT_TIMEOUT_SECS)
         logging.info(
             f"DML MERGE job {job.job_id} for eval row {row['uuid']} into {table_id}"
             f" completed; {job.num_dml_affected_rows} rows affected."
