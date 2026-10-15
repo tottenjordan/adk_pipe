@@ -51,30 +51,62 @@ def test_ensure_default_logging_only_fills_an_unconfigured_root(monkeypatch):
     assert root.level == logging.WARNING
 
 
-def test_creative_graph_and_gate_modules_never_call_basicconfig():
-    """creative_agent's composition root, stage modules and pure gate modules
-    leave the root logger to the entrypoints (a static check: importing them
-    still imports modules outside this list)."""
+def test_importing_the_creative_apps_adds_no_root_handlers():
+    code = (
+        "import logging\n"
+        "import creative_agent.agent, creative_agent.tools, creative_agent.callbacks\n"
+        "import creative_agent.sub_agents.trend_researcher.agent\n"
+        "import creative_agent.sub_agents.campaign_researcher.agent\n"
+        "import interactive_creative.agent, creative_eval.agent\n"
+        "root = logging.getLogger()\n"
+        "assert root.handlers == [], root.handlers\n"
+        "assert root.level == logging.WARNING, root.level\n"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", code],
+        cwd=REPO,
+        capture_output=True,
+        text=True,
+        timeout=180,
+    )
+    assert result.returncode == 0, result.stderr[-2000:]
+
+
+def test_no_agent_package_calls_basicconfig():
+    """No module in the agent packages (bundled into the engines) configures
+    logging at import; a call inside a function (``ensure_default_logging``)
+    is fine, and ``creative_eval/run_eval_test.py`` is a ``python -m`` script."""
     import ast
 
-    modules = (
-        "agent",
-        "research_stage",
-        "copy_stage",
-        "visual_stage",
-        "run_policy",
-        "copy_gate",
-        "brief_check",
-        "text_match",
-        "safer_angle",
+    scripts = {"creative_eval/run_eval_test.py"}
+
+    packages = (
+        "agent_common",
+        "creative_agent",
+        "creative_eval",
+        "interactive_creative",
+        "trend_scout",
     )
-    for name in modules:
-        tree = ast.parse((REPO / "creative_agent" / f"{name}.py").read_text())
-        calls = [
-            node
-            for node in ast.walk(tree)
-            if isinstance(node, ast.Call)
-            and isinstance(node.func, ast.Attribute)
-            and node.func.attr == "basicConfig"
-        ]
-        assert not calls, f"creative_agent/{name}.py calls logging.basicConfig"
+    offenders = []
+    for package in packages:
+        for path in sorted((REPO / package).rglob("*.py")):
+            name = str(path.relative_to(REPO))
+            if name in scripts:
+                continue
+            tree = ast.parse(path.read_text())
+            if any(
+                isinstance(stmt, ast.Expr)
+                and isinstance(stmt.value, ast.Call)
+                and isinstance(stmt.value.func, ast.Attribute)
+                and stmt.value.func.attr == "basicConfig"
+                for stmt in tree.body
+            ):
+                offenders.append(name)
+    assert offenders == []
+
+
+def test_trend_tie_uses_the_shared_token_length():
+    from creative_agent import text_match, trend_tie
+
+    assert not hasattr(trend_tie, "_MIN_TOKEN_CHARS")
+    assert trend_tie.MIN_TOKEN_CHARS is text_match.MIN_TOKEN_CHARS

@@ -30,6 +30,7 @@ import re
 from collections.abc import Iterable, Sequence
 
 from .text_match import (
+    MIN_TOKEN_CHARS,
     STOPWORDS,
     contains_phrase,
     content_tokens,
@@ -66,7 +67,6 @@ GENERIC_TREND_TOKENS = frozenset(
     | STOPWORDS
 )
 _YEAR = re.compile(r"^\d{4}$")
-_MIN_TOKEN_CHARS = 3
 MAX_TIE_TOKENS = 3
 MAX_TIE_MOTIFS = 2
 
@@ -86,7 +86,7 @@ def distinctive_trend_tokens(trend: str, avoid: Sequence[str] = ()) -> list[str]
         if (
             token in GENERIC_TREND_TOKENS
             or _YEAR.match(token)
-            or len(token) < _MIN_TOKEN_CHARS
+            or len(token) < MIN_TOKEN_CHARS
             or token in out
             or _avoided(token, avoid)
         ):

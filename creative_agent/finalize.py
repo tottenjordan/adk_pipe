@@ -369,7 +369,7 @@ def _failed_gate_labels(score: Mapping[str, Any]) -> list[str]:
 def _judge_failed(score: Mapping[str, Any]) -> bool:
     """True for the zero-score placeholder of a failed judge call.
 
-    Reads the code-set ``judge_failed`` (like ``creative_eval.evaluate._is_failed``);
+    Reads the code-set ``judge_failed`` (like ``creative_eval.report._is_failed``);
     only a report written before that key existed falls back to the old
     ``"evaluation_failed"`` improvements marker, so a judge that writes that
     phrase into its improvements is never mistaken for a failed call.

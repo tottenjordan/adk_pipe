@@ -1,6 +1,7 @@
 import logging
 import os
 from dataclasses import dataclass, field
+from typing import ClassVar
 
 from google.genai import errors as genai_errors
 from pydantic import ValidationError
@@ -356,7 +357,15 @@ class ResearchConfiguration(BaseAgentConfiguration):
 
     # Image generation ImageConfig knobs (env-overridable, read at import). The
     # default 9:16 is the vertical social-reel framing (the model otherwise
-    # defaults to 1:1); the allowed set is the base's image_aspect_ratios_allowed.
+    # defaults to 1:1). The allowed set is fixed, not a per-instance knob (also
+    # read off this class by runserver.share_snapshot and runserver.variants).
+    image_aspect_ratios_allowed: ClassVar[tuple[str, ...]] = (
+        "9:16",
+        "1:1",
+        "4:5",
+        "16:9",
+        "3:4",
+    )
     image_size: str = os.environ.get("IMAGE_SIZE", "2K")
     image_aspect_ratio_default: str = os.environ.get(
         "IMAGE_ASPECT_RATIO_DEFAULT", "9:16"

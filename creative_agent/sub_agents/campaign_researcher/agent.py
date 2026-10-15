@@ -1,5 +1,3 @@
-import logging
-
 from google.adk.agents import Agent
 from google.adk.planners import BuiltInPlanner
 from google.adk.tools import google_search
@@ -12,12 +10,6 @@ from agent_common import RetryUntilKeyNode, build_gemini
 from ... import callbacks
 from ...config import SCHEMA_RETRY, config
 from ...schemas import SearchQuery
-
-# --- config ---
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
-)
-
 
 # Placement seam: the campaign half's (planner, worker, location) come from
 # config.campaign_models(), driven by CAMPAIGN_RESEARCH_PLACEMENT. Default
