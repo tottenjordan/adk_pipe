@@ -224,7 +224,7 @@ def test_outcomes_unchanged_for_mixed_pass_fail_rerender(monkeypatch):
     kept = dict(p.flow.uploads)
     assert kept[image_tools.artifact_key_for("C2")] == by_concept["C2"][1]
     assert kept[image_tools.artifact_key_for("C3")] == by_concept["C3"][0]
-    assert p.state["_images_generated"] is True
+    assert str(p.state["_images_generated"]).startswith("render-v1:")
 
 
 def test_render_failure_raises_and_cancels_pending_qa(monkeypatch):

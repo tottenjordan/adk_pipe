@@ -24,7 +24,9 @@ gated on the ``unwanted_logo`` rating-strictness flag. Opt-in rating learning
 
 import asyncio
 import functools
+import hashlib
 import ipaddress
+import json
 import logging
 import random
 import socket
@@ -44,7 +46,7 @@ from agent_common import genai_retry
 from agent_common.locations import MODEL_LOCATION
 
 from . import image_qa
-from .concept_guard import enforce_person_casting, parse_concepts
+from .concept_guard import enforce_person_casting, enforce_timely_cap, parse_concepts
 from .config import config
 from .copy_gate import parse_copies
 from .gcs_tools import (
@@ -869,14 +871,48 @@ def is_timely_concept(
     return paired is not None and paired.get("uses_trend_state") is True
 
 
+def render_fingerprint(final_visual_concepts: Any, person_reference: Any) -> str:
+    """The ``_images_generated`` marker: a short sha256 over each concept's name,
+    image prompt and cast flag (concept order) plus the person reference's URI
+    and consent id. Never empty, so the marker stays truthy for
+    ``images_ready`` / ``RetryUntilKeyNode``; the URI is hashed, never stored."""
+    payload = {
+        "concepts": [
+            [
+                str(c.get("concept_name") or ""),
+                str(c.get("image_generation_prompt") or ""),
+                c.get("casts_person_reference") is True,
+            ]
+            for c in parse_concepts(final_visual_concepts)
+        ],
+        "person": [
+            person_reference_uri(person_reference),
+            person_consent_id(person_reference),
+        ],
+    }
+    digest = hashlib.sha256(
+        json.dumps(payload, sort_keys=True, ensure_ascii=False).encode()
+    ).hexdigest()
+    return f"render-v1:{digest[:16]}"
+
+
 async def generate_image(
     tool_context: ToolContext,
 ):
     """Render one image per concept in the 'final_visual_concepts' state key and save them as artifacts. Takes no arguments; call it exactly once."""
     # Renders with config.image_gen_model; returns a dict with 'status' and a
     # 'message' listing the saved artifact keys.
-    # Idempotency guard: skip if images were already generated
-    if tool_context.state.get("_images_generated"):
+    # Idempotency guard: skip if these concepts were already rendered. The
+    # marker is the render fingerprint, so a re-run of the visual stage (new
+    # concepts, or a new person reference) renders again instead of returning
+    # stale images; a legacy boolean True (sessions written before the
+    # fingerprint) still skips.
+    fingerprint = render_fingerprint(
+        tool_context.state.get("final_visual_concepts"),
+        tool_context.state.get("person_reference"),
+    )
+    marker = tool_context.state.get("_images_generated")
+    if marker is True or (isinstance(marker, str) and marker == fingerprint):
         existing_keys = tool_context.state.get("_generated_artifact_keys", [])
         return {
             "status": "success",
@@ -947,6 +983,16 @@ async def generate_image(
     )
     for warning in cast_warnings:
         logging.warning(f"casting guard (render): {warning}")
+    # The timely cap too, like the after-agent guard: a checkpoint-3 edit (or
+    # any path that bypassed the guard) must not render more timely concepts
+    # than MAX_TIMELY_CONCEPTS (or any without a validated timely moment).
+    final_visual_concepts_list, timely_warnings = enforce_timely_cap(
+        final_visual_concepts_list,
+        timely_ok=timely_allowed(tool_context.state, config.max_timely_concepts),
+        max_timely=config.max_timely_concepts,
+    )
+    for warning in timely_warnings:
+        logging.warning(f"timely guard (render): {warning}")
     any_cast = any(
         c.get("casts_person_reference") is True for c in final_visual_concepts_list
     )
@@ -1095,7 +1141,7 @@ async def generate_image(
             tool_context.state["generated_images"] = generated_images
 
     # Mark as done so subsequent calls are idempotent
-    tool_context.state["_images_generated"] = True
+    tool_context.state["_images_generated"] = fingerprint
     tool_context.state["_generated_artifact_keys"] = artifact_keys_list
     tool_context.state["generated_images"] = generated_images
     if qa_issues:
