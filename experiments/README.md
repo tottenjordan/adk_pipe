@@ -1,12 +1,13 @@
 # `experiments/`
 
-External, **offline-first** measurement harnesses and spikes. Five subdirectories:
+External, **offline-first** measurement harnesses and spikes. Six subdirectories:
 two *quantify* `creative_agent` behavior (run latency, per-phase breakdowns,
 quota-contention effects) by driving live runs against **isolated Cloud Run
 revisions** and reducing the persisted event logs into tidy data + figures; one
 A/B-tests the Gemini 3 sampling temperatures the same way (both creative agents'
-and trend_scout's runs, against a pre-registered decision rule); one
-calibrates the person-reference feature directly on the image model; one renders
+and trend_scout's runs, against a pre-registered decision rule); one re-grades
+stored, human-rated creatives offline at two judge and two image-QA temperatures;
+one calibrates the person-reference feature directly on the image model; one renders
 the bandit simulator's notebook-parity figures.
 
 These are research tooling, not product code. Each experiment has a matching
@@ -24,6 +25,7 @@ pre-registered / written-up design under [`docs/experiments/`](../docs/experimen
 |---|---|---|
 | [`creative_latency/`](#creative_latency) | Measure end-to-end + per-phase `creative_agent` run latency; compare code variants (baseline vs. levers). **Strictly serial** — self-contention would corrupt the signal. | [`docs/experiments/2026-07-15-creative-latency.md`](../docs/experiments/2026-07-15-creative-latency.md) |
 | [`quota_spread/`](#quota_spread) | The quota-bucket-spread **DoE**: fire N *concurrent* runs per cell to measure how research-phase latency inflates with load, per model-placement arm (PR #101). **Concurrency is the signal.** | [`docs/experiments/2026-07-17-quota-bucket-spread-doe.md`](../docs/experiments/2026-07-17-quota-bucket-spread-doe.md) |
+| [`grader_temperature/`](#grader_temperature) | Offline grader temperature check: re-judge (0.3 vs 1.0) and re-inspect (0.0 vs 1.0) stored, human-rated `creative_agent` creatives 3x each; flip rates + agreement with human ratings, a pre-registered ADOPT/KEEP rule. | grader-temperature Phase 2 plan (PR 2) |
 | [`person_reference/`](person_reference/README.md) | Two person-reference spikes on the image model, no Cloud Run involved. `calibrate.py` (gate for PR 0 of the person-reference plan): likeness + safety-block rates of consented test photos, with and without `person_generation=ALLOW_ADULT`, per style family. `swap_compare.py` (PR 0 of the faithful-person-swaps plan): edit the original render vs re-generate it for personalised variants, scored on fidelity and likeness. | [`docs/plans/2026-10-09-person-reference.md`](../docs/plans/2026-10-09-person-reference.md), [`docs/plans/2026-10-11-faithful-person-swaps.md`](../docs/plans/2026-10-11-faithful-person-swaps.md) (results: [`docs/notes/person-reference-calibration.md`](../docs/notes/person-reference-calibration.md), [`docs/notes/person-swap-edit-mode.md`](../docs/notes/person-swap-edit-mode.md)) |
 | [`temperature_ab/`](#temperature_ab) | Gemini 3 temperature A/B: two tagged no-traffic api revisions (`GEMINI_TEMPERATURE_PROFILE=tuned\|default`), serial counterbalanced (ABBA) `creative_agent` + `trend_scout` runs, a pre-registered PASS/FAIL rule. | [`docs/plans/2026-10-15-gemini3-temperature-ab.md`](../docs/plans/2026-10-15-gemini3-temperature-ab.md) |
 | `bandit/` | Offline notebook-parity figures for the JAX contextual bandit (`bandit/` package): `notebook_parity.py` runs `bandit.cli` simulations (no GCP) and writes `figures/*.png`. | [`docs/experiments/bandit-simulation.md`](../docs/experiments/bandit-simulation.md) |
@@ -185,6 +187,41 @@ PYTHONPATH="$PWD" EXP_INVOKER_SA=tt-web-sa@<proj>.iam.gserviceaccount.com \
 # 4. Analyse against the pre-registered rule.
 PYTHONPATH="$PWD" uv run python -m experiments.temperature_ab.analyze
 ```
+
+## `grader_temperature/`
+
+Offline check of the two graders' sampling temperatures: does raising the
+`creative_eval` judge from 0.3 to 1.0, or the post-render image QA from 0.0 to
+1.0, keep verdicts as stable and as close to human ratings? No live runs, no
+Cloud Run: stored, human-rated `creative_agent` sessions are re-graded directly.
+The arms are set through `EvalConfig(judge_temperature=…)` and
+`inspect_image(..., temperature=…)` (production: 0.3 and 0.0).
+
+| File | Role |
+|---|---|
+| `select.py` | Parameterised query on `creative_ratings` (`app_name='creative_agent'`, never `note`); picks `--n` sessions with both kinds rated, most recent first (ties by `--seed`), stratified to at least 12 human fails (kappa needs both classes); `--exclude` drops sessions. Writes `data/selection.json`. |
+| `fetch.py` | Read-only `VertexAiSessionService.get_session` per session from the sessions engine in `SESSION_SERVICE_URI` (`agentengine://<id>` or the full resource name); caches `data/state/<sid>.json`; missing sessions → `data/missing.json` (re-run `select --exclude …`). |
+| `reinspect.py` | Downloads each rendered image once to `data/img/` (≤ 20 MB) and calls `inspect_image` with the production inputs (brand, product, rating strictness, safer angle, logo reference, the person photo for cast concepts only) `--repeats` times per temperature → `results/qa/<sid>/<concept>/<t>-r<k>.json` (+ `qa_failed_rules`). Resumable. |
+| `rejudge.py` | Builds the judge inputs exactly like `creative_eval/agent.py`'s full evaluation and calls `evaluate_all_concurrently` (2 workers, one client per batch) per (session, temperature, repeat), arms interleaved per session → `results/judge/<sid>/<t>-r<k>.json`; failed judge calls listed and later excluded. Resumable. |
+| `analyze.py` | **Pure/offline.** Pass / gate / rule flip rates, score SD, majority verdicts vs human ratings (kappa, Spearman), fail-reason ↔ QA-rule overlap, bootstrap CIs, and the pre-registered rule (PASS / FAIL / N/A per check; ADOPT / KEEP / INCONCLUSIVE per grader, INCONCLUSIVE keeps the current temperature) → `results/summary.md` + `records.csv`. |
+
+Order: select → fetch → reinspect → rejudge → analyze.
+
+```bash
+PYTHONPATH="$PWD" uv run python -m experiments.grader_temperature.select --n 10 --seed 20261015
+PYTHONPATH="$PWD" SESSION_SERVICE_URI=agentengine://<sessions engine> \
+  uv run python -m experiments.grader_temperature.fetch
+PYTHONPATH="$PWD" uv run python -m experiments.grader_temperature.reinspect --temps 0.0,1.0 --repeats 3
+PYTHONPATH="$PWD" uv run python -m experiments.grader_temperature.rejudge --temps 0.3,1.0 --repeats 3
+PYTHONPATH="$PWD" uv run python -m experiments.grader_temperature.analyze
+```
+
+**Quota:** the judge is the Pro model (5 RPM, project-wide, shared with live
+runs): 10 sessions × 2 temperatures × 3 repeats ≈ 480 judge calls ≈ 2 h; run it
+in a quiet window. Image QA uses the flash worker model (cheap).
+**Clean up:** `data/` and `results/` are gitignored; delete `data/` when done
+(cached session state and possibly consented-person images). Commit only the
+write-up.
 
 ---
 
