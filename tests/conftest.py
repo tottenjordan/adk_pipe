@@ -155,3 +155,18 @@ def fresh_config():
         for cached in _relevant_modules():
             del sys.modules[cached]
         sys.modules.update(saved)
+
+
+@pytest.fixture(autouse=True)
+def _reset_bigquery_client_cache():
+    """agent_common caches one BigQuery client per thread: start and end every
+    test without one, so a client built (or faked) by one test never leaks into
+    another. Skipped in the CRF CI venv (no agent_common deps)."""
+    try:
+        from agent_common import clients
+    except ModuleNotFoundError:
+        yield
+        return
+    clients.reset_bigquery_client_cache()
+    yield
+    clients.reset_bigquery_client_cache()
