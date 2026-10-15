@@ -360,6 +360,27 @@ def test_client_error_on_person_render_falls_back(monkeypatch):
 
 
 @pytest.mark.usefixtures("image_qa_off")
+@pytest.mark.parametrize("code", [429, 408])
+def test_final_retryable_client_error_on_person_render_raises(monkeypatch, code):
+    """A quota 429 / timeout 408 that outlasts the backoff is an infra failure,
+    not a safety rejection: it propagates (ADK's RetryConfig retries the node)
+    instead of dropping the person with the "safety filter" note."""
+
+    def respond(k):
+        if k["config"].image_config.person_generation:
+            raise genai_errors.ClientError(code, {"error": {"message": "busy"}})
+        return _response()
+
+    models, _ = _patch(monkeypatch, respond)
+    ctx = _ctx([_concept("cast", cast=True)], person=_PERSON)
+    with pytest.raises(genai_errors.ClientError):
+        asyncio.run(image_tools.generate_image(ctx))
+    assert all(_is_person_call(call) for call in models.calls)  # no fallback
+    assert "person_reference_rejected" not in ctx.state
+    assert "person_reference__issues" not in ctx.state
+
+
+@pytest.mark.usefixtures("image_qa_off")
 def test_uri_outside_person_refs_is_ignored_and_never_logged(monkeypatch, caplog):
     models, downloads = _patch(monkeypatch)
     bad = {"uri": "gs://b/products/secret-face.jpg", "consent_id": "consent-1234"}
