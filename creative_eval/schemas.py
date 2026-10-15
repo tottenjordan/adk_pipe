@@ -77,19 +77,23 @@ class JudgeScore(BaseModel):
 
 
 class AdCopyJudgeOutput(BaseModel):
-    """The ad-copy judge's response schema (mapped to AdCopyEvaluation in code)."""
+    """The ad-copy judge's response schema (mapped to AdCopyEvaluation in code).
 
-    original_id: int = Field(description="Maps to FinalAdCopy.original_id.")
-    headline: str = Field(description="The headline that was evaluated.")
-    tone_style: str = Field(description="The tone/style of this ad copy.")
+    Only the score: ``original_id``, ``headline`` and ``tone_style`` are join
+    keys / labels copied from the input copy by code, never echoed by the
+    judge (a re-cased echo would break every join on them).
+    """
+
     score: JudgeScore = Field(description="Scoring details.")
 
 
 class VisualJudgeOutput(BaseModel):
-    """The visual judge's response schema (mapped to VisualConceptEvaluation in code)."""
+    """The visual judge's response schema (mapped to VisualConceptEvaluation in code).
 
-    ad_copy_id: int = Field(description="Maps to VisualConceptFinal.ad_copy_id.")
-    concept_name: str = Field(description="The concept that was evaluated.")
+    Only the score: ``ad_copy_id`` and ``concept_name`` come from the input
+    concept (see :class:`AdCopyJudgeOutput`).
+    """
+
     score: JudgeScore = Field(description="Scoring details.")
 
 
@@ -118,6 +122,19 @@ class CreativeScore(BaseModel):
     gates_passed: bool = Field(
         default=True,
         description="True when every non-advisory gate passed (recomputed by code).",
+    )
+    # Set by code. A dimension the judge did not score makes the score
+    # unverified: ``passed`` is False and the report warns.
+    unscored_dimensions: list[str] = Field(
+        default_factory=list,
+        description="Expected dimensions the judge did not score (set by code).",
+    )
+    # Set by code on the zero-score placeholder of a failed judge call. Reports
+    # from before this field mark that with improvements == ["evaluation_failed"]
+    # (still written, for older readers).
+    judge_failed: bool = Field(
+        default=False,
+        description="True when the judge call failed and nothing was verified (set by code).",
     )
 
 
@@ -188,7 +205,8 @@ class EvaluationSummary(BaseModel):
         default=None,
         description=(
             "Share of judged creatives whose non-advisory gates all passed (0.0-1.0). "
-            "Creatives whose judge call failed (improvements == ['evaluation_failed']) "
+            "Creatives whose judge call failed (score.judge_failed; older reports: "
+            "improvements == ['evaluation_failed']) "
             "are excluded from numerator and denominator; None when no creative was "
             "judged (or for pre-gate reports). Without a brief the brief-dependent "
             "gates auto-pass (note 'no brief'), so no-brief runs read higher."

@@ -42,6 +42,7 @@ from creative_eval.evaluate import (
     unreported_gates_warning,
 )
 from creative_eval.schemas import AdCopyEvaluation, CreativeScore, GateResult
+from tests._eval_fakes import all_verdict_dicts
 from tests._fakes import FakeToolContext
 
 GATE = "safer_angle_respected"
@@ -97,7 +98,7 @@ def test_gate_is_registered_labelled_and_the_version_bumped():
         ADVISORY_GATES | BRIEF_GATES | PERSON_GATES | TREND_GATES | TIMELY_GATES
     )
     assert GATE_LABELS[GATE] == "Respectful reference"
-    assert JUDGE_VERSION == "2026-10-15"
+    assert JUDGE_VERSION == "2026-10-15.1"
 
 
 def test_prompts_name_the_gate_and_the_new_counts():
@@ -201,9 +202,7 @@ def test_brief_block_lines_only_when_active():
 
 def _score(gates, gate_passed: bool) -> dict:
     return {
-        "verdicts": [
-            {"dimension": "d", "score": 9, "verdict": "pass", "rationale": "r"}
-        ],
+        "verdicts": all_verdict_dicts(9),
         "strengths": [],
         "improvements": [],
         "gates": [

@@ -23,6 +23,7 @@ from creative_eval.evaluate import (
     normalize_gates,
 )
 from creative_eval.schemas import GateResult
+from tests._eval_fakes import verdict_dicts
 
 GATE = "person_depicted_respectfully"
 CAMPAIGN = {
@@ -121,9 +122,7 @@ def _judge(gate_passed: bool) -> MagicMock:
         "ad_copy_id": 1,
         "concept_name": "Hero",
         "score": {
-            "verdicts": [
-                {"dimension": "d", "score": 9, "verdict": "pass", "rationale": "r"}
-            ],
+            "verdicts": verdict_dicts("visual", 9),
             "strengths": [],
             "improvements": [],
             "gates": [

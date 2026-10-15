@@ -81,8 +81,9 @@ def _get_client(config: EvalConfig) -> genai.Client:
 
 
 NO_BRIEF_NOTE = "no brief"
+# An advisory gate the judge left out: recorded as passed (it never blocks).
 NOT_REPORTED_NOTE = "not checked (the judge did not report it)"
-# A PERSON_GATES gate the judge left out for a cast concept: failed, not passed.
+# A blocking gate the judge had to decide but left out: failed (unverified).
 NOT_CHECKED_NOTE = "not checked"
 NO_GATES_NOTE = "judge returned no gates"
 NO_PERSON_CAST_NOTE = "no person cast"
@@ -125,12 +126,15 @@ def normalize_gates(
     """The judge's gates, reduced to exactly ``expected`` in order (pure).
 
     Names are matched leniently (case, spaces and hyphens ignored); unknown
-    names are dropped and duplicates keep the first. When NONE of the
-    expected gates was reported the judge skipped the checks: the result is a
-    single failed ``NO_GATES_GATE`` gate (note "judge returned no gates"), so
-    the creative cannot pass unverified. A partial omission stays
-    conservative — the missing gate passes with a "not checked" note (counted
-    into a report warning by :func:`unreported_gates_warning`). Without a
+    names are dropped and duplicates keep the first. Only the gates the judge
+    HAD to decide count as reported: blocking (not ``ADVISORY_GATES``) and not
+    decided in code (below). When NONE of those was reported the judge
+    skipped the checks: the result is a single failed ``NO_GATES_GATE`` gate
+    (note "judge returned no gates"), so the creative cannot pass unverified
+    (an advisory or code-decided gate alone never counts). A partial omission
+    of such a gate fails it as "not checked" (unverified, counted into a
+    report warning by :func:`unreported_gates_warning`); an omitted advisory
+    gate passes with a "not checked (the judge did not report it)" note. Without a
     brief the brief-dependent gates pass with note "no brief", and unless
     ``person_cast`` the ``PERSON_GATES`` pass with note "no person cast";
     without a target trend (``trend_given`` False) the ``TREND_GATES`` pass
@@ -142,29 +146,41 @@ def normalize_gates(
     ``SAFER_ANGLE_GATES`` pass with note "no safer angle". A person gate
     omitted for a cast concept, a timely gate omitted for a timely creative,
     or a safer-angle gate omitted on a safer-angle run, fails as "not checked"
-    (unverified). ``advisory`` is set from ``ADVISORY_GATES``,
-    never the judge.
+    (unverified) like any other blocking gate. ``advisory`` is set from
+    ``ADVISORY_GATES``, never the judge.
     """
     reported: dict[str, GateResultIn | GateResult] = {}
     for gate in raw:
-        key = "_".join(gate.gate.strip().lower().replace("-", " ").split())
-        reported.setdefault(key, gate)
-    if not any(name in reported for name in expected):
-        logger.warning("judge reported none of the expected gates %s", expected)
+        reported.setdefault(_norm_name(gate.gate), gate)
+
+    def code_note(name: str) -> str | None:
+        """The note of a gate decided in code (passed), else None."""
+        if name in BRIEF_GATES and not brief_used:
+            return NO_BRIEF_NOTE
+        if name in PERSON_GATES and not person_cast:
+            return NO_PERSON_CAST_NOTE
+        if name in TREND_GATES and not trend_given:
+            return NO_TREND_NOTE
+        if name in TIMELY_GATES and not timely:
+            return NO_TIMELY_NOTE
+        if name in SAFER_ANGLE_GATES and not safer_angle:
+            return NO_SAFER_ANGLE_NOTE
+        return None
+
+    required = [
+        name
+        for name in expected
+        if name not in ADVISORY_GATES and code_note(name) is None
+    ]
+    if required and not any(name in reported for name in required):
+        logger.warning("judge reported none of the required gates %s", required)
         return [GateResult(gate=NO_GATES_GATE, passed=False, note=NO_GATES_NOTE)]
     out = []
     for name in expected:
         advisory = name in ADVISORY_GATES
-        if name in BRIEF_GATES and not brief_used:
-            out.append(GateResult(gate=name, passed=True, note=NO_BRIEF_NOTE))
-        elif name in PERSON_GATES and not person_cast:
-            out.append(GateResult(gate=name, passed=True, note=NO_PERSON_CAST_NOTE))
-        elif name in TREND_GATES and not trend_given:
-            out.append(GateResult(gate=name, passed=True, note=NO_TREND_NOTE))
-        elif name in TIMELY_GATES and not timely:
-            out.append(GateResult(gate=name, passed=True, note=NO_TIMELY_NOTE))
-        elif name in SAFER_ANGLE_GATES and not safer_angle:
-            out.append(GateResult(gate=name, passed=True, note=NO_SAFER_ANGLE_NOTE))
+        note = code_note(name)
+        if note is not None:
+            out.append(GateResult(gate=name, passed=True, note=note))
         elif name in reported:
             gate = reported[name]
             out.append(
@@ -175,19 +191,48 @@ def normalize_gates(
                     advisory=advisory,
                 )
             )
-        elif name in PERSON_GATES | TIMELY_GATES | SAFER_ANGLE_GATES:
-            # A real cast person / a timely claim / a safer angle must be
-            # checked: an omission fails (unverified).
-            logger.warning("judge did not report required gate %r", name)
-            out.append(GateResult(gate=name, passed=False, note=NOT_CHECKED_NOTE))
-        else:
-            logger.warning("judge did not report gate %r", name)
+        elif advisory:
+            logger.warning("judge did not report advisory gate %r", name)
             out.append(
                 GateResult(
-                    gate=name, passed=True, note=NOT_REPORTED_NOTE, advisory=advisory
+                    gate=name, passed=True, note=NOT_REPORTED_NOTE, advisory=True
                 )
             )
+        else:
+            # A gate the judge had to decide: an omission fails (unverified).
+            logger.warning("judge did not report required gate %r", name)
+            out.append(GateResult(gate=name, passed=False, note=NOT_CHECKED_NOTE))
     return out
+
+
+def _norm_name(name: str) -> str:
+    """A judge-reported gate/dimension name, normalised for lenient matching."""
+    return "_".join(name.strip().lower().replace("-", " ").split())
+
+
+def normalize_verdicts(
+    verdicts: Sequence[EvalVerdict], expected: Sequence[str]
+) -> tuple[list[EvalVerdict], list[str]]:
+    """The judge's verdicts reduced to ``expected`` in order, plus the missing (pure).
+
+    Mirrors :func:`normalize_gates`: names are matched leniently (case,
+    spaces and hyphens ignored) and rewritten to the expected name, unknown
+    dimensions are dropped and duplicates keep the first. Returns
+    ``(verdicts, missing)``; any missing dimension makes the score unverified
+    (:func:`score_from_judge` fails ``passed``).
+    """
+    reported: dict[str, EvalVerdict] = {}
+    for verdict in verdicts:
+        reported.setdefault(_norm_name(verdict.dimension), verdict)
+    kept = [
+        reported[name].model_copy(update={"dimension": name})
+        for name in expected
+        if name in reported
+    ]
+    missing = [name for name in expected if name not in reported]
+    if missing:
+        logger.warning("judge did not score dimensions %s", missing)
+    return kept, missing
 
 
 def score_from_judge(
@@ -195,6 +240,7 @@ def score_from_judge(
     expected_gates: tuple[str, ...],
     threshold: float,
     *,
+    expected_dimensions: Sequence[str],
     brief_used: bool,
     person_cast: bool = False,
     trend_given: bool = True,
@@ -204,8 +250,11 @@ def score_from_judge(
     """Map the judge's raw score to the report's ``CreativeScore`` (pure).
 
     The model's strengths/improvements text is kept; overall_score, gates,
-    gates_passed and passed are computed here from its verdicts and gates
-    (the judge schema does not even carry them).
+    gates_passed and passed are computed here from its verdicts reduced to
+    ``expected_dimensions`` (:func:`normalize_verdicts`) and its gates
+    (:func:`normalize_gates`; the judge schema does not even carry them). A
+    dimension the judge did not score is listed in ``unscored_dimensions``
+    and the creative does not pass (the mean covers only the scored ones).
     """
     gates = normalize_gates(
         judged.gates,
@@ -216,15 +265,33 @@ def score_from_judge(
         timely=timely,
         safer_angle=safer_angle,
     )
-    score = _score_from_verdicts(judged.verdicts, threshold, gates)
+    verdicts, missing = normalize_verdicts(judged.verdicts, expected_dimensions)
+    score = _score_from_verdicts(verdicts, threshold, gates)
     score.strengths = list(judged.strengths)
     score.improvements = list(judged.improvements)
+    if missing:
+        score.unscored_dimensions = missing
+        score.passed = False
     return score
 
 
+# The pre-``judge_failed`` marker of a failed judge call, still written to
+# ``improvements`` for older readers (creative_agent.finalize, experiments).
+EVALUATION_FAILED = "evaluation_failed"
+
+
 def _is_failed(evaluation: AdCopyEvaluation | VisualConceptEvaluation) -> bool:
-    """True for the zero-score placeholder of a failed judge call."""
-    return "evaluation_failed" in evaluation.score.improvements
+    """True for the zero-score placeholder of a failed judge call.
+
+    Reads the code-set ``score.judge_failed``; only a report written before
+    that field existed (not in the parsed fields) falls back to the old
+    ``"evaluation_failed"`` improvements marker, so a judge writing that
+    phrase into its improvements is never mistaken for a failed call.
+    """
+    score = evaluation.score
+    if "judge_failed" in score.model_fields_set:
+        return score.judge_failed
+    return EVALUATION_FAILED in score.improvements
 
 
 def _failed_score() -> CreativeScore:
@@ -234,9 +301,10 @@ def _failed_score() -> CreativeScore:
         passed=False,
         verdicts=[],
         strengths=[],
-        improvements=["evaluation_failed"],
+        improvements=[EVALUATION_FAILED],
         gates=[],
         gates_passed=False,
+        judge_failed=True,
     )
 
 
@@ -271,10 +339,30 @@ def image_qa_hint(qa: Any) -> str:
     return "Automated image check: failed" + (f" — {failures}" if failures else "")
 
 
-def _rendered_image_uri(image: Any) -> str:
-    """The record's ``gs://`` URI, or "" when there is no usable rendered image."""
+def _gs_uri(image: Any) -> str:
+    """The record's ``gs://`` URI (any bucket), or "" when it has none."""
     uri = image.get("gcs_uri") if isinstance(image, Mapping) else None
-    return uri if isinstance(uri, str) and uri.startswith("gs://") else ""
+    return uri.strip() if isinstance(uri, str) and uri.startswith("gs://") else ""
+
+
+def rendered_image_uri(image: Any) -> str:
+    """The record's ``gs://`` URI when the judge may attach it, else "".
+
+    Vertex fetches the attached object as the project's Vertex AI service
+    agent, so (like the person photo and the ratings report) only an object
+    directly under ``gs://$GOOGLE_CLOUD_STORAGE_BUCKET/`` is attached; a URI
+    with ``..`` or in another bucket is refused (the judge then judges the
+    prompt and the report warns, :func:`foreign_image_concepts`). Without
+    ``GOOGLE_CLOUD_STORAGE_BUCKET`` (local runs) any ``gs://`` object is
+    accepted, as for :func:`person_photo_uri`.
+    """
+    uri = _gs_uri(image)
+    if not uri or ".." in uri:
+        return ""
+    bucket = (os.environ.get("GOOGLE_CLOUD_STORAGE_BUCKET") or "").strip()
+    if bucket and not uri.startswith(f"gs://{bucket}/"):
+        return ""
+    return uri
 
 
 # The engine's person-reference shape (``creative_agent.person_render``
@@ -313,15 +401,37 @@ def _redact(text: str, secret: str) -> str:
 def moment_is_timely(trend_situation: Any) -> bool:
     """True when ``state["trend_situation"]`` is a validated timely moment (pure).
 
-    ``timely_ok is True`` with a non-empty ``valid_until`` (the shared
-    timely-creative contract; plain dict keys, so creative_eval never imports
-    creative_agent).
+    ``timely_ok is True``: the same rule as the engine's guards
+    (``creative_agent.trend_situation.timely_allowed``, mirrored with plain
+    dict keys so creative_eval never imports creative_agent; parity-tested
+    via :func:`run_is_timely`). A missing ``valid_until`` does not switch the
+    check off: a creative the guards treated as timely is always judged for
+    ``timely_claim_supported`` (the validator always sets one; the block then
+    just shows it empty). Pass the run's moment via :func:`run_trend_situation`.
     """
     return (
         isinstance(trend_situation, Mapping)
         and trend_situation.get("timely_ok") is True
-        and bool(str(trend_situation.get("valid_until") or "").strip())
     )
+
+
+def run_trend_situation(state: Mapping[str, Any]) -> Any:
+    """The run's ``trend_situation`` for the judge, or None (pure).
+
+    None when trend_scout flagged the trend sensitive
+    (``state["trend_sensitive_hint"] == "yes"``): like the engine's
+    ``timely_allowed``, such a run never has a timely moment.
+    """
+    if state.get("trend_sensitive_hint") == "yes":
+        return None
+    return state.get("trend_situation")
+
+
+def run_is_timely(state: Mapping[str, Any]) -> bool:
+    """True when the run has a timely moment (:func:`moment_is_timely` of
+    :func:`run_trend_situation`); parity-tested against
+    ``creative_agent.trend_situation.timely_allowed(state, 1)``."""
+    return moment_is_timely(run_trend_situation(state))
 
 
 def creative_is_timely(
@@ -404,7 +514,7 @@ def moment_block(trend_situation: Any, sources: Any = None) -> str:
 def _moment_section(timely: bool, trend_situation: Any, sources: Any) -> str:
     """The prompt's ``moment_section``: the moment block for a timely creative."""
     block = moment_block(trend_situation, sources) if timely else ""
-    return f"<CURRENT_MOMENT>\n{block}\n</CURRENT_MOMENT>\n\n" if block else ""
+    return f"<CURRENT_MOMENT>\n{fence(block)}\n</CURRENT_MOMENT>\n\n" if block else ""
 
 
 def trend_valid_until(trend_situation: Any) -> str:
@@ -442,6 +552,7 @@ def _score_from_verdicts(
             improvements=[],
             gates=gates,
             gates_passed=gates_ok,
+            judge_failed=False,
         )
 
     avg_score = sum(v.score for v in verdicts) / (len(verdicts) * 10)
@@ -467,7 +578,105 @@ def _score_from_verdicts(
         improvements=improvements,
         gates=gates,
         gates_passed=gates_ok,
+        judge_failed=False,
     )
+
+
+def fence(value: Any) -> str:
+    """``value`` as prompt text with its angle brackets neutralised (pure).
+
+    Creative, brief, campaign, research and QA text is untrusted (users edit
+    it, the web supplies it), so ``<`` / ``>`` become ``‹`` / ``›``: a value
+    can never close the prompt's data tags or open a fake ``<GATES>`` block.
+    None → "".
+    """
+    text = "" if value is None else str(value)
+    return text.replace("<", "‹").replace(">", "›")
+
+
+# The prompt fields filled from the campaign context and from the creative
+# itself, each fenced and defaulted to "" (never ``**creative``: an extra key
+# would collide with a code-set placeholder, a missing one would KeyError).
+CAMPAIGN_PROMPT_FIELDS: tuple[str, ...] = (
+    "brand",
+    "target_product",
+    "target_audience",
+    "key_selling_points",
+    "target_search_trend",
+)
+AD_COPY_PROMPT_FIELDS: tuple[str, ...] = (
+    "headline",
+    "body_text",
+    "tone_style",
+    "trend_connection",
+    "audience_appeal_rationale",
+    "social_caption",
+    "call_to_action",
+    "detailed_performance_rationale",
+)
+VISUAL_PROMPT_FIELDS: tuple[str, ...] = (
+    "concept_name",
+    "visual_style",
+    "aspect_ratio",
+    "trend",
+    "trend_reference",
+    "trend_motif",
+    "brand_cue",
+    "markets_product",
+    "audience_appeal",
+    "selection_rationale",
+    "headline",
+    "social_caption",
+    "call_to_action",
+    "concept_summary",
+    "image_generation_prompt",
+)
+# Defaults for empty visual fields (the judge reads "(none)", not a blank).
+_VISUAL_FIELD_DEFAULTS = {
+    "aspect_ratio": "unspecified",
+    "trend_motif": "(none)",
+    "brand_cue": "(none)",
+}
+# Placeholders set by code, never from the creative.
+_AD_COPY_RESERVED = frozenset(
+    {"angle", "brief_block", "timely", "safer_angle", "moment_section"}
+)
+_VISUAL_RESERVED = frozenset(
+    {
+        "brief_block",
+        "image_section",
+        "person_cast",
+        "timely",
+        "safer_angle",
+        "moment_section",
+    }
+)
+
+
+def ad_copy_prompt_reserved_keys() -> set[str]:
+    """The ad-copy prompt's code-set placeholders (no creative field may use one)."""
+    return set(_AD_COPY_RESERVED)
+
+
+def visual_prompt_reserved_keys() -> set[str]:
+    """The visual prompt's code-set placeholders (no creative field may use one)."""
+    return set(_VISUAL_RESERVED)
+
+
+def _prompt_fields(
+    source: Mapping[str, Any],
+    names: Sequence[str],
+    defaults: Mapping[str, str] | None = None,
+) -> dict[str, str]:
+    """``{name: fenced value}`` for ``names`` from ``source`` (missing → default/"")."""
+    defaults = defaults or {}
+    out = {}
+    for name in names:
+        value = source.get(name)
+        if value is None or (isinstance(value, str) and not value.strip()):
+            value = defaults.get(name, "")
+        out[name] = fence(value)
+    return out
 
 
 def evaluate_ad_copy(
@@ -507,12 +716,20 @@ def evaluate_ad_copy(
     angle_id = str(ad_copy.get("angle_id") or "")
     timely = creative_is_timely(ad_copy, trend_situation)
     # Build the prompt
+    # Join keys and labels come from the input copy, never the judge's echo.
+    ids = {
+        "original_id": ad_copy.get("original_id", 0),
+        "headline": str(ad_copy.get("headline") or ""),
+        "tone_style": str(ad_copy.get("tone_style") or ""),
+    }
     user_prompt = prompts.AD_COPY_EVAL_USER.format(
-        **campaign_context,
-        **ad_copy,
-        angle=angle_line(brief, ad_copy.get("angle_id") or ""),
-        brief_block=format_brief_for_judge(
-            brief, safer_angle=safer_angle, sensitive_reason=sensitive_reason
+        **_prompt_fields(campaign_context, CAMPAIGN_PROMPT_FIELDS),
+        **_prompt_fields(ad_copy, AD_COPY_PROMPT_FIELDS),
+        angle=fence(angle_line(brief, ad_copy.get("angle_id") or "")),
+        brief_block=fence(
+            format_brief_for_judge(
+                brief, safer_angle=safer_angle, sensitive_reason=sensitive_reason
+            )
         ),
         timely="yes" if timely else "no",
         safer_angle="yes" if safer_angle else "no",
@@ -533,14 +750,13 @@ def evaluate_ad_copy(
 
         judged = AdCopyJudgeOutput.model_validate_json(response.text or "")
         return AdCopyEvaluation(
-            original_id=judged.original_id,
-            headline=judged.headline,
-            tone_style=judged.tone_style,
+            **ids,
             angle_id=angle_id,
             score=score_from_judge(
                 judged.score,
                 AD_COPY_GATES,
                 config.passing_threshold,
+                expected_dimensions=config.ad_copy_dimensions,
                 brief_used=brief is not None,
                 trend_given=bool(
                     str(campaign_context.get("target_search_trend") or "").strip()
@@ -557,9 +773,7 @@ def evaluate_ad_copy(
         )
         # Return a zero-score evaluation on failure
         return AdCopyEvaluation(
-            original_id=ad_copy.get("original_id", 0),
-            headline=ad_copy.get("headline", ""),
-            tone_style=ad_copy.get("tone_style", ""),
+            **ids,
             score=_failed_score(),
             angle_id=angle_id,
             timely=timely,
@@ -622,7 +836,17 @@ def evaluate_visual_concept(
         client = _get_client(config)
 
     name = visual_concept.get("concept_name", "?")
-    image_uri = _rendered_image_uri(image)
+    # Join keys come from the input concept, never the judge's echo.
+    ids = {
+        "ad_copy_id": visual_concept.get("ad_copy_id", 0),
+        "concept_name": str(visual_concept.get("concept_name") or ""),
+    }
+    image_uri = rendered_image_uri(image)
+    if _gs_uri(image) and not image_uri:
+        logger.warning(
+            "Rendered image for %r is outside the run's bucket; judging its prompt",
+            name,
+        )
     # The render record decides (a blocked person render falls back to an
     # uncast image even when the concept asked to cast).
     person_cast = isinstance(image, Mapping) and image.get("cast") is True
@@ -642,7 +866,7 @@ def evaluate_visual_concept(
         person's reference photo at ``photo_uri``), or prompt-only."""
         image_section = (
             prompts.VISUAL_IMAGE_ATTACHED.format(
-                qa_hint=image_qa_hint((image or {}).get("qa"))
+                qa_hint=fence(image_qa_hint((image or {}).get("qa")))
             )
             if uri
             else prompts.VISUAL_IMAGE_MISSING
@@ -650,18 +874,17 @@ def evaluate_visual_concept(
         if uri and photo_uri:
             image_section += "\n" + prompts.VISUAL_PERSON_PHOTO_ATTACHED
         user_prompt = prompts.VISUAL_CONCEPT_EVAL_USER.format(
-            **campaign_context,
-            **{
-                **visual_concept,
-                "aspect_ratio": visual_concept.get("aspect_ratio") or "unspecified",
-                "trend_motif": visual_concept.get("trend_motif") or "(none)",
-                "brand_cue": visual_concept.get("brand_cue") or "(none)",
-                "person_cast": "yes" if person_cast else "no",
-                "timely": "yes" if timely else "no",
-                "safer_angle": "yes" if safer_angle else "no",
-            },
-            brief_block=format_brief_for_judge(
-                brief, safer_angle=safer_angle, sensitive_reason=sensitive_reason
+            **_prompt_fields(campaign_context, CAMPAIGN_PROMPT_FIELDS),
+            **_prompt_fields(
+                visual_concept, VISUAL_PROMPT_FIELDS, _VISUAL_FIELD_DEFAULTS
+            ),
+            person_cast="yes" if person_cast else "no",
+            timely="yes" if timely else "no",
+            safer_angle="yes" if safer_angle else "no",
+            brief_block=fence(
+                format_brief_for_judge(
+                    brief, safer_angle=safer_angle, sensitive_reason=sensitive_reason
+                )
             ),
             image_section=image_section,
             moment_section=moment_section,
@@ -691,12 +914,12 @@ def evaluate_visual_concept(
         )
         judged = VisualJudgeOutput.model_validate_json(response.text or "")
         return VisualConceptEvaluation(
-            ad_copy_id=judged.ad_copy_id,
-            concept_name=judged.concept_name,
+            **ids,
             score=score_from_judge(
                 judged.score,
                 VISUAL_GATES,
                 config.passing_threshold,
+                expected_dimensions=config.visual_dimensions,
                 brief_used=brief is not None,
                 person_cast=person_cast,
                 timely=timely,
@@ -746,8 +969,7 @@ def evaluate_visual_concept(
             "Failed to evaluate visual concept %s: %s", name, _redact(str(e), photo)
         )
         return VisualConceptEvaluation(
-            ad_copy_id=visual_concept.get("ad_copy_id", 0),
-            concept_name=visual_concept.get("concept_name", ""),
+            **ids,
             score=_failed_score(),
             timely=timely,
             **tags,
@@ -785,7 +1007,7 @@ def image_fallback_concepts(
         e.concept_name
         for e in visual_evals
         if not e.image_judged
-        and _rendered_image_uri(images.get(e.concept_name))
+        and rendered_image_uri(images.get(e.concept_name))
         and not _is_failed(e)
     ]
 
@@ -800,46 +1022,81 @@ def image_fallback_warning(concepts: list[str]) -> list[str]:
     ]
 
 
+def foreign_image_concepts(
+    visual_evals: list[VisualConceptEvaluation],
+    generated_images: Mapping[str, Any] | None,
+) -> list[str]:
+    """Concepts whose ``gs://`` image was refused by :func:`rendered_image_uri`
+    (outside the run's bucket), so the judge saw only the prompt (pure).
+    Excludes failed judge calls."""
+    images = generated_images if isinstance(generated_images, Mapping) else {}
+    out = []
+    for e in visual_evals:
+        image = images.get(e.concept_name)
+        if _gs_uri(image) and not rendered_image_uri(image) and not _is_failed(e):
+            out.append(e.concept_name)
+    return out
+
+
+def foreign_image_warning(concepts: list[str]) -> list[str]:
+    """The report ``warnings`` entry for :func:`foreign_image_concepts` ([] if none)."""
+    if not concepts:
+        return []
+    return [
+        "Visual judge ignored a rendered image outside the run's bucket and "
+        f"judged the prompt instead for: {', '.join(concepts)}"
+    ]
+
+
+def _count_line(count: int, kind: str, outcome: str) -> str:
+    noun = "check" if count == 1 else "checks"
+    return f"{count} {kind}{noun} not reported by the judge ({outcome} as not checked)"
+
+
 def unreported_gates_warning(
     ad_evals: list[AdCopyEvaluation],
     visual_evals: list[VisualConceptEvaluation],
 ) -> list[str]:
-    """The report ``warnings`` entry counting gates the judge left out ([] if none).
+    """The report ``warnings`` entries counting gates the judge left out ([] if none).
 
-    Such gates pass as "not checked" (see :func:`normalize_gates`); the
-    warning keeps that leniency visible. A person gate left out for a cast
-    concept, a timely gate left out for a timely creative, or a safer-angle
-    gate left out on a safer-angle run, fails instead
-    and gets its own entry.
+    An omitted advisory gate passes as "not checked" (see
+    :func:`normalize_gates`); the first entry keeps that visible. An omitted
+    gate the judge had to decide fails as "not checked": person, timely and
+    safer-angle gates get their own entries, every other gate one shared
+    entry.
     """
     gates = [g for e in [*ad_evals, *visual_evals] for g in e.score.gates]
     out = []
-    count = sum(g.note == NOT_REPORTED_NOTE for g in gates)
-    if count:
-        noun = "check" if count == 1 else "checks"
-        out.append(f"{count} {noun} not reported by the judge (passed as not checked)")
-    failed = sum(g.note == NOT_CHECKED_NOTE and g.gate in PERSON_GATES for g in gates)
-    if failed:
-        noun = "check" if failed == 1 else "checks"
-        out.append(
-            f"{failed} person {noun} not reported by the judge (failed as not checked)"
-        )
-    timely = sum(g.note == NOT_CHECKED_NOTE and g.gate in TIMELY_GATES for g in gates)
-    if timely:
-        noun = "check" if timely == 1 else "checks"
-        out.append(
-            f"{timely} timely {noun} not reported by the judge (failed as not checked)"
-        )
-    safer = sum(
-        g.note == NOT_CHECKED_NOTE and g.gate in SAFER_ANGLE_GATES for g in gates
-    )
-    if safer:
-        noun = "check" if safer == 1 else "checks"
-        out.append(
-            f"{safer} safer-angle {noun} not reported by the judge "
-            "(failed as not checked)"
-        )
+    passed = sum(g.note == NOT_REPORTED_NOTE for g in gates)
+    if passed:
+        out.append(_count_line(passed, "", "passed"))
+    unchecked = [g for g in gates if g.note == NOT_CHECKED_NOTE and not g.passed]
+    special = PERSON_GATES | TIMELY_GATES | SAFER_ANGLE_GATES
+    other = sum(g.gate not in special for g in unchecked)
+    if other:
+        out.append(_count_line(other, "", "failed"))
+    for kind, names in (
+        ("person ", PERSON_GATES),
+        ("timely ", TIMELY_GATES),
+        ("safer-angle ", SAFER_ANGLE_GATES),
+    ):
+        count = sum(g.gate in names for g in unchecked)
+        if count:
+            out.append(_count_line(count, kind, "failed"))
     return out
+
+
+def unscored_dimensions_warning(
+    ad_evals: list[AdCopyEvaluation],
+    visual_evals: list[VisualConceptEvaluation],
+) -> list[str]:
+    """The report ``warnings`` entry counting creatives with dimensions the
+    judge did not score (failed as unverified, :func:`score_from_judge`)."""
+    count = sum(bool(e.score.unscored_dimensions) for e in [*ad_evals, *visual_evals])
+    if not count:
+        return []
+    noun = "creative" if count == 1 else "creatives"
+    return [f"{count} {noun} missing judge scores (failed as unverified)"]
 
 
 def judge_warnings(
@@ -847,10 +1104,14 @@ def judge_warnings(
     visual_evals: list[VisualConceptEvaluation],
     generated_images: Mapping[str, Any] | None,
 ) -> list[str]:
-    """Every judge-side report warning (image fallback + unreported gates)."""
-    return image_fallback_warning(
-        image_fallback_concepts(visual_evals, generated_images)
-    ) + unreported_gates_warning(ad_evals, visual_evals)
+    """Every judge-side report warning (image fallback, foreign image,
+    unreported gates, unscored dimensions)."""
+    return (
+        image_fallback_warning(image_fallback_concepts(visual_evals, generated_images))
+        + foreign_image_warning(foreign_image_concepts(visual_evals, generated_images))
+        + unreported_gates_warning(ad_evals, visual_evals)
+        + unscored_dimensions_warning(ad_evals, visual_evals)
+    )
 
 
 def evaluate_all_concurrently(

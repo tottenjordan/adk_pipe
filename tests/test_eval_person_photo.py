@@ -17,6 +17,7 @@ from creative_eval.evaluate import (
     evaluate_visual_concept,
     person_photo_uri,
 )
+from tests._eval_fakes import verdict_dicts
 
 BUCKET = "tt-bucket"
 PHOTO = f"gs://{BUCKET}/person-refs/me-abc/face.jpg"
@@ -58,9 +59,7 @@ def _body() -> str:
             "ad_copy_id": 1,
             "concept_name": "Hero",
             "score": {
-                "verdicts": [
-                    {"dimension": "d", "score": 9, "verdict": "pass", "rationale": "r"}
-                ],
+                "verdicts": verdict_dicts("visual", 9),
                 "strengths": [],
                 "improvements": [],
                 "gates": [
