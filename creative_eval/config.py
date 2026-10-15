@@ -1,9 +1,45 @@
 """Configuration for creative evaluation."""
 
+import logging
 import os
 from dataclasses import dataclass, field
 
 from agent_common.locations import MODEL_LOCATION
+
+logger = logging.getLogger(__name__)
+
+# Bounds for the judge worker knobs (EVAL_MAX_WORKERS /
+# EVAL_MAX_VISUAL_WAVE_WORKERS).
+MIN_WORKERS = 1
+MAX_WORKERS = 16
+
+
+def env_workers(name: str, default: int) -> int:
+    """``int(os.environ[name])`` clamped to MIN_WORKERS..MAX_WORKERS.
+
+    Read when an ``EvalConfig`` is built (at import for the module-level
+    config), so a malformed value ("2x", "") logs a warning and falls back to
+    ``default`` instead of crashing engine startup.
+    """
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    try:
+        value = int(raw.strip())
+    except ValueError:
+        logger.warning("%s=%r is not an integer; using %d", name, raw, default)
+        return default
+    clamped = max(MIN_WORKERS, min(MAX_WORKERS, value))
+    if clamped != value:
+        logger.warning(
+            "%s=%d is outside %d-%d; using %d",
+            name,
+            value,
+            MIN_WORKERS,
+            MAX_WORKERS,
+            clamped,
+        )
+    return clamped
 
 
 @dataclass
@@ -32,7 +68,7 @@ class EvalConfig:
     # (EVAL_MODEL_LOCATION=us-central1, an unused pool), raise via EVAL_MAX_WORKERS
     # for a faster eval. See docs/notes/ambient-agents-vs-cloud-functions.md.
     max_eval_workers: int = field(
-        default_factory=lambda: int(os.getenv("EVAL_MAX_WORKERS", "2"))
+        default_factory=lambda: env_workers("EVAL_MAX_WORKERS", 2)
     )
     # A visuals-only batch (creative_agent judges the ad copies early, while the
     # visuals render, so finalize only judges the ~4 visual concepts) is ONE wave
@@ -41,7 +77,7 @@ class EvalConfig:
     # fully in parallel (4 calls < 5 RPM) instead of 2 at a time. Mixed batches
     # (interactive_creative's all-at-once eval) keep max_eval_workers.
     max_visual_wave_workers: int = field(
-        default_factory=lambda: int(os.getenv("EVAL_MAX_VISUAL_WAVE_WORKERS", "4"))
+        default_factory=lambda: env_workers("EVAL_MAX_VISUAL_WAVE_WORKERS", 4)
     )
 
     # Judge sampling temperature, sent on both judge calls (ad copy and visual).
@@ -60,7 +96,9 @@ class EvalConfig:
         )
         return max(1, min(cap, total))
 
-    # Scoring dimensions and weights for ad copy
+    # Scoring dimensions for ad copy: the judge's verdicts are reduced to
+    # exactly these (evaluate.normalize_verdicts); a missing one makes the
+    # creative's score unverified (not passed).
     ad_copy_dimensions: list[str] = field(
         default_factory=lambda: [
             "strategic_alignment",
@@ -72,7 +110,7 @@ class EvalConfig:
         ]
     )
 
-    # Scoring dimensions and weights for visual concepts
+    # Scoring dimensions for visual concepts (see ad_copy_dimensions).
     visual_dimensions: list[str] = field(
         default_factory=lambda: [
             "trend_visual_connection",
