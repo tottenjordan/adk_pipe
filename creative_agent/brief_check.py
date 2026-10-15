@@ -1,6 +1,6 @@
 """Deterministic checks on the structured CreativeBrief.
 
-Pure logic (no ADK imports) behind ``creative_agent.agent.brief_gate``: the
+Pure logic (no ADK imports) behind ``creative_agent.research_stage.brief_gate``: the
 rules the ``CreativeBrief`` output schema cannot express. Each issue string is
 specific and actionable because the gate feeds them verbatim to
 ``brief_reviser`` (as ``brief_issues``) and records any that survive the bounded

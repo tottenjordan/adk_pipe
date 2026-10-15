@@ -1,6 +1,6 @@
 """Deterministic checks on the ad copy critic's final copies.
 
-Pure logic (no ADK imports) behind ``creative_agent.agent.copy_gate``. Gating
+Pure logic (no ADK imports) behind ``creative_agent.copy_stage.copy_gate``. Gating
 policy (each needless revision costs a worker LLM call, latency and possibly a
 user-visible warning, so false positives are kept low):
 

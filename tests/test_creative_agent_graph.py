@@ -38,6 +38,7 @@ from google.adk.workflow._base_node import BaseNode
 from google.genai import types
 from pydantic import ValidationError
 
+from creative_agent import visual_stage
 from creative_agent.brief_render import render_brief_markdown
 from creative_eval.schemas import (
     AdCopyEvaluation,
@@ -917,7 +918,6 @@ def test_render_node_returns_a_truthy_message():
     generate_image's message, or a fallback — never empty."""
     from types import SimpleNamespace
 
-    import creative_agent.agent as ca
     from creative_agent import image_tools
 
     async def run(result):
@@ -928,7 +928,7 @@ def test_render_node_returns_a_truthy_message():
 
         image_tools.generate_image = fake
         try:
-            return await ca._render_images(SimpleNamespace(state={}))
+            return await visual_stage._render_images(SimpleNamespace(state={}))
         finally:
             image_tools.generate_image = original
 

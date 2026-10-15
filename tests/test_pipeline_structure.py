@@ -6,6 +6,7 @@ import pytest
 from google.adk.tools._node_tool import NodeTool
 from pydantic import ValidationError
 
+from creative_agent import copy_stage, research_stage, visual_stage
 from tests._fakes import walk_nodes
 
 
@@ -405,7 +406,7 @@ def test_research_refinement_gate_predicate():
     a blank/missing merged brief, or an upstream producer that exhausted retries.
     On the healthy common path (brief present, no exhaustion markers) it skips,
     dropping the PRO evaluator + a search/synth pass."""
-    from creative_agent.agent import _base_research_is_degraded
+    from creative_agent.research_stage import _base_research_is_degraded
 
     # Healthy: substantial brief, no exhaustion → skip refinement.
     assert (
@@ -1808,14 +1809,16 @@ def test_brief_failsoft_error_deltas():
     pre-revision brief, record its issues, spend the revision budget."""
     from creative_agent import agent as ca
 
-    delta = ca._brief_writer_failed({"creative_brief": {"stale": 1}}, ValueError())
+    delta = research_stage._brief_writer_failed(
+        {"creative_brief": {"stale": 1}}, ValueError()
+    )
     assert delta["creative_brief"] is None
     assert delta["creative_brief_md"] == ""
     assert delta["creative_brief__retry_exhausted"] is True
 
     brief = {**_clean_brief(), "insight": "Coyotes like skates."}
     state = {"creative_brief": brief, "brief_revision_rounds_used": 1}
-    delta = ca._brief_reviser_failed(state, ValueError())
+    delta = research_stage._brief_reviser_failed(state, ValueError())
     assert delta["creative_brief"] == brief
     assert "Coyotes like skates." in delta["creative_brief_md"]
     assert delta["brief_issues"] == ""
@@ -1896,7 +1899,7 @@ def test_ad_copy_reviser_is_fail_soft_wrapped_in_the_graph():
     soft = nodes["ad_copy_reviser_failsoft"]
     assert isinstance(soft, FailSoftNode)
     assert soft.node.name == "ad_copy_reviser"
-    assert soft.on_error is ca._ad_copy_reviser_failed
+    assert soft.on_error is copy_stage._ad_copy_reviser_failed
     edges = _graph_edges(ca.ad_creative_pipeline)
     assert {src for src, dst, _ in edges if dst == "copy_gate"} == {
         "ad_copy_critic",
@@ -2239,7 +2242,7 @@ def test_ad_copy_reviser_failsoft_error_delta():
         ad_copy_revision_rounds_used=1,
         ad_copy_issues="- x",
     )
-    delta = ca._ad_copy_reviser_failed(state, ValueError())
+    delta = copy_stage._ad_copy_reviser_failed(state, ValueError())
     assert delta["ad_copy_critique"] == before
     assert delta["ad_copy_issues"] == ""
     assert delta["ad_copy_critique__before_revision"] is None
@@ -2262,7 +2265,7 @@ def test_ad_copy_reviser_failure_spends_a_multi_round_budget(monkeypatch, used):
         ad_copy_revision_rounds_used=used,
         ad_copy_issues="- x",
     )
-    delta = ca._ad_copy_reviser_failed(state, ValueError())
+    delta = copy_stage._ad_copy_reviser_failed(state, ValueError())
     assert delta["ad_copy_revision_rounds_used"] == 2
     route, _ = ca.copy_gate_decision({**state, **delta}, 2)
     assert route == "ok"
@@ -2344,7 +2347,7 @@ def test_visual_concept_fixer_is_fail_soft_wrapped_in_the_graph():
     soft = nodes["visual_concept_fixer_failsoft"]
     assert isinstance(soft, FailSoftNode)
     assert soft.node.name == "visual_concept_fixer"
-    assert soft.on_error is ca._visual_concept_fixer_failed
+    assert soft.on_error is visual_stage._visual_concept_fixer_failed
     fixer = soft.node
     assert fixer.canonical_after_agent_callbacks == (
         ca.visual_concept_fixer.canonical_after_agent_callbacks
@@ -2519,7 +2522,7 @@ def test_visual_concept_fixer_failsoft_error_delta():
         visual_concept_revision_rounds_used=1,
         visual_concept_issues="- x",
     )
-    delta = ca._visual_concept_fixer_failed(state, ValueError())
+    delta = visual_stage._visual_concept_fixer_failed(state, ValueError())
     assert delta["final_visual_concepts"] == before
     assert delta["visual_concept_issues"] == ""
     assert delta["final_visual_concepts__before_revision"] is None
