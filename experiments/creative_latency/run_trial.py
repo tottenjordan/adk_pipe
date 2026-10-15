@@ -19,6 +19,13 @@ Auth is portable: set ``$EXP_INVOKER_SA`` (or ``--invoker-sa``) to a service
 account with ``roles/run.invoker`` on your backend, or leave it empty to use your
 own ADC identity — nothing project-specific is hard-coded.
 
+Per-user authz (P3): an api in ``USER_AUTHZ_MODE=enforce`` (the default) 401s
+user-scoped routes without a trusted ``X-TT-User``. The request helpers take an
+optional ``tt_user`` for that header, and ``mint_proxy_id_token`` mints the
+matching proxy-SA ID token with an ``email`` claim
+(``experiments/temperature_ab/run_ab.py`` uses both). Without ``tt_user`` the
+helpers behave exactly as before (an api with ``TRUST_CLIENT_USER_ID=1``).
+
 Usage:
     PYTHONPATH="$PWD" uv run python -m experiments.creative_latency.run_trial \\
         --base-url https://<service>-<hash>-<region>.run.app \\
@@ -34,6 +41,7 @@ import os
 import subprocess
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -54,6 +62,11 @@ POLL_TIMEOUT_S = 1800.0  # 30 min hard ceiling for one creative_agent run
 # a value spuriously fails a run that actually completed server-side.
 HTTP_TIMEOUT_S = 180.0
 TERMINAL_STATUSES = frozenset({"done", "error"})
+# Header the P3 backend trusts as the caller's identity (runserver/authz.py
+# TRUSTED_USER_HEADER), but only alongside an ID token of the proxy SA.
+USER_HEADER = "X-TT-User"
+# Indirection so tests can swap in a fake transport.
+_urlopen = urllib.request.urlopen
 
 
 def mint_token(audience: str, invoker_sa: str = INVOKER_SA) -> str:
@@ -69,61 +82,165 @@ def mint_token(audience: str, invoker_sa: str = INVOKER_SA) -> str:
     return out.stdout.strip()
 
 
-def _post(url: str, body: dict, token: str, timeout: float = HTTP_TIMEOUT_S) -> dict:
+def _impersonation_module():
+    from google.auth import impersonated_credentials
+
+    return impersonated_credentials
+
+
+def _default_credentials():
+    import google.auth
+
+    return google.auth.default(
+        scopes=["https://www.googleapis.com/auth/cloud-platform"]
+    )
+
+
+def _auth_request():
+    from google.auth.transport.requests import Request
+
+    return Request()
+
+
+def mint_proxy_id_token(audience: str, proxy_sa: str) -> str:
+    """Mint an ID token AS the proxy SA (``tt-web-sa``) that carries ``email``.
+
+    Under per-user authz (P3, ``USER_AUTHZ_MODE=enforce``) the backend trusts
+    ``X-TT-User`` only alongside a Google ID token whose ``email`` claim is
+    ``TRUSTED_PROXY_SA`` with ``email_verified`` true and an ``aud`` in
+    ``TRUSTED_PROXY_AUDIENCES`` (``runserver/authz.py`` ``verify_proxy_caller``).
+    An impersonated ID token only carries ``email`` when asked for: google-auth's
+    ``impersonated_credentials.IDTokenCredentials(target_credentials,
+    target_audience=None, include_email=False, quota_project_id=None)`` sends
+    ``"includeEmail": include_email`` to the IAM Credentials ``generateIdToken``
+    call in ``refresh()`` (google-auth 2.61.0,
+    ``google/auth/impersonated_credentials.py``), hence ``include_email=True``.
+    The caller's ADC needs ``roles/iam.serviceAccountTokenCreator`` on the SA.
+    """
+    if not proxy_sa:
+        raise ValueError("a proxy service account to impersonate is required")
+    imp = _impersonation_module()
+    source, _project = _default_credentials()
+    target = imp.Credentials(
+        source_credentials=source,
+        target_principal=proxy_sa,
+        target_scopes=["https://www.googleapis.com/auth/cloud-platform"],
+    )
+    id_creds = imp.IDTokenCredentials(
+        target, target_audience=audience, include_email=True
+    )
+    id_creds.refresh(_auth_request())
+    return id_creds.token
+
+
+def _headers(token: str, user: str | None, *, json_body: bool = False) -> dict:
+    headers = {"Authorization": f"Bearer {token}"}
+    if json_body:
+        headers["Content-Type"] = "application/json"
+    if user:
+        headers[USER_HEADER] = user
+    return headers
+
+
+def _post(
+    url: str,
+    body: dict,
+    token: str,
+    timeout: float = HTTP_TIMEOUT_S,
+    *,
+    user: str | None = None,
+) -> dict:
     data = json.dumps(body).encode()
     req = urllib.request.Request(
-        url,
-        data=data,
-        method="POST",
-        headers={
-            "Content-Type": "application/json",
-            "Authorization": f"Bearer {token}",
-        },
+        url, data=data, method="POST", headers=_headers(token, user, json_body=True)
     )
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
+    with _urlopen(req, timeout=timeout) as resp:
         return json.loads(resp.read().decode())
 
 
-def _get(url: str, token: str, timeout: float = HTTP_TIMEOUT_S) -> dict:
-    req = urllib.request.Request(url, headers={"Authorization": f"Bearer {token}"})
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
+def _get(
+    url: str, token: str, timeout: float = HTTP_TIMEOUT_S, *, user: str | None = None
+) -> dict:
+    req = urllib.request.Request(url, headers=_headers(token, user))
+    with _urlopen(req, timeout=timeout) as resp:
         return json.loads(resp.read().decode())
 
 
-def create_session(base_url: str, user_id: str, token: str) -> str:
-    """Create a session via ADK canned CRUD; return its generated id."""
-    url = f"{base_url}/apps/{APP_NAME}/users/{user_id}/sessions"
-    session = _post(url, {"state": {}}, token)
+def _user_kwargs(tt_user: str | None) -> dict:
+    """``{"user": tt_user}`` only when set, so pre-P3 callers are unchanged."""
+    return {"user": tt_user} if tt_user else {}
+
+
+def _seg(value: str) -> str:
+    """Quote one path segment; "@" is a valid pchar, so emails stay readable."""
+    return urllib.parse.quote(value, safe="@")
+
+
+def create_session(
+    base_url: str,
+    user_id: str,
+    token: str,
+    *,
+    state: dict | None = None,
+    app: str = APP_NAME,
+    tt_user: str | None = None,
+) -> str:
+    """Create a session via ADK canned CRUD; return its generated id.
+
+    ``state`` seeds the initial session state (what the frontend's
+    ``buildInitialState`` sends); ``tt_user`` adds the P3 ``X-TT-User`` header.
+    """
+    url = f"{base_url}/apps/{_seg(app)}/users/{_seg(user_id)}/sessions"
+    session = _post(url, {"state": dict(state or {})}, token, **_user_kwargs(tt_user))
     return session["id"]
 
 
-def start_run(base_url: str, user_id: str, session_id: str, token: str) -> dict:
-    url = f"{base_url}/runs/{APP_NAME}"
+def start_run(
+    base_url: str,
+    user_id: str,
+    session_id: str,
+    token: str,
+    *,
+    app: str = APP_NAME,
+    message: str = CAMPAIGN_MESSAGE,
+    tt_user: str | None = None,
+) -> dict:
+    url = f"{base_url}/runs/{_seg(app)}"
     return _post(
         url,
-        {"userId": user_id, "sessionId": session_id, "message": CAMPAIGN_MESSAGE},
+        {"userId": user_id, "sessionId": session_id, "message": message},
         token,
+        **_user_kwargs(tt_user),
     )
 
 
 def poll_to_terminal(
-    base_url: str, user_id: str, session_id: str, token: str
+    base_url: str,
+    user_id: str,
+    session_id: str,
+    token: str,
+    *,
+    app: str = APP_NAME,
+    tt_user: str | None = None,
+    timeout_s: float | None = None,
 ) -> tuple[list[dict], dict, str, str | None]:
     """Accumulate events via the ``nextCursor`` until a terminal status.
 
     Returns ``(events, state, status, error)``. Raises ``TimeoutError`` if the
-    run doesn't reach a terminal marker within ``POLL_TIMEOUT_S``.
+    run doesn't reach a terminal marker within ``timeout_s`` (default
+    ``POLL_TIMEOUT_S``).
     """
+    limit = POLL_TIMEOUT_S if timeout_s is None else timeout_s
     events: list[dict] = []
     since = 0
     state: dict = {}
     status = "running"
     error: str | None = None
-    deadline = time.monotonic() + POLL_TIMEOUT_S
+    deadline = time.monotonic() + limit
+    base = f"{base_url}/runs/{_seg(app)}/{_seg(user_id)}/{_seg(session_id)}"
     while time.monotonic() < deadline:
-        base = f"{base_url}/runs/{APP_NAME}/{user_id}/{session_id}"
         try:
-            payload = _get(f"{base}?since={since}", token)
+            payload = _get(f"{base}?since={since}", token, **_user_kwargs(tt_user))
         except (TimeoutError, urllib.error.URLError, OSError) as exc:
             # A single slow/failed poll must NOT sink a run that is still
             # progressing server-side (the detached task is decoupled from this
@@ -143,7 +260,7 @@ def poll_to_terminal(
             return events, state, status, error
         time.sleep(POLL_INTERVAL_S)
     raise TimeoutError(
-        f"run {session_id} did not finish within {POLL_TIMEOUT_S:.0f}s "
+        f"run {session_id} did not finish within {limit:.0f}s "
         f"(last status={status}, {len(events)} events)"
     )
 
@@ -157,8 +274,25 @@ def _iso(epoch: float) -> str:
     )
 
 
-def _build_log_filter(*, revision: str, start_epoch: float, end_epoch: float) -> str:
-    """Build the Cloud Logging filter for quota signals in a run's window.
+QUOTA_SIGNALS = (
+    "httpRequest.status=429 OR httpRequest.status=503 "
+    'OR textPayload=~"429" OR textPayload=~"503" '
+    'OR textPayload=~"RESOURCE_EXHAUSTED" OR textPayload=~"UNAVAILABLE" '
+    'OR jsonPayload.message=~"429" OR jsonPayload.message=~"RESOURCE_EXHAUSTED"'
+)
+
+
+def _build_log_filter(
+    *,
+    revision: str,
+    start_epoch: float,
+    end_epoch: float,
+    signals: str = QUOTA_SIGNALS,
+) -> str:
+    """Build the Cloud Logging filter for ``signals`` in a run's window.
+
+    ``signals`` defaults to ``QUOTA_SIGNALS``; other harnesses pass their
+    own OR-expression (``experiments/temperature_ab/metrics.py``).
 
     Covers BOTH the HTTP-level status (Cloud Run request logs) AND the in-app
     model-error text (ADK retry warnings for Vertex 429/503), since a model 429
@@ -167,12 +301,6 @@ def _build_log_filter(*, revision: str, start_epoch: float, end_epoch: float) ->
     """
     if not revision:
         return ""
-    signals = (
-        "httpRequest.status=429 OR httpRequest.status=503 "
-        'OR textPayload=~"429" OR textPayload=~"503" '
-        'OR textPayload=~"RESOURCE_EXHAUSTED" OR textPayload=~"UNAVAILABLE" '
-        'OR jsonPayload.message=~"429" OR jsonPayload.message=~"RESOURCE_EXHAUSTED"'
-    )
     return (
         'resource.type="cloud_run_revision" '
         f'AND resource.labels.revision_name="{revision}" '
