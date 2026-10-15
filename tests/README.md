@@ -196,6 +196,8 @@ tests/
 ├── test_trend_digest.py             # trend_scout trend digest: terms_hash / normalize_draft / SQL builders (param-only) + schema file; real-App graph runs for cache hit (state restored, no model call), miss (describe → classify reads summaries → one MERGE), failed describe (unavailable, no write), < 80% coverage, other terms_hash, BigQuery error/timeout, disabled (classifier only)
 ├── test_trend_scout_sensitive.py    # trend_scout sensitive trends: TrendFlags schema, classify_trends_agent wiring + instruction (inside trend_digest; the root digests right after gather, both branches), pick prompt never selects flagged terms, save_search_trends_to_session_state refuses flagged auto picks (dict/JSON/fenced flags; interactive picks saved; malformed flags never block), sensitive_flags parser
 ├── test_trend_tie.py                # creative_agent/trend_tie.py: distinctive trend token / full phrase / brief motif (adjacent-word motif phrases) tie, generic query tokens + years + short tokens don't count, avoid terms never count, empty trend passes, tie_terms examples
+├── test_endorsement.py             # creative_agent/endorsement.py lexicon: whole-word/fold/hyphen matching, pinned idioms (partner up, real estate, lower-case rip)
+├── test_safer_angle_guards.py      # safer angle on a sensitive trend: copy gate endorsement flag + re-enabled trend tie (risk-named event words excluded) + safer_angle_named_copies, trend_sensitive_hint tie skip, image-QA public_figure_likeness (critical, only when active)
 ├── test_visual_concept_prompts.py   # visual concept prompts: shared brand_cue / copy-quoted in-image text / brief avoid + fit_mode rules (drafter, critic, finalizer), finalizer angle_id, interactive reviser keeps brand_cue; brace-safety
 ├── test_visual_intent_prompts.py    # optional visual-intent {key?} tokens + IMAGE_PROMPT_GUIDE no-braces + {style_shortlist?}/composition/text-cap rules
 ├── test_workflow_api_contract.py    # offline pins on the upstream ADK graph-Workflow behaviours the P2 migration relies on
@@ -364,7 +366,9 @@ tests/
 - **Sensitive trends + copy trend tie** — `test_trend_scout_sensitive.py` (classifier + auto-pick
   guard), `test_trend_context.py` (flag in `trend_context`), `test_crf_sql_params.py` (CRF
   skips flagged rows), `test_trend_tie.py` (matcher), `test_copy_gate.py` (trend-tie issue,
-  skipped for a sensitive moment); frontend `trend-flags.test.ts`, `review-trends.test.tsx`,
+  skipped for a sensitive moment), `test_endorsement.py` (endorsement lexicon + pinned idioms),
+  `test_safer_angle_guards.py` (safer angle: endorsement flag, re-enabled trend tie, named copies,
+  hint-based tie skip, image-QA public-figure rule + plumbing); frontend `trend-flags.test.ts`, `review-trends.test.tsx`,
   `trend-cards.test.tsx`, `campaign-form-sensitive.test.tsx`, `trend-situation.test.tsx`.
 - **Async-job run model** — `test_async_runs.py`: detached kick-off returns immediately,
   `_drive_run` appends a `done`/`error` terminal marker, poll derives status + slices
