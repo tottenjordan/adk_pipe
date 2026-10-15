@@ -648,3 +648,13 @@ def test_timely_angle_may_use_result_words_its_other_moment_states():
 def test_empty_timely_angle_is_fine_without_a_moment():
     assert _angle_issues(_with_angle("")) == []
     assert check_brief(_BRIEF) == []
+
+
+def test_safer_angle_rules_follow_the_activation_flag():
+    # Full matrix in tests/test_safer_angle.py; here the keyword's default.
+    stray = _brief(trend_bridge__safer_angle="A legacy of chasing music dreams.")
+    (issue,) = check_brief(stray)
+    assert issue.startswith("trend_bridge.safer_angle is set but")
+    assert check_brief(stray, safer_angle_active=True) == []
+    (issue,) = check_brief(_brief(), safer_angle_active=True)
+    assert issue.startswith("trend_bridge.safer_angle is empty")

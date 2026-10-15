@@ -15,8 +15,15 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 from .claims import claims_allowed_text, unsupported_claims
+from .endorsement import endorsement_terms
 from .temporal_terms import temporal_terms
-from .text_match import contains_phrase, mentions, words
+from .text_match import (
+    contains_phrase,
+    content_tokens,
+    mentions,
+    same_word,
+    words,
+)
 
 MISSING_BRIEF_ISSUE = "brief missing or unparseable"
 
@@ -221,6 +228,7 @@ def check_brief(
     key_selling_points: str | Sequence[str] = "",
     trend_situation: Mapping[str, Any] | None = None,
     max_timely: int = 1,
+    safer_angle_active: bool = False,
 ) -> list[str]:
     """Return the brief's rule violations as actionable issue strings ([] = clean).
 
@@ -247,6 +255,14 @@ def check_brief(
     the moment contradicts (a win word for a loss, a loss word for a win, any
     result for a moment without one; see ``_contradicting_terms``). Never
     raises: malformed fields are reported as issues.
+
+    With ``safer_angle_active`` (the run opted in on a trend flagged sensitive,
+    ``creative_agent.safer_angle``) ``trend_bridge.safer_angle`` must be set,
+    ``trend_bridge.risks`` must list the event's harms, the safer angle may
+    share no content word with the risks or ``avoid`` terms (the trend, brand
+    and product words excepted) and may carry no endorsement term
+    (``endorsement.endorsement_terms``); without it a non-empty
+    ``safer_angle`` is stray (see ``_safer_angle_issues``).
     """
     data = parse_brief(brief)
     if data is None:
@@ -408,6 +424,108 @@ def check_brief(
             _text(bridge.get("timely_angle")), trend_situation, max_timely
         )
     )
+    issues.extend(
+        _safer_angle_issues(
+            data,
+            active=safer_angle_active,
+            names=(trend, brand, target_product),
+        )
+    )
+    return issues
+
+
+# Words too common to signal an event leak when a safer angle shares them with
+# the risks ("his music" vs "his murder"); text_match.STOPWORDS are already out.
+_OVERLAP_IGNORED = frozenset(
+    {
+        "he",
+        "she",
+        "him",
+        "his",
+        "her",
+        "hers",
+        "they",
+        "them",
+        "you",
+        "your",
+        "we",
+        "our",
+        "it",
+        "was",
+        "were",
+        "be",
+        "been",
+        "has",
+        "have",
+        "had",
+        "not",
+        "no",
+        "all",
+        "who",
+        "that",
+        "after",
+        "before",
+    }
+)
+
+
+def _overlap(angle: str, terms: Sequence[str], names: Sequence[str]) -> list[str]:
+    """Content words of ``angle`` also in ``terms`` (folded, singular/plural
+    alike), minus the ``names`` words (trend, brand, product) and pronouns."""
+    excluded = [w for name in names for w in words(name)]
+    term_words = [w for term in terms for w in words(term)]
+    shared: list[str] = []
+    for word in content_tokens(angle):
+        if (
+            word in _OVERLAP_IGNORED
+            or word in shared
+            or any(same_word(word, other) for other in excluded)
+        ):
+            continue
+        if any(same_word(word, other) for other in term_words):
+            shared.append(word)
+    return shared
+
+
+def _safer_angle_issues(
+    data: Mapping[str, Any], *, active: bool, names: Sequence[str]
+) -> list[str]:
+    bridge = _as_mapping(data.get("trend_bridge"))
+    angle = _text(bridge.get("safer_angle"))
+    if not active:
+        if angle:
+            return [
+                "trend_bridge.safer_angle is set but this run has no safer angle: "
+                "clear it (leave it empty)."
+            ]
+        return []
+    issues: list[str] = []
+    risks = [_text(r) for r in _as_list(bridge.get("risks")) if _text(r)]
+    if not angle:
+        issues.append(
+            "trend_bridge.safer_angle is empty: set it to ONE respectful, positive "
+            "association with the trend's subject from the research (at most 25 "
+            "words), never the sensitive event."
+        )
+    if not risks:
+        issues.append(
+            "trend_bridge.risks is empty: list the sensitive event's harms (and "
+            "short terms for them in avoid)."
+        )
+    if not angle:
+        return issues
+    avoid = [_text(a) for a in _as_list(data.get("avoid")) if _text(a)]
+    if shared := _overlap(angle, [*risks, *avoid], names):
+        issues.append(
+            f"trend_bridge.safer_angle shares words with the risks or avoid terms "
+            f"({', '.join(shared)}): build it on the subject's positive side, "
+            "never the sensitive event."
+        )
+    if endorsed := endorsement_terms(angle):
+        issues.append(
+            f"trend_bridge.safer_angle implies endorsement ({', '.join(endorsed)}): "
+            "name the subject only as a respectful tribute or inspiration."
+        )
     return issues
 
 

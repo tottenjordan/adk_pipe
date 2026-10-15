@@ -26,6 +26,7 @@ from .person_render import person_reference_available
 from .prompts import PERSON_CASTING_RULES
 from .rating_signals import strictness_flags
 from .references import reference_roles_summary
+from .safer_angle import derive_state as derive_safer_angle_state
 from .style_shortlist import format_shortlist, pick_style_shortlist
 from .trend_situation import timely_allowed
 
@@ -51,6 +52,27 @@ log_final_state_summary = observability.make_final_state_summary(
 )
 
 
+def _apply_safer_angle(target: State | dict[str, Any]) -> None:
+    """Opt-in safer angle for a sensitive trend (creative_agent/safer_angle.py).
+
+    Only ``safer_angle_opt_in`` is a client input (the campaign form seeds it;
+    ``setdefault(False)``, only exactly True counts). Every derived key — the
+    trend_scout flag, ``safer_angle_active`` (opt-in AND flag), the reason and
+    the four ``safer_angle_*_rules`` texts — is ASSIGNED from
+    ``derive_state`` (opt-in + ``trend_scout_context``), never setdefault'ed,
+    so a client cannot seed an active state or inject rule text. The rule
+    texts reach the prompts as optional {safer_angle_*_rules?} tokens and are
+    "" otherwise, so runs without the opt-in get unchanged instructions.
+    """
+    target.setdefault("safer_angle_opt_in", False)
+    inputs = {
+        key: target.get(key) for key in ("safer_angle_opt_in", "trend_scout_context")
+    }
+    for key, value in derive_safer_angle_state(inputs).items():
+        if key != "safer_angle_opt_in":
+            target[key] = value
+
+
 def _set_initial_states(source: dict[str, Any], target: State | dict[str, Any]):
     """
     Setting the initial session state given a JSON object of states.
@@ -68,6 +90,9 @@ def _set_initial_states(source: dict[str, Any], target: State | dict[str, Any]):
         extra={"gcs_bucket_name": config.GCS_BUCKET_NAME},
         timezone=config.trend_timezone,
     )
+    # Recomputed on every call, seeded or not (deterministic, so a resumed
+    # session gets the same values); see _apply_safer_angle.
+    _apply_safer_angle(target)
     if not seeded:
         return
 

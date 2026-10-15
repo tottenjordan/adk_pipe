@@ -107,6 +107,7 @@ def render_brief_markdown(
             ("Motifs", "; ".join(_strings(bridge.get("motifs")))),
             ("Risks", "; ".join(_strings(bridge.get("risks")))),
             ("Timely angle", _text(bridge.get("timely_angle"))),
+            ("Safer angle", _text(bridge.get("safer_angle"))),
         )
         if value
     ]
