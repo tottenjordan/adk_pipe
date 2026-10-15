@@ -1,11 +1,16 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useEffectEvent, useState } from "react";
 import Link from "next/link";
 import { FieldLabel } from "@/components/field-label";
 import { listPersonRefs } from "@/lib/api";
 import type { PersonRef } from "@/lib/person-refs";
 import type { PersonReferenceInput } from "@/lib/types";
+
+/** The chosen person is no longer among the caller's active consents. */
+function isStale(people: PersonRef[], chosen: string, uri: string | undefined): boolean {
+  return chosen !== "" && !people.some((p) => p.consent_id === chosen && p.photo_uri === uri);
+}
 
 /**
  * "Person (optional)" for creative runs: one of the caller's active person
@@ -13,7 +18,7 @@ import type { PersonReferenceInput } from "@/lib/types";
  * person (at most a couple of concepts, in person-safe styles only: photographic,
  * 3D, comic, flat illustration, collage); the api re-checks the
  * consent at kick-off. A duplicated brief whose consent is no longer active is
- * dropped once the list loads.
+ * dropped once the list loads (or, after it loaded, once the brief arrives).
  */
 export function PersonSelect({
   value,
@@ -25,11 +30,24 @@ export function PersonSelect({
   const [people, setPeople] = useState<PersonRef[] | null>(null);
   const [failed, setFailed] = useState(false);
 
+  const chosen = value?.consentId ?? "";
+  const uri = value?.uri;
+  const stale = people !== null && isStale(people, chosen, uri);
+
+  // Reads the latest value/onChange/list without re-running the effects below
+  // (a fresh inline onChange from the parent must not re-send the drop).
+  const dropIfStale = useEffectEvent((list: PersonRef[] | null = people) => {
+    if (list !== null && isStale(list, chosen, uri)) onChange(null);
+  });
+
   useEffect(() => {
     let alive = true;
     listPersonRefs().then(
       (list) => {
-        if (alive) setPeople(list.personRefs);
+        if (!alive) return;
+        setPeople(list.personRefs);
+        // Checked where the list arrives, not in an effect on `stale`.
+        dropIfStale(list.personRefs);
       },
       () => {
         if (alive) setFailed(true);
@@ -40,15 +58,13 @@ export function PersonSelect({
     };
   }, []);
 
-  const chosen = value?.consentId ?? "";
-  const stale =
-    people !== null &&
-    chosen !== "" &&
-    !people.some((p) => p.consent_id === chosen && p.photo_uri === value?.uri);
-
+  // The parent can also hand in a stale person after the list loaded
+  // ("Duplicate here" with a since-revoked consent). Before the list loads the
+  // callback above covers it, so this only acts on an already loaded list, and
+  // only when the value changes (not on the list load itself).
   useEffect(() => {
-    if (stale) onChange(null);
-  }, [stale, onChange]);
+    dropIfStale();
+  }, [chosen, uri]);
 
   return (
     <div className="space-y-1.5">

@@ -140,6 +140,50 @@ describe("checkpoint 1: ReviewBrief", () => {
   });
 });
 
+describe("checkpoint 1: removing a row keeps the other rows' identity", () => {
+  const briefValue = (onResume: ReturnType<typeof vi.fn>) =>
+    (lastResponse(onResume).edits as { value: Record<string, unknown> }[])[0].value;
+
+  it("a mandatory typed into row 3 keeps its input and focus when row 1 is removed", () => {
+    const onResume = renderCheckpoint1();
+    fireEvent.click(screen.getByRole("button", { name: "Add mandatory" }));
+    const row3 = screen.getByLabelText("Mandatories, mandatory 3");
+    row3.focus();
+    fireEvent.change(row3, { target: { value: "Made in Korea" } });
+    fireEvent.click(screen.getByRole("button", { name: "Remove mandatory 1" }));
+    const row2 = screen.getByLabelText("Mandatories, mandatory 2");
+    expect(row2).toBe(row3);
+    expect(row2).toHaveValue("Made in Korea");
+    expect(row2).toHaveFocus();
+    expect(screen.getByLabelText("Mandatories, mandatory 1")).toHaveValue("85/15 S pickups");
+    approve();
+    // Row ids are UI-only: the brief edit carries plain strings.
+    expect(briefValue(onResume).mandatories).toStrictEqual(["85/15 S pickups", "Made in Korea"]);
+  });
+
+  it("a reason typed into row 3 keeps its inputs and focus when row 1 is removed", () => {
+    const onResume = renderCheckpoint1();
+    fireEvent.click(screen.getByRole("button", { name: "Add reason" }));
+    const claim3 = screen.getByLabelText("Reason 3 claim");
+    claim3.focus();
+    fireEvent.change(claim3, { target: { value: "Played by pros" } });
+    fireEvent.click(screen.getByRole("button", { name: "Remove reason 1" }));
+    const claim2 = screen.getByLabelText("Reason 2 claim");
+    expect(claim2).toBe(claim3);
+    expect(claim2).toHaveValue("Played by pros");
+    expect(claim2).toHaveFocus();
+    expect(screen.getByLabelText("Reason 1 claim")).toHaveValue(
+      SAMPLE_CREATIVE_BRIEF.reasons_to_believe[1].claim
+    );
+    approve();
+    // Exactly { claim, source_id } per reason: no row id leaks into the resume.
+    expect(briefValue(onResume).reasons_to_believe).toStrictEqual([
+      SAMPLE_CREATIVE_BRIEF.reasons_to_believe[1],
+      { claim: "Played by pros", source_id: null },
+    ]);
+  });
+});
+
 describe("checkpoint 1: unchanged briefs, rejected resumes", () => {
   it("approves an unchanged brief even when it would fail validation", () => {
     const imperfect = {
