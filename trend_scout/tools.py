@@ -17,7 +17,7 @@ from agent_common.idempotency import stable_row_id
 from agent_common.state import memorize  # noqa: F401  (ADK tool; re-exported)
 
 from .config import config
-from .trend_context import _norm_term, sensitive_flags, trend_context_for
+from .trend_context import norm_term, sensitive_flags, trend_context_for
 
 # --- config ---
 logging.basicConfig(
@@ -249,12 +249,12 @@ def save_search_trends_to_session_state(
         exactly True) is always saved as given.
     """
     if tool_context.state.get("interactive_trend_pick") is not True:
-        term_key = _norm_term(trend_term)
+        term_key = norm_term(trend_term)
         raw = tool_context.state.get("raw_gtrends")
         gathered: dict[str, str] = {}
         if isinstance(raw, (list, tuple)):
             for term in raw:
-                key = _norm_term(term)
+                key = norm_term(term)
                 if key:
                     gathered.setdefault(key, term)
         if term_key not in gathered:
@@ -283,7 +283,7 @@ def save_search_trends_to_session_state(
             }
         trend_term = gathered[term_key]
         saved = tool_context.state.get("target_search_trends") or {}
-        if term_key in {_norm_term(t) for t in saved.get("target_search_trends", [])}:
+        if term_key in {norm_term(t) for t in saved.get("target_search_trends", [])}:
             return {"status": "ok", "message": f"'{trend_term}' is already saved."}
     existing_target_search_trends = tool_context.state.get(
         "target_search_trends", {"target_search_trends": []}

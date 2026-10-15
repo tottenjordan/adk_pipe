@@ -82,7 +82,7 @@ def _offline_trend_digest(monkeypatch):
     Skipped, like ``_offline_brand_history``, in the CRF CI venv (no
     google-adk)."""
     try:
-        module = importlib.import_module("trend_scout.digest")
+        module = importlib.import_module("trend_scout.digest_store")
     except ModuleNotFoundError as exc:
         if exc.name and exc.name.startswith("google.adk"):
             return
