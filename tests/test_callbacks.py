@@ -579,6 +579,90 @@ class TestSkipReviserWithoutNotes:
             visual_concept_reviser.before_agent_callback is skip_reviser_without_notes
         )
 
+    def test_skip_clears_the_revision_inputs(self):
+        """IC-3: a skipped reviser leaves no stale revision scope behind."""
+        from interactive_creative.callbacks import skip_reviser_without_notes
+
+        for concepts in (self._CONCEPTS, None):
+            state = {
+                "visual_revision_notes": "" if concepts else "Concept 0: x",
+                "visual_revision_flagged_ids": ["#0"],
+                "visual_revision_snapshot": self._CONCEPTS,
+            }
+            if concepts is not None:
+                state["final_visual_concepts"] = concepts
+            skip_reviser_without_notes(self._ctx(state))
+            assert state["visual_revision_notes"] is None
+            assert state["visual_revision_flagged_ids"] is None
+            assert state["visual_revision_snapshot"] is None
+
+
+class TestRestoreRevisionUnflaggedConcepts:
+    """IC-1: interactive's reviser may change only the concepts the
+    checkpoint-3 notes name (keys + snapshot written by the resume)."""
+
+    @staticmethod
+    def _concepts(*prompts, names=None):
+        names = names or [f"C{i}" for i in range(len(prompts))]
+        return {
+            "visual_concepts": [
+                {"concept_name": n, "ad_copy_id": i + 1, "image_generation_prompt": p}
+                for i, (n, p) in enumerate(zip(names, prompts, strict=True))
+            ]
+        }
+
+    def _run(self, state):
+        from creative_agent.callbacks import restore_revision_unflagged_concepts
+
+        assert (
+            restore_revision_unflagged_concepts(pytypes.SimpleNamespace(state=state))
+            is None
+        )
+        return state["final_visual_concepts"]["visual_concepts"]
+
+    def test_unflagged_restored_and_names_kept(self):
+        snapshot = self._concepts("edited", "b", "c")
+        state = {
+            "visual_revision_snapshot": snapshot,
+            "visual_revision_flagged_ids": ["3"],  # concept 2 (ad_copy_id 3)
+            "final_visual_concepts": self._concepts(
+                "paraphrased", "b", "revised", names=["C0", "New", "Renamed"]
+            ),
+        }
+        final = self._run(state)
+        assert [c["concept_name"] for c in final] == ["C0", "C1", "C2"]
+        assert [c["image_generation_prompt"] for c in final] == [
+            "edited",
+            "b",
+            "revised",
+        ]
+
+    def test_dropped_concept_restored(self):
+        state = {
+            "visual_revision_snapshot": self._concepts("a", "b"),
+            "visual_revision_flagged_ids": ["2"],
+            "final_visual_concepts": {
+                "visual_concepts": [
+                    {
+                        "concept_name": "C1",
+                        "ad_copy_id": 2,
+                        "image_generation_prompt": "revised",
+                    }
+                ]
+            },
+        }
+        final = self._run(state)
+        assert [c["image_generation_prompt"] for c in final] == ["a", "revised"]
+
+    def test_old_session_without_snapshot_is_untouched(self):
+        """A session resumed before the scope keys existed: as before."""
+        written = self._concepts("paraphrased", names=["Renamed"])
+        state = {
+            "visual_revision_notes": "Concept 0: x",
+            "final_visual_concepts": written,
+        }
+        assert self._run(state) == written["visual_concepts"]
+
 
 class TestEnsureTrendAndProductCallback:
     """The finalizer/reviser after_agent_callback repairs `final_visual_concepts`

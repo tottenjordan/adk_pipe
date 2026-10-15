@@ -289,6 +289,27 @@ def reset_concept_state(callback_context: CallbackContext) -> None:
     return None
 
 
+def _restore_unflagged_concepts(
+    state: Any, *, before_key: str, flagged_key: str, producer: str
+) -> None:
+    """Put back every concept the producer changed without being flagged.
+
+    ``state[before_key]`` is the pre-revision snapshot and ``state[flagged_key]``
+    the flagged concept keys (``concept_guard.concept_keys``). Without a usable
+    snapshot nothing happens (an older session, or no revision prepared).
+    """
+    before = state.get(before_key)
+    if not parse_concepts(before):
+        return
+    flagged = state.get(flagged_key) or []
+    restored, notes = restore_unflagged_concepts(
+        before, state.get("final_visual_concepts"), flagged
+    )
+    if notes:
+        logging.warning("%s output repaired: %s", producer, "; ".join(notes))
+        state["final_visual_concepts"] = restored
+
+
 def restore_unflagged_concepts_callback(callback_context: CallbackContext) -> None:
     """`after_agent_callback` on `visual_concept_fixer`: only flagged concepts change.
 
@@ -300,17 +321,49 @@ def restore_unflagged_concepts_callback(callback_context: CallbackContext) -> No
     warning per intervention. Runs after the fixer's output_key write and
     BEFORE `ensure_trend_and_product_callback` (so a fixed concept is guarded).
     """
-    state = callback_context.state
-    before = state.get("final_visual_concepts__before_revision")
-    if not parse_concepts(before):
-        return None
-    flagged = state.get("visual_concept_flagged_ids") or []
-    restored, notes = restore_unflagged_concepts(
-        before, state.get("final_visual_concepts"), flagged
+    _restore_unflagged_concepts(
+        callback_context.state,
+        before_key="final_visual_concepts__before_revision",
+        flagged_key="visual_concept_flagged_ids",
+        producer="visual_concept_fixer",
     )
-    if notes:
-        logging.warning("visual_concept_fixer output repaired: %s", "; ".join(notes))
-        state["final_visual_concepts"] = restored
+    return None
+
+
+def restore_revision_unflagged_concepts(callback_context: CallbackContext) -> None:
+    """`after_agent_callback` on interactive's `visual_concept_reviser` (first):
+    only the concepts the checkpoint-3 notes name change.
+
+    The resume (`runserver.async_runs.visual_concept_edits_delta`) records the
+    concepts after the user's direct edits (`visual_revision_snapshot`) and the
+    keys of the concepts with a note (`visual_revision_flagged_ids`). Like the
+    fixer's restore, any other concept the reviser changed (e.g. paraphrased a
+    direct edit), renamed, dropped, duplicated or invented is put back from the
+    snapshot, and a noted concept keeps its `concept_name` (its image key),
+    BEFORE `ensure_trend_and_product_callback`. Sessions without the
+    snapshot (resumed before it existed) are left as the reviser wrote them.
+    """
+    state = callback_context.state
+    _restore_unflagged_concepts(
+        state,
+        before_key="visual_revision_snapshot",
+        flagged_key="visual_revision_flagged_ids",
+        producer="visual_concept_reviser",
+    )
+    # A noted concept keeps its name too: the name is its artifact / image key
+    # (a note revises the image prompt, never the concept's identity).
+    old = parse_concepts(state.get("visual_revision_snapshot"))
+    new = parse_concepts(state.get("final_visual_concepts"))
+    if old and len(old) == len(new):
+        renamed = [
+            {**n, "concept_name": o["concept_name"]}
+            if "concept_name" in o and n.get("concept_name") != o["concept_name"]
+            else dict(n)
+            for o, n in zip(old, new, strict=True)
+        ]
+        if renamed != new:
+            logging.warning("visual_concept_reviser output repaired: kept names")
+            state["final_visual_concepts"] = {"visual_concepts": renamed}
     return None
 
 

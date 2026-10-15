@@ -40,6 +40,7 @@ from runserver.async_runs import (
     should_auto_continue,
     start_resume,
     start_run,
+    visual_concept_edits_delta,
 )
 
 
@@ -867,6 +868,46 @@ def test_merge_handles_empty_and_missing_inputs():
     assert notes2 == ""
 
 
+def test_edits_delta_records_the_reviser_scope():
+    """IC-1: the resume records the noted concepts' keys (concept_keys on
+    ad_copy_id) and the concepts after the direct edits (the reviser's
+    restore snapshot) in the same delta as the notes."""
+    envelope = _envelope()
+    envelope["visual_concepts"][0]["ad_copy_id"] = 3
+    envelope["visual_concepts"][1]["ad_copy_id"] = 4
+    delta = visual_concept_edits_delta(
+        envelope,
+        [
+            {"index": 0, "image_generation_prompt": "EDITED"},
+            {"index": 1, "revision_note": "more neon"},
+            {"index": 1, "revision_note": "and a dog"},
+        ],
+    )
+    assert delta["final_visual_concepts"]["visual_concepts"][0][
+        "image_generation_prompt"
+    ] == ("EDITED")
+    assert delta["final_visual_concepts__issues"] is None
+    assert delta["visual_revision_notes"] == (
+        "Concept 1 (c1): more neon\nConcept 1 (c1): and a dog"
+    )
+    assert delta["visual_revision_flagged_ids"] == ["4"]
+    assert delta["visual_revision_snapshot"] == delta["final_visual_concepts"]
+    # A copy, so a later in-place change to one can't change the other.
+    assert (
+        delta["visual_revision_snapshot"]["visual_concepts"]
+        is not delta["final_visual_concepts"]["visual_concepts"]
+    )
+
+
+def test_edits_delta_without_notes_clears_the_reviser_scope():
+    delta = visual_concept_edits_delta(
+        _envelope(), [{"index": 0, "image_generation_prompt": "EDITED"}]
+    )
+    assert delta["visual_revision_notes"] is None
+    assert delta["visual_revision_flagged_ids"] is None
+    assert delta["visual_revision_snapshot"] is None
+
+
 # --- merge_research_edit (pure, checkpoint-1 report edit) -------------------
 
 SRC = {"src-1": {"title": "T", "url": "u"}}
@@ -1151,6 +1192,10 @@ def test_resume_with_edits_appends_state_delta_before_relaunch():
         == "EDITED"
     )
     assert "Concept 1 (c1): more neon" in state["visual_revision_notes"]
+    # The reviser's scope: only the noted concept (no ad_copy_id → "#1"), and
+    # the snapshot holds the direct edit.
+    assert state["visual_revision_flagged_ids"] == ["#1"]
+    assert state["visual_revision_snapshot"] == state["final_visual_concepts"]
     # The pre-checkpoint gate verdict is stale once the user edits: cleared
     # (the reviser re-checks when it runs, notes or not; see
     # test_checkpoint_3_direct_edit_without_notes_is_guarded).
