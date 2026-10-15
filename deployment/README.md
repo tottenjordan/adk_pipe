@@ -459,10 +459,10 @@ gcloud pubsub topics create $CREATIVE_TOPIC_NAME
 
 That is the only topic the `tasks` transport needs (plus the orchestrator
 trigger's dead-letter topic `creative-crf-dead-letter`, created in §3). The worker
-topic `$CREATIVE_WORKER_TOPIC_NAME` (`creative-worker-queue-topic`) serves only
-the `pubsub` rollback transport since the Cloud Tasks cutover (2026-10-14); it is
-kept for one release (see [Rollback to Pub/Sub](#rollback-to-pubsub-one-release-only)),
-and a fresh project doesn't create it.
+topic `$CREATIVE_WORKER_TOPIC_NAME` (`creative-worker-queue-topic`) served only
+the `pubsub` rollback transport after the Cloud Tasks cutover (2026-10-14) and was
+deleted on 2026-10-15; a fresh project doesn't create it (see
+[Rollback to Pub/Sub](#rollback-to-pubsub-one-release-only) to re-create it).
 
 
 ### 3. Deploy the functions, the orchestrator trigger and the Cloud Tasks queue
@@ -947,10 +947,10 @@ The worker moved from Pub/Sub + Eventarc to Cloud Tasks on **2026-10-14**
 `creative-worker-crf-00022-7d8`); the worker's Eventarc trigger
 (`creative-worker-starter-trigger`) is deleted. The image still serves the old
 path (`CRF_WORKER_TRANSPORT=pubsub` + `agent_worker_entrypoint`), and the worker
-topic `$CREATIVE_WORKER_TOPIC_NAME` (`creative-worker-queue-topic`) is kept for
-one release so a rollback is env vars plus one trigger. After that release,
-delete the topic (`gcloud pubsub topics delete $CREATIVE_WORKER_TOPIC_NAME`) and
-this subsection. Keep `creative-crf-dead-letter`: the orchestrator trigger uses it.
+topic `$CREATIVE_WORKER_TOPIC_NAME` (`creative-worker-queue-topic`) was deleted
+on 2026-10-15 after a quiet release, so a rollback is now: re-create the topic
+(`gcloud pubsub topics create $CREATIVE_WORKER_TOPIC_NAME`), then the env vars plus
+one trigger below. Keep `creative-crf-dead-letter`: the orchestrator trigger uses it.
 
 **Rollback** (with the worker idle: no `PROCESSING` rows, since a new revision
 kills a running run):
