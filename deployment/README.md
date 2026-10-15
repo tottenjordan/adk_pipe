@@ -2082,8 +2082,10 @@ gcloud builds log <BUILD_ID> --region us-central1 | grep -aoE 'BANDIT_IMAGE=[^ ]
 docker pull <BANDIT_IMAGE digest>
 uv run python deployment/bandit/build_image.py --image <BANDIT_IMAGE digest> --local-test
 # api: BANDIT_SERVING_IMAGE=<BANDIT_IMAGE digest> (…/trend-trawler-bandit@sha256:…)
-# Job: same image by tag, tt-bandit-traffic-sa, 2 CPU / 2Gi, task timeout 3600 s, no retries
-IMAGE_TAG=$SHORT_SHA BQ_DATASET_ID=trend_trawler deployment/bandit/deploy_traffic_job.sh
+# Job: the same digest (so it provably runs the endpoint's build), tt-bandit-traffic-sa,
+# 2 CPU / 2Gi, task timeout 3600 s, no retries. The digest can also come from IMAGE=…;
+# IMAGE_TAG=$SHORT_SHA is only a fallback and warns (a tag can be moved after the build).
+BQ_DATASET_ID=trend_trawler deployment/bandit/deploy_traffic_job.sh <BANDIT_IMAGE digest>
 ```
 
 Local build + docker round-trip with no GCP: `uv run python deployment/bandit/build_image.py

@@ -13,8 +13,8 @@
 # Pushes <image>:$SHORT_SHA + <image>:latest and prints the digest
 # (BANDIT_IMAGE=…@sha256:…; regional builds don't stream logs, read them with
 # `gcloud builds log <ID> --region us-central1`). Nothing is deployed: set the
-# api's BANDIT_SERVING_IMAGE to the digest and deploy the job with
-# IMAGE_TAG=$SHORT_SHA deployment/bandit/deploy_traffic_job.sh
+# api's BANDIT_SERVING_IMAGE to the digest and deploy the job with the same digest:
+# deployment/bandit/deploy_traffic_job.sh <BANDIT_IMAGE digest>
 # (docs/bandit/README.md → Build and deploy).
 
 substitutions:

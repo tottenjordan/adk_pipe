@@ -1,22 +1,35 @@
 #!/usr/bin/env bash
 # Deploy (create or update) the bandit synthetic-traffic Cloud Run Job.
 #
-#   IMAGE_TAG=$(git rev-parse --short HEAD) deployment/bandit/deploy_traffic_job.sh
+#   deployment/bandit/deploy_traffic_job.sh <repo>/trend-trawler-bandit@sha256:<digest>
+#   IMAGE=<repo>/trend-trawler-bandit@sha256:<digest> deployment/bandit/deploy_traffic_job.sh
+#
+# Deploy by digest: the BANDIT_IMAGE=…@sha256:… line cloudbuild.bandit.yaml prints,
+# the same value as the api's BANDIT_SERVING_IMAGE, so the job and the endpoint
+# provably run the same build. The first argument wins over IMAGE. IMAGE_TAG (the
+# SHORT_SHA tag) is only a fallback and warns: a tag can be moved after the build.
 #
 # The api starts executions with per-run env overrides (EXPERIMENT_ID, CONFIG_URI,
 # ENDPOINT_ID, EPISODES, HORIZON; see runserver/experiments_jobs.py); this script
 # only sets the static BigQuery settings. Build the image first with
-# deployment/bandit/cloudbuild.bandit.yaml; IMAGE_TAG is the SHORT_SHA it was built with.
+# deployment/bandit/cloudbuild.bandit.yaml.
 # The job runs the one bandit image (trend-trawler-bandit, whose default entrypoint
 # is the CPR model server) with a command override: python -m bandit_traffic.main.
 set -euo pipefail
 
 : "${GOOGLE_CLOUD_PROJECT:?set GOOGLE_CLOUD_PROJECT}"
-: "${IMAGE_TAG:?set IMAGE_TAG (the SHORT_SHA tag pushed by cloudbuild.bandit.yaml)}"
 PROJECT="${GOOGLE_CLOUD_PROJECT}"
 REGION="${GCP_REGION:-us-central1}"
 JOB="${BANDIT_TRAFFIC_JOB:-trend-trawler-bandit-traffic}"
-IMAGE="${IMAGE:-us-central1-docker.pkg.dev/${PROJECT}/cpr/trend-trawler-bandit:${IMAGE_TAG}}"
+IMAGE="${1:-${IMAGE:-}}"
+if [[ -z "${IMAGE}" ]]; then
+  : "${IMAGE_TAG:?set IMAGE (or pass it) to the bandit image digest, …/trend-trawler-bandit@sha256:…}"
+  IMAGE="us-central1-docker.pkg.dev/${PROJECT}/cpr/trend-trawler-bandit:${IMAGE_TAG}"
+fi
+if [[ ! "${IMAGE}" =~ @sha256:[0-9a-f]{64}$ ]]; then
+  echo "WARNING: deploying ${IMAGE} by tag, not by digest; the job may not run the" \
+    "endpoint's build. Pass the BANDIT_IMAGE=…@sha256:… digest instead." >&2
+fi
 SA="${BANDIT_TRAFFIC_SA:-tt-bandit-traffic-sa@${PROJECT}.iam.gserviceaccount.com}"
 BQ_PROJECT_ID="${BQ_PROJECT_ID:-${PROJECT}}"
 : "${BQ_DATASET_ID:?set BQ_DATASET_ID}"
