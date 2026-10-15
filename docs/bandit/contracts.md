@@ -19,7 +19,7 @@ build against. A change to any contract here must update this file in the same P
 ## 1. Core Python API (`bandit/`, PR 1). JAX only, never imported by `runserver/` or the agents
 
 ```python
-# bandit/config.py
+# bandit/config.py  (scenario / calibration / shift names live in bandit/scenario.py, bandit/calibration.py, bandit/shifts.py; re-exported here, so these paths are the contract)
 @dataclass(frozen=True)
 class ArmSpec: creative_id: str; label: str; scores: dict[str, float]; visual_style: str = ""
 @dataclass(frozen=True)
