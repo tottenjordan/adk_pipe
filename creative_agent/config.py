@@ -17,8 +17,9 @@ INFRA_RETRY = build_infra_retry(extra_exceptions=[genai_errors.ServerError])
 # Structured-output producers additionally retry a Pydantic ValidationError: at
 # high temperature the model can emit invalid JSON (e.g. raw ESC control chars)
 # that fails output_schema parsing, which crashed the run unretried under N=5
-# concurrency (issue #104). ADK's RetryConfig matches on the exact exception class
-# name, and pydantic raises `ValidationError`, so a bad sample is simply re-drawn.
+# concurrency (issue #104). ADK's RetryConfig matches the class names in the
+# exception's MRO (so a configured class also covers its subclasses), and pydantic
+# raises `ValidationError`, so a bad sample is simply re-drawn.
 # The infra set is included too (defense-in-depth for a 503 that escapes the genai
 # HTTP-retry layer).
 SCHEMA_RETRY = build_infra_retry(
