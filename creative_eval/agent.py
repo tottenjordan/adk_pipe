@@ -21,6 +21,8 @@ from .evaluate import (
     _build_summary,
     evaluate_all_concurrently,
     judge_warnings,
+    safer_angle_active,
+    safer_angle_reason,
     trend_valid_until,
 )
 from .schemas import AdCopyEvaluation, CreativeEvaluationReport, CreativeScore
@@ -64,7 +66,9 @@ def ad_copy_eval_fingerprint(state: Mapping[str, Any]) -> str:
     """Hash of everything an ad-copy judgement depends on.
 
     Ad copies, brief, campaign, the validated ``trend_situation`` (a timely
-    copy is judged against it) and the judge. An early ad-copy evaluation is
+    copy is judged against it), the safer-angle state (``safer_angle_active``,
+    ``safer_angle_sensitive_reason``, ``safer_angle_named_copies``; the brief's
+    ``trend_bridge.safer_angle`` is in the brief) and the judge. An early ad-copy evaluation is
     reused by :func:`evaluate_all_creatives` only while this still matches, so
     a re-run with changed copies or a changed moment re-judges.
     """
@@ -73,6 +77,11 @@ def ad_copy_eval_fingerprint(state: Mapping[str, Any]) -> str:
         "ad_copies": _state_items(state, "ad_copy_critique", "ad_copies"),
         "brief": parse_brief(state.get("creative_brief")),
         "trend_situation": state.get("trend_situation"),
+        "safer_angle": [
+            state.get("safer_angle_active"),
+            state.get("safer_angle_sensitive_reason"),
+            state.get("safer_angle_named_copies"),
+        ],
         "judge": [_config.eval_model, _config.passing_threshold],
     }
     blob = json.dumps(payload, sort_keys=True, default=str)
@@ -100,6 +109,8 @@ def evaluate_ad_copies_only(tool_context) -> dict:
         brief=parse_brief(state.get("creative_brief")),
         trend_situation=state.get("trend_situation"),
         sources=state.get("sources"),
+        safer_angle=safer_angle_active(state),
+        sensitive_reason=safer_angle_reason(state),
     )
     state[AD_COPY_PARTIAL_KEY] = {
         "fingerprint": ad_copy_eval_fingerprint(state),
@@ -176,6 +187,10 @@ def evaluate_all_creatives(tool_context) -> dict:
         photo, attached to cast concepts' judge calls as ground truth)
       - trend_situation + sources (optional — the validated current moment a
         timely creative's claim is judged against, with its source URLs)
+      - safer_angle_active ("yes" on a safer-angle run) +
+        safer_angle_sensitive_reason (optional — every creative is judged for
+        safer_angle_respected; the brief's trend_bridge.safer_angle and the
+        reason reach the judge's brief block)
 
     Writes to state key:
       - creative_evaluation_report (CreativeEvaluationReport JSON)
@@ -225,6 +240,8 @@ def evaluate_all_creatives(tool_context) -> dict:
         sources=state.get("sources"),
         # Visuals pair with every final copy, also the ones reused above.
         paired_ad_copies=ad_copies,
+        safer_angle=safer_angle_active(state),
+        sensitive_reason=safer_angle_reason(state),
     )
     if any(e is not None for e in reused):
         judged_iter = iter(judged_ads)
