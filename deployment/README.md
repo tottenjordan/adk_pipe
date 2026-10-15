@@ -268,18 +268,21 @@ first** (a local-only commit can't be deployed).
 | `_CREATIVE_VERSION` / `_INTERACTIVE_VERSION` / `_SCOUT_VERSION` | empty | Version namespace per selected agent (required when selected): display name `<agent display>-<version>`, staging dir `adk-pipe/<sub>/<version>/staging` |
 | `_REF` | `main` | Branch, tag or **full** 40-char commit SHA (short SHAs can't be fetched) |
 | `_ENABLE_TRACING` | `true` | Adds `--enable_tracing` (Cloud Trace; see above) |
-| `_SMOKE` | `false` | `true` runs `integration_test.py --check smoke --agent creative_agent` against the **new** creative engine (~10 min; skipped when `creative_agent` isn't selected) |
+| `_SMOKE` | `false` | `true` runs `integration_test.py --check smoke --agent creative_agent` against the **new** creative engine (~8 min; skipped when `creative_agent` isn't selected) |
 | `_DEPLOY_ENV` | `deployment/deploy.env` | Deploy profile in the checkout |
 | `_REPO` / `_ARTIFACTS_BUCKET` / `_UV_IMAGE` | `tottenjordan/adk_pipe` / `trend-trawler-deploy-ae` / pinned uv image | Rarely changed |
 
-**Steps:** `clone` (`git fetch --depth 1 <_REF>`, refuses a checked-in `.env`) → `sync`
+**Steps:** `clone` (partial + sparse: `git fetch --depth 1 --filter=blob:none <_REF>` with `docs/`, `experiments/`,
+`frontend/` and `imgs/` left out of the checkout, ~2 s instead of ~20 s; refuses a checked-in `.env`) → `sync`
 (`uv sync --frozen --no-dev`, system Python only, no interpreter downloads) → `python-313`
 (asserts the venv is 3.13, validates `_AGENTS`) → `deploy-creative_agent` /
 `deploy-interactive_creative` / `deploy-trend_scout` **in parallel** (each skips itself when
 not selected; `deployment/cloudbuild_env.sh` runs `deploy_agent.py --create --nowrite_env
 --output_json=/workspace/engine_ids/<agent>.json` from `env -i` + the profile, after checking
 the profile's `GOOGLE_CLOUD_PROJECT` is the build's project and that it sets no engine ID /
-`BUCKET` / `GCS_BUCKET_NAME`) → `collect` → `smoke` (optional).
+`BUCKET` / `GCS_BUCKET_NAME`) → `collect`, and in parallel `smoke` (optional), which reads the
+new engine from `/workspace/engine_ids/creative_agent.json` and so starts as soon as
+`deploy-creative_agent` ends rather than after every deploy.
 
 **Deploy profile (`deployment/deploy.env`).** Committed and non-secret: project, number,
 regions, bucket, BigQuery names, and every knob read at agent import (every `ENV_VAR_DICT`

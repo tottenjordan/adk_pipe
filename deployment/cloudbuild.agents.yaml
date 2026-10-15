@@ -35,7 +35,10 @@ steps:
         set -euo pipefail
         git init -q adk_pipe
         cd adk_pipe
-        git fetch -q --depth 1 "https://github.com/${_REPO}.git" "${_REF}"
+        # Partial + sparse: only the files the deploy needs. docs/ alone is ~277 MB of
+        # media (fetch 14.7 s -> 1.5 s, checkout 564 MB -> 10 MB, measured 2026-10-15).
+        git sparse-checkout set --no-cone '/*' '!/docs/' '!/experiments/' '!/frontend/' '!/imgs/'
+        git fetch -q --depth 1 --filter=blob:none "https://github.com/${_REPO}.git" "${_REF}"
         git checkout -q FETCH_HEAD
         git rev-parse HEAD | tee /workspace/commit.txt
         if [ -e .env ]; then echo "refusing: .env in the checkout" >&2; exit 1; fi
@@ -151,23 +154,26 @@ steps:
           --upload "gs://${_ARTIFACTS_BUCKET}/adk-pipe/cloudbuild/$BUILD_ID/engine_ids.json"
         cat /workspace/engine_ids.json
 
-  # 6. Optional end-to-end smoke run (~10 min) against the NEW creative engine.
+  # 6. Optional end-to-end smoke run (~8 min) against the NEW creative engine. It
+  #    needs only that engine, so it starts as soon as deploy-creative_agent ends,
+  #    in parallel with the other deploys and collect (either failing fails the build).
   - id: smoke
     name: ${_UV_IMAGE}
     dir: adk_pipe
     entrypoint: bash
-    waitFor: [collect]
+    waitFor: [deploy-creative_agent]
     args:
       - -c
       - |
         set -euo pipefail
         if [ "${_SMOKE}" != "true" ]; then echo "_SMOKE != true; skipping smoke test"; exit 0; fi
         case ",${_AGENTS}," in *,creative_agent,*) ;; *) echo "creative_agent not deployed; skipping smoke test"; exit 0 ;; esac
-        new_id="$$(.venv/bin/python deployment/engine_handoff.py get --ids /workspace/engine_ids.json --agent creative_agent)"
+        record=/workspace/engine_ids/creative_agent.json
+        if [ ! -f "$$record" ]; then echo "no creative_agent record (deploy failed?)" >&2; exit 1; fi
+        new_id="$$(.venv/bin/python -c 'import json, sys; print(json.load(open(sys.argv[1]))["resource_name"])' "$$record")"
         deployment/cloudbuild_env.sh "${_DEPLOY_ENV}" "$PROJECT_ID" -- \
           env CREATIVE_AGENT_ENGINE_ID="$$new_id" \
           .venv/bin/python deployment/integration_test.py --check smoke --agent creative_agent
-        .venv/bin/python deployment/engine_handoff.py show --ids /workspace/engine_ids.json
 
 substitutions:
   _AGENTS: creative_agent,interactive_creative,trend_scout
