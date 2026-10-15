@@ -9,7 +9,11 @@ import string
 import tempfile
 
 from google.adk.tools import ToolContext
+from google.api_core import exceptions as gapi_exceptions
 from google.genai import types
+from markdown_it import MarkdownIt
+from markdown_it.presets import commonmark
+from markdown_it.utils import PresetType
 from markdown_pdf import MarkdownPdf, Section
 
 from agent_common.clients import get_gcs_client
@@ -38,19 +42,37 @@ def artifact_key_for(concept_name: str) -> str:
 _get_gcs_client = functools.cache(get_gcs_client)
 
 
+# Cap + timeout for _download_blob (reference images and the person photo).
+DOWNLOAD_MAX_BYTES = 10 * 1024 * 1024
+GCS_DOWNLOAD_TIMEOUT = 30.0
+
+
 def _download_blob(bucket_name, source_blob_name):
     """
-    Downloads a blob from the bucket.
+    Downloads a blob from the bucket, refusing objects over DOWNLOAD_MAX_BYTES.
+
+    The object's size is read first (``get_blob``), so an oversized object is
+    rejected before any byte is downloaded.
     Args:
         bucket_name (str): The ID of your GCS bucket
         source_blob_name (str): The ID of your GCS object
     Returns:
         Blob content as bytes.
+    Raises:
+        google.api_core.exceptions.NotFound: the object does not exist.
+        ValueError: the object is larger than DOWNLOAD_MAX_BYTES.
     """
     storage_client = _get_gcs_client()
     bucket = storage_client.bucket(bucket_name)
-    blob = bucket.blob(source_blob_name)
-    return blob.download_as_bytes()
+    blob = bucket.get_blob(source_blob_name, timeout=GCS_DOWNLOAD_TIMEOUT)
+    if blob is None:
+        raise gapi_exceptions.NotFound(f"gs://{bucket_name}/{source_blob_name}")
+    if (blob.size or 0) > DOWNLOAD_MAX_BYTES:
+        raise ValueError(f"larger than {DOWNLOAD_MAX_BYTES} bytes")
+    data = blob.download_as_bytes(timeout=GCS_DOWNLOAD_TIMEOUT)
+    if len(data) > DOWNLOAD_MAX_BYTES:  # the object changed after the size read
+        raise ValueError(f"larger than {DOWNLOAD_MAX_BYTES} bytes")
+    return data
 
 
 def _save_to_gcs(
@@ -111,6 +133,36 @@ def _upload_blob_to_gcs(
     return f"File {source_file_name} uploaded to {destination_blob_name}."
 
 
+def _report_markdown_preset() -> PresetType:
+    """markdown-it's ``commonmark`` preset with raw HTML off.
+
+    MarkdownPdf's default ``commonmark`` mode passes raw HTML through to
+    PyMuPDF; the report text is model/web derived, so tags like ``<img>`` or
+    ``<a href="file:...">`` must render as escaped text instead."""
+    preset = commonmark.make()
+    preset["options"]["html"] = False
+    components = preset["components"]
+    components["block"]["rules"].remove("html_block")
+    components["inline"]["rules"].remove("html_inline")
+    return preset
+
+
+def render_report_pdf(report_markdown: str, out_path: str) -> str:
+    """Blocking: render the research report Markdown to a PDF at ``out_path``.
+
+    Raw HTML is escaped (``_report_markdown_preset``) and the PyMuPDF Story
+    archive is an empty temp dir, so the PDF can never embed a local file.
+    Returns the intermediate HTML."""
+    pdf = MarkdownPdf(toc_level=4)
+    # Same parser MarkdownPdf builds for its default mode, minus raw HTML.
+    pdf.m_d = MarkdownIt(_report_markdown_preset()).enable("table")
+    with tempfile.TemporaryDirectory() as empty_root:
+        html = pdf.add_section(Section(f" {report_markdown}\n", root=empty_root))
+    pdf.meta["title"] = "[Draft] Trend & Campaign Research Report"
+    pdf.save(out_path)
+    return html
+
+
 async def save_draft_report_artifact(tool_context: ToolContext) -> dict:
     """
     Saves generated PDF report bytes as an artifact.
@@ -144,11 +196,7 @@ async def save_draft_report_artifact(tool_context: ToolContext) -> dict:
 
             def _render_pdf() -> bytes:
                 """Blocking: build the PDF on disk and return its bytes."""
-                # create markdown PDF object
-                pdf = MarkdownPdf(toc_level=4)
-                pdf.add_section(Section(f" {processed_report}\n"))
-                pdf.meta["title"] = "[Draft] Trend & Campaign Research Report"
-                pdf.save(local_filepath)
+                render_report_pdf(processed_report, local_filepath)
                 # open pdf and read bytes for types.Part() object
                 with open(local_filepath, "rb") as f:
                     return f.read()
