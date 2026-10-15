@@ -2341,7 +2341,8 @@ env read per request) serves only:
 Everything else, including **every `/api/*` route** (`/api/gcs` would proxy the whole
 bucket), every IAP page and `/_next/image`, answers a plain 404. Share routes send
 `X-Robots-Tag: noindex, nofollow`, `Referrer-Policy: no-referrer`,
-`Cache-Control: private, max-age=60`, `X-Content-Type-Options: nosniff` and a nonce CSP
+`X-Content-Type-Options: nosniff`, share pages `Cache-Control: no-store` (each carries a
+per-request nonce; share images keep their route handler's `private, max-age=60`) and a nonce CSP
 (`default-src 'self'; script-src 'self' 'nonce-…' 'strict-dynamic'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; frame-ancestors 'none'; …`).
 The pages read only `shares/<token>/snapshot.json` and the image it names,
 `shares/<token>/<n>.jpg` (or `<n>.png` for older shares; content type from the extension), from the

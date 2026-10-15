@@ -15,6 +15,7 @@
 export const TOKEN_PATTERN = "[A-Za-z0-9_-]{16,64}";
 
 const SHARE_PATH_RE = new RegExp(`^/s/${TOKEN_PATTERN}(?:/img/[0-9]{1,2})?$`);
+const SHARE_IMAGE_PATH_RE = new RegExp(`^/s/${TOKEN_PATTERN}/img/[0-9]{1,2}$`);
 
 /** Exact public files (served from `src/app`). */
 const PUBLIC_FILES = new Set(["/robots.txt", "/favicon.ico"]);
@@ -93,13 +94,21 @@ export function appSecurityHeaders(pathname: string): Record<string, string> {
     : { ...APP_SECURITY_HEADERS, "Content-Security-Policy": APP_FRAME_CSP };
 }
 
-/** Response headers on every share route. */
-export const SHARE_PAGE_HEADERS: Readonly<Record<string, string>> = {
-  "X-Robots-Tag": "noindex, nofollow",
-  "Referrer-Policy": "no-referrer",
-  "Cache-Control": "private, max-age=60",
-  "X-Content-Type-Options": "nosniff",
-};
+/**
+ * Response headers for the share route `pathname`. Share pages are `no-store`: each
+ * response carries a per-request CSP nonce, and a cached page would replay it (Next's
+ * CSP guide: nonces must be unique per request). Share images get no Cache-Control so
+ * the route handler's own value stands (a Proxy header replaces the handler's).
+ */
+export function shareHeaders(pathname: string): Record<string, string> {
+  const headers: Record<string, string> = {
+    "X-Robots-Tag": "noindex, nofollow",
+    "Referrer-Policy": "no-referrer",
+    "X-Content-Type-Options": "nosniff",
+  };
+  if (!SHARE_IMAGE_PATH_RE.test(pathname)) headers["Cache-Control"] = "no-store";
+  return headers;
+}
 
 /**
  * Strict CSP for share pages. Scripts need a per-request nonce (Next's inline RSC

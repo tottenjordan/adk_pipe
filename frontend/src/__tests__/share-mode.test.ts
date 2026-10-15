@@ -9,7 +9,7 @@ import {
   decideRoute,
   isShareModeEnabled,
   isSharePath,
-  SHARE_PAGE_HEADERS,
+  shareHeaders,
 } from "@/lib/share-mode";
 
 const TOKEN = "abc_DEF-123456789"; // 17 chars, URL-safe base64 alphabet
@@ -150,13 +150,20 @@ describe("decideRoute in normal mode", () => {
 });
 
 describe("share headers", () => {
-  it("set noindex, no referrer and a short private cache", () => {
-    expect(SHARE_PAGE_HEADERS).toEqual({
-      "X-Robots-Tag": "noindex, nofollow",
-      "Referrer-Policy": "no-referrer",
-      "Cache-Control": "private, max-age=60",
-      "X-Content-Type-Options": "nosniff",
-    });
+  const base = {
+    "X-Robots-Tag": "noindex, nofollow",
+    "Referrer-Policy": "no-referrer",
+    "X-Content-Type-Options": "nosniff",
+  };
+
+  it("never cache share pages (each carries a per-request CSP nonce)", () => {
+    expect(shareHeaders(`/s/${TOKEN}`)).toEqual({ ...base, "Cache-Control": "no-store" });
+  });
+
+  it("leave Cache-Control on share images to the route handler", () => {
+    for (const n of ["0", "3", "12"]) {
+      expect(shareHeaders(`/s/${TOKEN}/img/${n}`)).toEqual(base);
+    }
   });
 
   it("build a nonce-based CSP with no framing and same-origin images", () => {
@@ -218,14 +225,26 @@ describe("proxy", () => {
     const b = proxy(req(`/s/${TOKEN}`));
     expect(a.status).toBe(200);
     expect(a.headers.get("x-middleware-next")).toBe("1");
-    for (const [k, v] of Object.entries(SHARE_PAGE_HEADERS)) {
+    for (const [k, v] of Object.entries(shareHeaders(`/s/${TOKEN}`))) {
       expect(a.headers.get(k)).toBe(v);
     }
+    expect(a.headers.get("Cache-Control")).toBe("no-store");
     const csp = a.headers.get("Content-Security-Policy") ?? "";
     expect(csp).toMatch(/'nonce-[A-Za-z0-9+/=]+'/);
     expect(csp).not.toBe(b.headers.get("Content-Security-Policy"));
     // Next reads the CSP (and so the nonce) from the forwarded request headers.
     expect(a.headers.get("x-middleware-request-content-security-policy")).toBe(csp);
+  });
+
+  it("sets no Cache-Control on share images, so the route handler's own value stands", () => {
+    // Next copies the handler's headers only where the Proxy set none, so a Proxy
+    // Cache-Control would replace the handler's (max-age=60 on 200, no-store on 404).
+    vi.stubEnv("SHARE_MODE", "1");
+    const res = proxy(req(`/s/${TOKEN}/img/1`));
+    expect(res.headers.get("x-middleware-next")).toBe("1");
+    expect(res.headers.get("Cache-Control")).toBeNull();
+    expect(res.headers.get("X-Robots-Tag")).toBe("noindex, nofollow");
+    expect(res.headers.get("Referrer-Policy")).toBe("no-referrer");
   });
 
   it("adds the app security headers to app pages in normal mode", () => {
