@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { backendNeedsAuth, upstreamRequestHeaders } from "@/lib/adk-proxy";
 import { BACKEND_FETCH_TIMEOUT_MS, isTimeoutError } from "@/lib/fetch-timeout";
 import { getIdentityToken } from "@/lib/gcp-auth";
 import { resolveUser } from "@/lib/iap-identity";
@@ -12,39 +13,6 @@ import { scopeQuery, scopeRequestToUser } from "@/lib/user-scoping";
 // No route segment config: route handlers are uncached and run on Node.js by default.
 
 const BACKEND = process.env.ADK_API_BASE ?? "http://localhost:8000";
-
-/** A remote https backend is a private Cloud Run service → attach an ID token.
- *  A localhost backend (dev) is unauthenticated → skip. */
-export function backendNeedsAuth(base: string): boolean {
-  return base.startsWith("https://");
-}
-
-/** The only inbound request headers forwarded to the private backend (allowlist).
- *
- *  Everything else is dropped: IAP's edge credentials (`Authorization` = the IAP JWT,
- *  `X-Serverless-Authorization`, which Cloud Run ingress checks in preference to
- *  `Authorization` and would 401 on the wrong audience, the `X-Goog-*` identity headers),
- *  the IAP session cookie, a client-supplied `x-tt-user`, `Forwarded`/`X-Forwarded-*`, and
- *  any header the backend or Cloud Run might start trusting later. `authorization` (our
- *  minted ID token) and `x-tt-user` (the IAP-verified caller) are set explicitly by the
- *  proxy. The W3C / Cloud trace headers keep request traces joined across the hop. */
-export const FORWARDED_REQUEST_HEADERS = [
-  "content-type",
-  "accept",
-  "traceparent",
-  "tracestate",
-  "x-cloud-trace-context",
-] as const;
-
-/** Fresh upstream headers holding only the allowlisted inbound headers. */
-export function upstreamRequestHeaders(inbound: Headers): Headers {
-  const out = new Headers();
-  for (const name of FORWARDED_REQUEST_HEADERS) {
-    const value = inbound.get(name);
-    if (value !== null) out.set(name, value);
-  }
-  return out;
-}
 
 async function proxy(
   request: NextRequest,

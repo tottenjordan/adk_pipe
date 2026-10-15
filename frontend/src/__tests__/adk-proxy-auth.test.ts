@@ -4,7 +4,7 @@ import {
   backendNeedsAuth,
   FORWARDED_REQUEST_HEADERS,
   upstreamRequestHeaders,
-} from "@/app/api/adk/[...path]/route";
+} from "@/lib/adk-proxy";
 
 describe("backendNeedsAuth", () => {
   it("is true for a remote https backend (private Cloud Run)", () => {
@@ -70,6 +70,15 @@ describe("upstreamRequestHeaders (allowlist)", () => {
 });
 
 type Route = typeof import("@/app/api/adk/[...path]/route");
+
+describe("route module exports", () => {
+  it("exports only HTTP method handlers (next build --webpack rejects anything else)", async () => {
+    const route = await import("@/app/api/adk/[...path]/route");
+    expect(Object.keys(route).sort()).toEqual(
+      ["DELETE", "GET", "OPTIONS", "PATCH", "POST", "PUT"].sort(),
+    );
+  });
+});
 
 describe("proxy handler headers", () => {
   afterEach(() => {
