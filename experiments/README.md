@@ -1,9 +1,11 @@
 # `experiments/`
 
-External, **offline-first** measurement harnesses and spikes. Four subdirectories:
+External, **offline-first** measurement harnesses and spikes. Five subdirectories:
 two *quantify* `creative_agent` behavior (run latency, per-phase breakdowns,
 quota-contention effects) by driving live runs against **isolated Cloud Run
 revisions** and reducing the persisted event logs into tidy data + figures; one
+A/B-tests the Gemini 3 sampling temperatures the same way (both creative agents'
+and trend_scout's runs, against a pre-registered decision rule); one
 calibrates the person-reference feature directly on the image model; one renders
 the bandit simulator's notebook-parity figures.
 
@@ -23,6 +25,7 @@ pre-registered / written-up design under [`docs/experiments/`](../docs/experimen
 | [`creative_latency/`](#creative_latency) | Measure end-to-end + per-phase `creative_agent` run latency; compare code variants (baseline vs. levers). **Strictly serial** — self-contention would corrupt the signal. | [`docs/experiments/2026-07-15-creative-latency.md`](../docs/experiments/2026-07-15-creative-latency.md) |
 | [`quota_spread/`](#quota_spread) | The quota-bucket-spread **DoE**: fire N *concurrent* runs per cell to measure how research-phase latency inflates with load, per model-placement arm (PR #101). **Concurrency is the signal.** | [`docs/experiments/2026-07-17-quota-bucket-spread-doe.md`](../docs/experiments/2026-07-17-quota-bucket-spread-doe.md) |
 | [`person_reference/`](person_reference/README.md) | Two person-reference spikes on the image model, no Cloud Run involved. `calibrate.py` (gate for PR 0 of the person-reference plan): likeness + safety-block rates of consented test photos, with and without `person_generation=ALLOW_ADULT`, per style family. `swap_compare.py` (PR 0 of the faithful-person-swaps plan): edit the original render vs re-generate it for personalised variants, scored on fidelity and likeness. | [`docs/plans/2026-10-09-person-reference.md`](../docs/plans/2026-10-09-person-reference.md), [`docs/plans/2026-10-11-faithful-person-swaps.md`](../docs/plans/2026-10-11-faithful-person-swaps.md) (results: [`docs/notes/person-reference-calibration.md`](../docs/notes/person-reference-calibration.md), [`docs/notes/person-swap-edit-mode.md`](../docs/notes/person-swap-edit-mode.md)) |
+| [`temperature_ab/`](#temperature_ab) | Gemini 3 temperature A/B: two tagged no-traffic api revisions (`GEMINI_TEMPERATURE_PROFILE=tuned\|default`), serial interleaved `creative_agent` + `trend_scout` runs, a pre-registered PASS/FAIL rule. | [`docs/plans/2026-10-15-gemini3-temperature-ab.md`](../docs/plans/2026-10-15-gemini3-temperature-ab.md) |
 | `bandit/` | Offline notebook-parity figures for the JAX contextual bandit (`bandit/` package): `notebook_parity.py` runs `bandit.cli` simulations (no GCP) and writes `figures/*.png`. | [`docs/experiments/bandit-simulation.md`](../docs/experiments/bandit-simulation.md) |
 
 ## Shared conventions
@@ -134,6 +137,53 @@ PYTHONPATH="$PWD" uv run python -m experiments.quota_spread.analyze
 PYTHONPATH="$PWD" uv run python -m experiments.quota_spread.doe_plot
 PYTHONPATH="$PWD" GOOGLE_CLOUD_PROJECT=<proj> \
   uv run python -m experiments.quota_spread.upload_to_vertex --dry-run
+```
+
+## `temperature_ab/`
+
+Does pinning the Gemini 3 agents' sampling temperatures (`tuned`) beat the model
+defaults (`default`)? Both arms are the **same image** deployed as two tagged,
+no-traffic revisions of `trend-trawler-api` that differ only by
+`GEMINI_TEMPERATURE_PROFILE`; the api runs the agents in-process, so `/runs`
+exercises the profile directly. Design, deploy commands and teardown:
+[`docs/plans/2026-10-15-gemini3-temperature-ab.md`](../docs/plans/2026-10-15-gemini3-temperature-ab.md).
+
+**Auth (P3).** The api is in `USER_AUTHZ_MODE=enforce`, so the driver acts as
+the web proxy: it impersonates `tt-web-sa` (`$EXP_INVOKER_SA`, required for live
+runs) to mint an ID token **with an `email` claim**
+(`run_trial.mint_proxy_id_token`, google-auth `IDTokenCredentials(...,
+include_email=True)`; audience = the base service URL) and sends
+`X-TT-User: temperature-ab@jordantotten.altostrat.com`, the user id in every
+path/body. Your ADC needs `roles/iam.serviceAccountTokenCreator` on `tt-web-sa`.
+
+| File | Role |
+|---|---|
+| `fixtures.py` | The two evalset campaigns (PRS, Estee Lauder ANR) with evergreen trends, as frontend-shaped initial state + kickoff message; the experiment user. |
+| `metrics.py` | **Pure.** Per-run state metrics (creative: `finalized`, `gates_pass_rate`, `mean_score`, `pass_rate`, `n_issues`, `n_retry_exhausted`, `image_qa_attempts`, `headline_jaccard`; trend_scout: `completed`, `trend_flags`, `info_gtrends_exhausted`) + the log scrape (empty/abnormal turns, `ValidationError`, 429 in the run's window on its revision; injectable reader). |
+| `run_ab.py` | **Live.** Serial driver: arms interleaved ABAB, apps × campaigns balanced across arms, deterministic cell ids, resumable (existing records are skipped), one record per run at `results/<arm>/<app>/<cell_id>.json` (a failed run is a record). `--dry-run` prints the order. |
+| `analyze.py` | **Pure/offline.** Records → per-app metric table (n, mean, median per arm, `default − tuned` with a seeded 10k bootstrap 95% CI), classifier stability, the pre-registered rule (PASS/FAIL per check + overall verdict) → `summary.md` + `records.csv`. |
+| `arms.example.json` | Template for the gitignored `arms.json` (`{arm: {base_url, audience, revision, tag}}`, arms named `tuned` and `default`). |
+
+Unlike the older harnesses, `arms.json` and `results/` are **gitignored** (records
+hold full session state); commit only the write-up.
+
+```bash
+# 1. Deploy the two tagged revisions (plan doc), then fill in arms.json.
+cp experiments/temperature_ab/arms.example.json experiments/temperature_ab/arms.json
+# 2. Check the order, then pilot one rep (both campaigns, both apps, both arms).
+PYTHONPATH="$PWD" uv run python -m experiments.temperature_ab.run_ab \
+  --arms experiments/temperature_ab/arms.json --reps 1 --dry-run
+PYTHONPATH="$PWD" EXP_INVOKER_SA=tt-web-sa@<proj>.iam.gserviceaccount.com \
+  uv run python -m experiments.temperature_ab.run_ab \
+  --arms experiments/temperature_ab/arms.json --reps 1 --gap-secs 60
+# 3. Full run (~10 runs per arm per app). It resumes: the pilot's records count as rep 0,
+#    so move results/ aside first if the pilot shouldn't be in the analysis.
+PYTHONPATH="$PWD" EXP_INVOKER_SA=tt-web-sa@<proj>.iam.gserviceaccount.com \
+  uv run python -m experiments.temperature_ab.run_ab \
+  --arms experiments/temperature_ab/arms.json --apps creative_agent,trend_scout \
+  --reps 10 --gap-secs 60
+# 4. Analyse against the pre-registered rule.
+PYTHONPATH="$PWD" uv run python -m experiments.temperature_ab.analyze
 ```
 
 ---
