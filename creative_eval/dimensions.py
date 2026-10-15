@@ -15,7 +15,7 @@ from collections.abc import Iterable
 # gates, the gate or dimension wording, the scoring/pass rules (threshold,
 # normalisation) or the judge model change. A second change on the same day
 # appends ".N" ("2026-10-12.2"); versions are only ever compared by equality.
-JUDGE_VERSION = "2026-10-13.1"
+JUDGE_VERSION = "2026-10-15"
 
 DIMENSION_LABELS: dict[str, str] = {
     # Ad copy
@@ -44,6 +44,7 @@ AD_COPY_GATES: tuple[str, ...] = (
     "trend_risks_respected",
     "trend_connected",
     "timely_claim_supported",
+    "safer_angle_respected",
 )
 VISUAL_GATES: tuple[str, ...] = (
     "product_visible",
@@ -55,6 +56,7 @@ VISUAL_GATES: tuple[str, ...] = (
     "trend_risks_respected",
     "person_depicted_respectfully",
     "timely_claim_supported",
+    "safer_angle_respected",
 )
 # Recorded but never part of gates_passed (mirrors image QA, where a missing
 # brand cue never fails an image).
@@ -85,6 +87,12 @@ PERSON_GATES: frozenset[str] = frozenset({"person_depicted_respectfully"})
 # "not timely", whatever the judge said.
 TIMELY_GATES: frozenset[str] = frozenset({"timely_claim_supported"})
 
+# Only judged on a safer-angle run (``state["safer_angle_active"] == "yes"``:
+# the user deliberately picked a sensitive trend and opted in to a respectful,
+# positive angle on its subject). Otherwise passed in code with note
+# "no safer angle", whatever the judge said.
+SAFER_ANGLE_GATES: frozenset[str] = frozenset({"safer_angle_respected"})
+
 # The single failed gate recorded when the judge reported none of the
 # expected gates (the checks were skipped, so the creative is unverified).
 NO_GATES_GATE = "gates_reported"
@@ -108,6 +116,8 @@ GATE_LABELS: dict[str, str] = {
     "person_depicted_respectfully": "Person depicted respectfully",
     # Timely creatives (ad copy + visual)
     "timely_claim_supported": "Timely claim supported",
+    # Safer-angle runs on a sensitive trend (ad copy + visual)
+    "safer_angle_respected": "Respectful reference",
     # Judge skipped every check
     NO_GATES_GATE: "Checks reported",
 }
