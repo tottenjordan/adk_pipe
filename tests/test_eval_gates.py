@@ -312,6 +312,7 @@ class TestBriefParsing:
             angle="A1",
             brief_block=format_brief_for_judge(BRIEF),
             timely="no",
+            safer_angle="no",
             moment_section="",
         )
         assert "chase {winnable}." in text
@@ -989,9 +990,9 @@ class TestUnreportedGatesWarning:
         raw = [GateResult(gate="product_visible", passed=True)]
         gates = normalize_gates(raw, VISUAL_GATES, brief_used=True)
         assert all(g.passed for g in gates)
-        # product_visible was reported; the person and timely gates are
-        # decided in code.
-        assert sum(g.note == NOT_REPORTED_NOTE for g in gates) == len(VISUAL_GATES) - 3
+        # product_visible was reported; the person, timely and safer-angle
+        # gates are decided in code.
+        assert sum(g.note == NOT_REPORTED_NOTE for g in gates) == len(VISUAL_GATES) - 4
 
     def test_warning_counts_not_checked_gates(self):
         from creative_eval.evaluate import NOT_REPORTED_NOTE, unreported_gates_warning

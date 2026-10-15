@@ -20,8 +20,8 @@ def _gate_line(name: str) -> str:
     return match.group(0)
 
 
-def test_judge_version_bumped_same_day():
-    assert JUDGE_VERSION == "2026-10-13.1"
+def test_judge_version_current():
+    assert JUDGE_VERSION == "2026-10-15"
 
 
 def test_no_visual_defects_exempts_product_label_text():

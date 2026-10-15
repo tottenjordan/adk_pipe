@@ -102,17 +102,17 @@ SOURCES = {
 
 
 def test_gate_is_registered_labelled_and_the_version_bumped():
-    assert AD_COPY_GATES[-1] == GATE and VISUAL_GATES[-1] == GATE
+    assert GATE in AD_COPY_GATES and GATE in VISUAL_GATES
     assert TIMELY_GATES == frozenset({GATE})
     assert GATE not in ADVISORY_GATES | BRIEF_GATES | PERSON_GATES | TREND_GATES
     assert GATE_LABELS[GATE] == "Timely claim supported"
-    assert JUDGE_VERSION == "2026-10-13.1"
+    assert JUDGE_VERSION == "2026-10-15"
 
 
 def test_prompts_name_the_gate_and_the_new_counts():
     ad, vis = eval_prompts.AD_COPY_EVAL_USER, eval_prompts.VISUAL_CONCEPT_EVAL_USER
-    assert len(AD_COPY_GATES) == 8 and len(VISUAL_GATES) == 9
-    assert "Return all 8 gates" in ad and "Return all 9 gates" in vis
+    assert len(AD_COPY_GATES) == 9 and len(VISUAL_GATES) == 10
+    assert "Return all 9 gates" in ad and "Return all 10 gates" in vis
     for text in (ad, vis):
         assert f"**{GATE}**" in text
         assert "Timely: {timely}" in text and "{moment_section}" in text

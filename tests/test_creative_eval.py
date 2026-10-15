@@ -887,6 +887,7 @@ def test_visual_eval_prompt_formats_concepts_with_brand_cue_and_angle_id():
         image_section="",
         person_cast="no",
         timely="no",
+        safer_angle="no",
         moment_section="",
     )
     assert "Concept Name: Dust" in text
