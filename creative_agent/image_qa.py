@@ -181,10 +181,12 @@ class _ImageQAVerdict(BaseModel):
     person_as_public_figure: bool = Field(
         default=False,
         description=(
-            "The cast person is dressed or presented as a real public figure "
-            "(their costume, signature attire, uniform or vestments, or a pose, "
-            "setting or caption implying they are that figure); false when no "
-            "person reference image was supplied."
+            "The cast person is presented as a specific real public figure: a "
+            "full recreation of that figure's look (outfit together with their "
+            "pose, setting or styling) or a pose, setting or caption implying "
+            "the hero is that figure; a single signature item worn as a tribute "
+            "nod, and ordinary fan clothing in team colours, are not. False "
+            "when no person reference image was supplied."
         ),
     )
     composition_changed: bool = Field(
@@ -321,9 +323,10 @@ _PERSON_RULES: dict[str, str] = {
         "slimming, beautifying or adding attributes"
     ),
     "person shown as a public figure": (
-        "show the person as themselves, not as a public figure: everyday "
-        "clothing, no costume, signature attire, uniform or vestments of a real "
-        "person"
+        "show the person as themselves, not as a public figure: at most one "
+        "signature item as a tribute nod, no full recreation of the real "
+        "person's look and no pose, setting or caption implying they are that "
+        "figure"
     ),
 }
 # Personalised variant edits only (``inspect_image`` with ``original_image``):
@@ -533,10 +536,11 @@ PERSON_COMPARISON_LINE = (
     "pose, clothing, expression and lighting). person_distorted: true when the "
     "person's face or body is distorted or malformed, or visibly altered "
     "(slimmed, beautified, added attributes). person_as_public_figure: true "
-    "only when the hero is clearly dressed or presented as a specific real "
-    "public figure (that figure's costume, signature attire, uniform or "
-    "vestments, or a pose, setting or caption implying the hero is that "
-    "figure); ordinary fan clothing in team colours is not."
+    "only when the cast person is presented as a specific real public "
+    "figure: a full recreation of that figure's look (outfit together with "
+    "their pose, setting or styling) or a pose, setting or caption implying "
+    "the hero is that figure; a single signature item worn as a tribute nod, "
+    "and ordinary fan clothing in team colours, are not."
 )
 
 
