@@ -479,6 +479,7 @@ class TestSaveSearchTrends:
 
         ctx = FakeToolContext()
         ctx.state["target_search_trends"] = {"target_search_trends": ["trend_a"]}
+        ctx.state["raw_gtrends"] = ["trend_a", "trend_b"]
 
         result = save_search_trends_to_session_state("trend_b", ctx)
         assert result["status"] == "ok"
@@ -493,6 +494,7 @@ class TestSaveSearchTrends:
 
         ctx = FakeToolContext()
         ctx.state["target_search_trends"] = {"target_search_trends": []}
+        ctx.state["raw_gtrends"] = ["trend_a", "trend_b"]
 
         result = save_search_trends_to_session_state("trend_a", ctx)
         assert result["status"] == "ok"

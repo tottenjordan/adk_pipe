@@ -241,13 +241,33 @@ def save_search_trends_to_session_state(
         tool_context: The tool context.
 
     Returns:
-        A status message. An automatically picked term that the classifier
-        flagged sensitive (state 'trend_flags') is refused and not saved; a
-        human pick (interactive_trend_pick) is always saved.
+        A status message. An automatically picked term must be one of today's
+        gathered trends (state 'raw_gtrends', matched case/space-insensitively
+        and saved as gathered) and not flagged sensitive by the classifier
+        (state 'trend_flags'); otherwise it is refused and not saved. A term
+        already saved is not added twice. A human pick (interactive_trend_pick
+        exactly True) is always saved as given.
     """
     if tool_context.state.get("interactive_trend_pick") is not True:
-        flagged = sensitive_flags(tool_context.state.get("trend_flags"))
         term_key = _norm_term(trend_term)
+        raw = tool_context.state.get("raw_gtrends")
+        gathered: dict[str, str] = {}
+        if isinstance(raw, (list, tuple)):
+            for term in raw:
+                key = _norm_term(term)
+                if key:
+                    gathered.setdefault(key, term)
+        if term_key not in gathered:
+            # A paraphrase would also miss the sensitivity lookup below.
+            logging.warning("Refused to auto-pick ungathered trend %r", trend_term)
+            return {
+                "status": "refused",
+                "message": (
+                    f"'{trend_term}' is not one of today's gathered trends; it was "
+                    "not saved. Select a term exactly as it appears in the list."
+                ),
+            }
+        flagged = sensitive_flags(tool_context.state.get("trend_flags"))
         if term_key in flagged:
             reason = flagged[term_key]
             logging.warning(
@@ -261,6 +281,10 @@ def save_search_trends_to_session_state(
                     + "; it was not saved. Do not select it."
                 ),
             }
+        trend_term = gathered[term_key]
+        saved = tool_context.state.get("target_search_trends") or {}
+        if term_key in {_norm_term(t) for t in saved.get("target_search_trends", [])}:
+            return {"status": "ok", "message": f"'{trend_term}' is already saved."}
     existing_target_search_trends = tool_context.state.get(
         "target_search_trends", {"target_search_trends": []}
     )
