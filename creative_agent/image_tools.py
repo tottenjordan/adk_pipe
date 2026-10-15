@@ -25,16 +25,12 @@ gated on the ``unwanted_logo`` rating-strictness flag. Opt-in rating learning
 import asyncio
 import functools
 import hashlib
-import ipaddress
 import json
 import logging
 import random
-import socket
-import urllib.request
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
-from urllib.parse import urlparse
 
 import httpx
 from google import genai
@@ -66,7 +62,10 @@ from .person_render import (
 from .rating_signals import strictness_flags
 from .references import (
     MAX_REFERENCE_IMAGES,
+    REFERENCE_MAX_BYTES,
     REFERENCE_ROLES,
+    UnsafeReferenceURL,
+    reference_mime_for,
     reference_roles_summary,
     resolve_references,
 )
@@ -81,146 +80,6 @@ __all__ = [
     "reference_roles_summary",
     "resolve_references",
 ]
-
-# Fetch timeout for an http(s) reference image (stdlib urllib, no new dep).
-_REFERENCE_FETCH_TIMEOUT_SECS = 20
-
-# Largest reference image accepted (http(s) body or gs:// object).
-_REFERENCE_MAX_BYTES = 10 * 1024 * 1024
-
-# Map a reference-image extension to a mime type (default image/png).
-_REFERENCE_MIME_BY_EXT = {
-    ".png": "image/png",
-    ".jpg": "image/jpeg",
-    ".jpeg": "image/jpeg",
-    ".webp": "image/webp",
-    ".gif": "image/gif",
-}
-
-
-def _reference_mime_for(path: str) -> str:
-    """Best-effort mime type from a reference-image path/URL extension."""
-    lower = path.lower()
-    for ext, mime in _REFERENCE_MIME_BY_EXT.items():
-        if lower.endswith(ext):
-            return mime
-    return "image/png"
-
-
-class UnsafeReferenceURL(ValueError):
-    """An http(s) reference URL that must not be fetched (SSRF guard)."""
-
-
-def _is_public_ip(raw: str) -> bool:
-    """False for loopback/private/link-local/reserved/multicast/unspecified and
-    any other non-global address (e.g. 100.64.0.0/10 shared address space).
-
-    The explicit checks stay alongside ``is_global``: some special-purpose
-    addresses report ``is_global`` True (e.g. ``64:ff9b::a9fe:a9fe``, the NAT64
-    form of the metadata address, is caught only by ``is_reserved``)."""
-    ip = ipaddress.ip_address(raw.split("%", 1)[0])  # drop an IPv6 zone id
-    mapped = getattr(ip, "ipv4_mapped", None)
-    if mapped is not None:
-        ip = mapped
-    return not (
-        ip.is_loopback
-        or ip.is_private
-        or ip.is_link_local
-        or ip.is_reserved
-        or ip.is_multicast
-        or ip.is_unspecified
-        or not ip.is_global
-    )
-
-
-def _validate_reference_url(url: str) -> None:
-    """Raise UnsafeReferenceURL unless ``url`` is http(s) to a public host.
-
-    Every address the hostname resolves to must be public (a mixed answer is
-    refused). Note: urllib re-resolves on connect, so this does not pin the
-    address (DNS-rebinding window); it blocks the plain metadata/private-host
-    cases a user-supplied URL could otherwise reach.
-    """
-    parsed = urlparse(url)
-    if parsed.scheme not in ("http", "https") or not parsed.hostname:
-        raise UnsafeReferenceURL(f"not an http(s) URL with a host: '{url}'")
-    port = parsed.port or (443 if parsed.scheme == "https" else 80)
-    infos = socket.getaddrinfo(parsed.hostname, port, type=socket.SOCK_STREAM)
-    if not infos:
-        raise UnsafeReferenceURL(f"'{parsed.hostname}' did not resolve")
-    for info in infos:
-        address = str(info[4][0])
-        if not _is_public_ip(address):
-            raise UnsafeReferenceURL(
-                f"'{parsed.hostname}' resolves to non-public address {address}"
-            )
-
-
-class _RevalidatingRedirectHandler(urllib.request.HTTPRedirectHandler):
-    """Follow at most 3 redirects, re-validating every hop's URL."""
-
-    max_redirections = 3
-
-    def redirect_request(self, req, fp, code, msg, headers, newurl):
-        _validate_reference_url(newurl)
-        return super().redirect_request(req, fp, code, msg, headers, newurl)
-
-
-def _reference_opener() -> urllib.request.OpenerDirector:
-    """A urllib opener whose redirect handler re-validates each hop."""
-    return urllib.request.build_opener(_RevalidatingRedirectHandler)
-
-
-def _fetch_http_reference(uri: str) -> tuple[bytes, str]:
-    """(bytes, mime) of a public http(s) image ≤ the size cap, else raise."""
-    _validate_reference_url(uri)
-    with _reference_opener().open(uri, timeout=_REFERENCE_FETCH_TIMEOUT_SECS) as resp:
-        mime = resp.headers.get_content_type()
-        if not mime.startswith("image/"):
-            raise ValueError(f"Content-Type {mime!r} is not an image")
-        data = resp.read(_REFERENCE_MAX_BYTES + 1)
-    if len(data) > _REFERENCE_MAX_BYTES:
-        raise ValueError(f"larger than {_REFERENCE_MAX_BYTES} bytes")
-    return data, mime
-
-
-def _fetch_reference_image(uri: str) -> types.Part | None:
-    """Fetch a product/brand reference image as a genai Part, or None on failure.
-
-    Supports ``gs://bucket/object`` (via the GCS client) and ``http(s)://`` URLs
-    (via stdlib urllib, hardened: public hosts only, ≤ 3 re-validated
-    redirects, an ``image/*`` Content-Type). Both are capped at
-    ``_REFERENCE_MAX_BYTES``. Any failure is logged and swallowed so image
-    generation always falls back to the text-only path rather than aborting.
-    """
-    uri = (uri or "").strip()
-    if not uri:
-        return None
-    try:
-        if uri.startswith("gs://"):
-            without_scheme = uri[len("gs://") :]
-            bucket, _, obj = without_scheme.partition("/")
-            if not bucket or not obj:
-                logging.warning(f"Malformed gs:// reference image URI: '{uri}'")
-                return None
-            data = _download_blob(bucket, obj)
-            if len(data) > _REFERENCE_MAX_BYTES:
-                raise ValueError(f"larger than {_REFERENCE_MAX_BYTES} bytes")
-            mime = _reference_mime_for(obj)
-        elif uri.startswith("http://") or uri.startswith("https://"):
-            data, mime = _fetch_http_reference(uri)
-        else:
-            logging.warning(
-                f"Unsupported reference image URI scheme (want gs:// or http(s)://): '{uri}'"
-            )
-            return None
-        return types.Part.from_bytes(data=data, mime_type=mime)
-    except Exception as exc:
-        logging.warning(
-            f"Failed to fetch reference image '{uri}'; "
-            f"falling back to text-only prompt: {exc}"
-        )
-        return None
 
 
 @functools.cache
@@ -404,31 +263,6 @@ def _reference_prompt(
     return prompt_text + "\n\n" + "\n".join(lines)
 
 
-async def _fetch_references(
-    refs: list[tuple[str, str]],
-) -> tuple[list[tuple[str, types.Part]], list[str]]:
-    """Fetch every reference concurrently (off the event loop).
-
-    Returns ``(fetched, missing_roles)``: the ``(role, Part)`` pairs that
-    fetched, in order, and the roles whose fetch failed
-    (``_fetch_reference_image`` returned None and logged a warning). A failed
-    fetch drops only that reference.
-    """
-    parts = await asyncio.gather(
-        *(asyncio.to_thread(_fetch_reference_image, uri) for uri, _ in refs)
-    )
-    fetched = []
-    missing = []
-    for (uri, role), part in zip(refs, parts, strict=True):
-        if part is None:
-            logging.warning(f"Skipping {role} reference image '{uri}' (fetch failed)")
-            missing.append(role)
-            continue
-        logging.info(f"Using {role} reference image: {uri}")
-        fetched.append((role, part))
-    return fetched, missing
-
-
 def _final_image_part(parts):
     """The part carrying the FINAL rendered image, or None.
 
@@ -516,7 +350,7 @@ async def _render_person_image(
 def _fetch_person_photo(uri: str) -> types.Part | None:
     """The person photo (a ``gs://…/person-refs/…`` object) as a Part, or None.
 
-    Unlike ``_fetch_reference_image`` it never logs the URI, and only ``gs://``
+    Unlike ``references.fetch_reference_image`` it never logs the URI, and only ``gs://``
     objects under ``person-refs/`` in the run's bucket (when configured) are
     fetched."""
     without_scheme = uri.removeprefix("gs://")
@@ -527,9 +361,9 @@ def _fetch_person_photo(uri: str) -> types.Part | None:
         return None
     try:
         data = _download_blob(bucket, obj)
-        if not data or len(data) > _REFERENCE_MAX_BYTES:
+        if not data or len(data) > REFERENCE_MAX_BYTES:
             raise ValueError("empty or too large")
-        return types.Part.from_bytes(data=data, mime_type=_reference_mime_for(obj))
+        return types.Part.from_bytes(data=data, mime_type=reference_mime_for(obj))
     except Exception as exc:
         logging.warning(
             "Person reference photo unavailable (%s); not cast", type(exc).__name__

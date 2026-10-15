@@ -405,9 +405,9 @@ async def run(grid: Sequence[GridItem], out: Path, pace: float) -> list[dict]:
     from google.genai import types
 
     from creative_agent.config import config
-    from creative_agent.image_tools import (
-        _fetch_reference_image,
-        _generate_image_with_backoff,
+    from creative_agent.image_tools import _generate_image_with_backoff
+    from creative_agent.references import (
+        fetch_reference_image as _fetch_reference_image,
     )
 
     out.mkdir(parents=True, exist_ok=True)

@@ -37,6 +37,7 @@ from .concept_guard import neutralise_person_prompt
 from .config import config
 from .person_edit import EDIT_INSTRUCTION, edit_contents
 from .person_render import NO_IMAGE
+from .references import fetch_references as _fetch_reference_parts
 
 PHOTO_UNAVAILABLE = "photo_unavailable"
 
@@ -58,8 +59,11 @@ class RenderReferences:
 
 
 async def fetch_references(refs: list[tuple[str, str]]) -> RenderReferences:
-    """Fetch ``resolve_references(state)`` output once, concurrently."""
-    fetched, missing = await image_tools._fetch_references(refs)
+    """Fetch ``resolve_references(state)`` output once, concurrently (gs://
+    objects through ``image_tools._download_blob``, like the person photo)."""
+    fetched, missing = await _fetch_reference_parts(
+        refs, download=image_tools._download_blob
+    )
     return RenderReferences(parts=tuple(fetched), missing_roles=tuple(missing))
 
 
