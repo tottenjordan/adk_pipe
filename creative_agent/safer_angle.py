@@ -216,6 +216,12 @@ def is_active(state: Mapping[str, Any]) -> bool:
     return state.get("safer_angle_active") == ACTIVE
 
 
+def is_flagged_sensitive(state: Mapping[str, Any]) -> bool:
+    """Did trend_scout flag the trend sensitive (``trend_sensitive_hint ==
+    "yes"``, derived by ``derive_state``)?"""
+    return state.get("trend_sensitive_hint") == ACTIVE
+
+
 def clear_stray_safer_angle(brief: Mapping[str, Any]) -> dict[str, Any] | None:
     """``brief`` with a non-empty ``trend_bridge.safer_angle`` emptied, or None
     when there is nothing to clear. For runs without an active safer angle, so
