@@ -83,7 +83,7 @@ def posterior_mean(state) -> Array                                   # (K,d)
 def select(key, state, X, params, eligible=None) -> tuple[Array, Array]   # arms (n,), scores (n,K)
 def select_with_noise(state, X, z, params, eligible=None) -> tuple[Array, Array]  # select with its N(0,1) draws z (n,K) given
 def propensities(key, state, x, params, eligible=None) -> Array      # (K,) sums to 1, floor-clipped
-def update(state, arms, X, rewards, params) -> LinTSState            # batched; params.discount<1 decays toward prior
+def update(state, arms, X, rewards, params) -> LinTSState            # batched (summed per arm, then added once); params.discount<1 decays toward prior
 ```
 
 ## 2. Endpoint instances (CPR `BanditPredictor`, PR 2; client in PR 3)
