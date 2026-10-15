@@ -398,10 +398,8 @@ def _write_digest(table: str, **row: str) -> None:
     job_config = bigquery.QueryJobConfig(
         query_parameters=params, job_timeout_ms=BQ_JOB_TIMEOUT_MS
     )
-    job = _get_bigquery_client().query(sql, job_config=job_config)
-    job.result()
-    if job.errors:
-        raise RuntimeError(f"trend digest MERGE returned errors: {job.errors}")
+    # result() raises on a failed job.
+    _get_bigquery_client().query(sql, job_config=job_config).result()
 
 
 def _row_digest(row: Any) -> Any:

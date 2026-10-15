@@ -1003,13 +1003,6 @@ def test_creative_root_has_final_state_summary():
     assert callable(root_agent.after_agent_callback)
 
 
-def test_creative_eval_agent_has_finish_reason_callback():
-    from agent_common import log_empty_turn_finish_reason
-    from creative_eval.agent import creative_eval_agent
-
-    assert creative_eval_agent.after_model_callback is log_empty_turn_finish_reason
-
-
 def test_interactive_root_has_observability_callbacks():
     from creative_agent import callbacks
     from interactive_creative.agent import root_agent

@@ -898,17 +898,10 @@ class TestWriteTrendsIdempotent:
 
 
 class TestWriteTrendsRaisesOnBqErrors:
-    """A BigQuery insert that reports job-level errors must NOT be reported as
-    success (silent data loss). Both write_trends_to_bq implementations must
+    """A failed BigQuery insert (QueryJob.result() raises) must NOT be reported
+    as success (silent data loss). Both write_trends_to_bq implementations must
     raise, matching write_eval_report_to_bq's contract, so ADK RetryConfig can
     retry and a genuine failure surfaces instead of masquerading as success."""
-
-    @staticmethod
-    def _failing_bq() -> FakeBigQueryClient:
-        return FakeBigQueryClient(
-            job_errors=[{"reason": "invalid", "message": "boom"}],
-            num_dml_affected_rows=0,
-        )
 
     def test_creative_agent_write_trends_raises(self, monkeypatch):
         """creative_agent relies on QueryJob.result() raising on a failed job."""
@@ -938,9 +931,16 @@ class TestWriteTrendsRaisesOnBqErrors:
             t.write_trends_to_bq(ctx)
 
     def test_trend_scout_write_trends_raises(self, monkeypatch):
+        """trend_scout also relies on QueryJob.result() raising on a failed job."""
+        from google.api_core.exceptions import BadRequest
+
         import trend_scout.tools as t
 
-        monkeypatch.setattr(t, "_get_bigquery_client", self._failing_bq)
+        monkeypatch.setattr(
+            t,
+            "_get_bigquery_client",
+            lambda: FakeBigQueryClient(result_error=BadRequest("boom")),
+        )
         # avoid the live max-date lookup used to build the insert SQL
         monkeypatch.setattr(t, "_get_gtrends_max_date", lambda: "2026-07-17")
 
@@ -956,7 +956,7 @@ class TestWriteTrendsRaisesOnBqErrors:
                 "key_selling_points": "wide tonal range",
             }
         )
-        with pytest.raises(RuntimeError, match="BigQuery insert returned errors"):
+        with pytest.raises(BadRequest):
             asyncio.run(t.write_trends_to_bq(ctx))
 
 
