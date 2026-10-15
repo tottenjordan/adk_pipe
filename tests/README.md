@@ -183,6 +183,7 @@ tests/
 ├── test_trend_situation.py         # creative_agent/trend_situation.py: the validator table (upcoming/just-happened ok; no source / unknown src id / outside the window / wrong side of today / no outcome / URL date before the event → unknown; live/sensitive/ongoing/evergreen/low confidence never timely), valid_until, run-timezone dates, tone playbook, one-line moment, prompt tokens
 ├── test_trend_situation_graph.py   # the trend situation branch inside combined_research_pipeline (stub models): grounded draft → validated moment in the brief writer's prompt + compact brief; synthesizer raises → unknown; empty turns exhaust → unknown; disabled → no model call, stale draft cleared
 ├── test_timely_rules.py            # MAX_TIMELY_CONCEPTS, build_timely_rules per phase (incl. the loss wording), timely_rules seeded only when timely, {timely_rules?} placement + sha256-pinned byte-identical instructions without it
+├── test_safer_angle.py            # creative_agent/safer_angle.py (opt-in safer angle for sensitive trends): parse_hint table, derive_state truth table (opt-in AND scout flag; "true" ≠ True), brace-free rule texts carrying the safety floor, state init (both creative apps), {safer_angle_*_rules?} placement + sha256-pinned byte-identical brief/research instructions without it, check_brief(safer_angle_active=) rules, brief gate (stray cleared, active checked), "Safer angle" rendering, checkpoint-1 brief edit
 ├── test_temperature_profile.py     # agent_common/sampling.py GEMINI_TEMPERATURE_PROFILE: tuned|default|unknown parsing; fresh-interpreter golden of every agent's temperature (tuned = pre-seam values, default = all 1.0 or unset)
 ├── test_temporal_terms.py          # creative_agent/temporal_terms.py: outcome/date/weekday terms flagged, idioms (win-win, lose weight, 24/7, …) pass
 ├── test_timely_guards.py           # enforce_timely_cap / enforce_timely_copy_cap, evergreen temporal-term + pairing issues (only with a timely moment), copy gate write-back, concept guard callback
@@ -364,6 +365,8 @@ tests/
   gallery label), `test_eval_timely_gate.py` (judge gate), `test_timely_expiry.py` (expiry golden,
   share guard + experiment warning live in `test_shares_api.py` / `test_experiments_api.py`);
   frontend `timely-proof.test.tsx`.
+- **Safer angle (opt-in, sensitive trends)** — `test_safer_angle.py`, `test_brief_check.py`
+  (activation default); frontend `creative-brief-drift.test.ts` (the field round-trips).
 - **Sensitive trends + copy trend tie** — `test_trend_scout_sensitive.py` (classifier + auto-pick
   guard), `test_trend_context.py` (flag in `trend_context`), `test_crf_sql_params.py` (CRF
   skips flagged rows), `test_trend_tie.py` (matcher), `test_copy_gate.py` (trend-tie issue,
