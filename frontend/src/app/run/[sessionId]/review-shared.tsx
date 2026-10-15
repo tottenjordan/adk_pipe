@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useEffectEvent } from "react";
 
 /* Shared bits of the interactive review panels. */
 
@@ -10,17 +10,15 @@ import { useEffect, useRef } from "react";
  * trends selected yet), on key repeat, and when another handler already took it.
  */
 export function useApproveShortcut(onApprove: () => void, enabled = true) {
-  const latest = useRef(onApprove);
-  useEffect(() => {
-    latest.current = onApprove;
-  });
+  // Always the latest onApprove, without re-subscribing on every render.
+  const approve = useEffectEvent(onApprove);
   useEffect(() => {
     if (!enabled) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Enter" || !(e.metaKey || e.ctrlKey)) return;
       if (e.repeat || e.defaultPrevented) return;
       e.preventDefault();
-      latest.current();
+      approve();
     };
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
