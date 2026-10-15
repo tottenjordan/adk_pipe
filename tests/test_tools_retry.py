@@ -1,6 +1,8 @@
 """Infra tools must propagate exceptions (not swallow into status dicts) so ADK
 2.0's RetryConfig can retry transient failures."""
 
+import asyncio
+
 import pytest
 from google.api_core import exceptions as api_exceptions
 
@@ -44,7 +46,7 @@ class TestTrendTrawlerToolsPropagate:
         monkeypatch.setattr(tools, "_get_bigquery_client", boom)
 
         with pytest.raises(api_exceptions.InternalServerError):
-            tools.get_daily_gtrends(_ctx())
+            asyncio.run(tools.get_daily_gtrends(_ctx()))
 
     def test_write_trends_to_bq_raises_on_transient(self, monkeypatch):
         from trend_scout import tools
@@ -55,7 +57,7 @@ class TestTrendTrawlerToolsPropagate:
         monkeypatch.setattr(tools, "_get_bigquery_client", lambda: _BoomBQClient())
 
         with pytest.raises(api_exceptions.ServiceUnavailable):
-            tools.write_trends_to_bq(_ctx())
+            asyncio.run(tools.write_trends_to_bq(_ctx()))
 
 
 class TestCreativeAgentToolsPropagate:

@@ -1,9 +1,11 @@
+import asyncio
 import datetime
 import json
 import logging
 import os
 import tempfile
 from pathlib import Path
+from typing import Any
 
 from google.adk.tools import ToolContext
 from google.cloud import bigquery
@@ -85,20 +87,8 @@ def _gtrends_markdown(rows: list[tuple[str, int, str]]) -> str:
     return "\n".join(lines)
 
 
-def get_daily_gtrends(tool_context: ToolContext) -> str:
-    """
-    Retrieves the top 25 Google Search Trends (term, rank, refresh_date).
-
-    Args:
-        tool_context (ToolContext): The tool context.
-
-    Returns:
-        str: A markdown-formatted string listing the Google Search Trends and their corresponding
-             rank, or an error message if the query fails.
-             The table includes columns for 'term', 'rank', and 'refresh_date'.
-             Returns 25 rows of results.
-    """
-
+def _query_daily_gtrends() -> tuple[str, list[tuple[str, int, str]]]:
+    """Blocking BigQuery reads behind get_daily_gtrends: (max_date, rows)."""
     # get latest refresh date
     max_date = _get_gtrends_max_date()
     logging.info(f"\n\nmax_date in trends_assistant: {max_date}\n\n")
@@ -115,22 +105,39 @@ def get_daily_gtrends(tool_context: ToolContext) -> str:
         GROUP BY term, refresh_date
         ORDER BY (SELECT rank FROM UNNEST(x))
         """
-    try:
-        bq_client = _get_bigquery_client()
+    bq_client = _get_bigquery_client()
 
-        # Setup the query for BigQuery
-        query_job_config = bigquery.QueryJobConfig(
-            query_parameters=[
-                bigquery.ScalarQueryParameter("max_date", "STRING", max_date)
-            ]
-        )
-        # Execute the query and iterate the rows (no pandas needed); rank is
-        # the 1-based position in the rank-ordered result.
-        job = bq_client.query(query, job_config=query_job_config)
-        rows = [
-            (row["term"], rank, str(row["refresh_date"]))
-            for rank, row in enumerate(job.result(), start=1)
-        ]
+    # Setup the query for BigQuery
+    query_job_config = bigquery.QueryJobConfig(
+        query_parameters=[bigquery.ScalarQueryParameter("max_date", "STRING", max_date)]
+    )
+    # Execute the query and iterate the rows (no pandas needed); rank is
+    # the 1-based position in the rank-ordered result.
+    job = bq_client.query(query, job_config=query_job_config)
+    rows = [
+        (row["term"], rank, str(row["refresh_date"]))
+        for rank, row in enumerate(job.result(), start=1)
+    ]
+    return max_date, rows
+
+
+async def get_daily_gtrends(tool_context: ToolContext) -> str:
+    """
+    Retrieves the top 25 Google Search Trends (term, rank, refresh_date).
+
+    Args:
+        tool_context (ToolContext): The tool context.
+
+    Returns:
+        str: A markdown-formatted string listing the Google Search Trends and their corresponding
+             rank, or an error message if the query fails.
+             The table includes columns for 'term', 'rank', and 'refresh_date'.
+             Returns 25 rows of results.
+    """
+    try:
+        # Blocking BigQuery I/O runs off the event loop (ADK runs sync tools
+        # inline on it); the state writes below stay on the loop.
+        max_date, rows = await asyncio.to_thread(_query_daily_gtrends)
 
         # Update state
         tool_context.state["raw_gtrends"] = [term for term, _, _ in rows]
@@ -147,7 +154,29 @@ def get_daily_gtrends(tool_context: ToolContext) -> str:
         raise
 
 
-def write_to_file(content: str, tool_context: ToolContext) -> dict:
+def _upload_text_to_gcs(gcs_folder: str, filename: str, content: str) -> str:
+    """Upload ``content`` as ``<gcs_folder>/<filename>``; return its gs:// URI (blocking)."""
+    storage_client = _get_gcs_client()
+    gcs_bucket = config.GCS_BUCKET_NAME
+    bucket = storage_client.bucket(gcs_bucket)
+
+    # Per-invocation temp dir: concurrent runs share this process's CWD, so a
+    # fixed scratch dir (state["agent_output_dir"] == "trawler_output") + fixed
+    # filename collided (issue #104) — one run's rmtree raced another's write.
+    # A TemporaryDirectory is unique per call and auto-removed on context exit.
+    # The GCS object key uses the file BASENAME so the temp path never leaks in.
+    with tempfile.TemporaryDirectory() as td:
+        local_file = os.path.join(td, filename)
+        Path(local_file).write_text(content)
+
+        gcs_blob_name = f"{gcs_folder}/{filename}"
+        blob = bucket.blob(gcs_blob_name)
+        blob.upload_from_filename(local_file)
+
+    return f"gs://{gcs_bucket}/{gcs_blob_name}"
+
+
+async def write_to_file(content: str, tool_context: ToolContext) -> dict:
     """
     Writes the given content to a markdown file. Saves the file to Google Cloud Storage.
 
@@ -160,26 +189,10 @@ def write_to_file(content: str, tool_context: ToolContext) -> dict:
     """
 
     gcs_folder = tool_context.state["gcs_folder"]
-    artifact_key = "selected_trends.txt"
-
-    storage_client = _get_gcs_client()
-    gcs_bucket = config.GCS_BUCKET_NAME
-    bucket = storage_client.bucket(gcs_bucket)
-
-    # Per-invocation temp dir: concurrent runs share this process's CWD, so a
-    # fixed scratch dir (state["agent_output_dir"] == "trawler_output") + fixed
-    # filename collided (issue #104) — one run's rmtree raced another's write.
-    # A TemporaryDirectory is unique per call and auto-removed on context exit.
-    # The GCS object key uses the file BASENAME so the temp path never leaks in.
-    with tempfile.TemporaryDirectory() as td:
-        local_file = os.path.join(td, artifact_key)
-        Path(local_file).write_text(content)
-
-        gcs_blob_name = f"{gcs_folder}/{artifact_key}"
-        blob = bucket.blob(gcs_blob_name)
-        blob.upload_from_filename(local_file)
-
-    gcs_uri = f"gs://{gcs_bucket}/{gcs_blob_name}"
+    # Blocking GCS upload off the event loop; the state write stays on the loop.
+    gcs_uri = await asyncio.to_thread(
+        _upload_text_to_gcs, gcs_folder, "selected_trends.txt", content
+    )
     tool_context.state["select_trends_markdown_gcs_uri"] = gcs_uri
 
     # Return a dictionary indicating success, and the artifact_key that was written.
@@ -231,7 +244,7 @@ def save_search_trends_to_session_state(
     return {"status": "ok"}
 
 
-def save_session_state_to_gcs(tool_context: ToolContext) -> dict:
+async def save_session_state_to_gcs(tool_context: ToolContext) -> dict:
     """
     Writes the session state to JSON. Saves the JSON file to Cloud Storage.
 
@@ -242,26 +255,15 @@ def save_session_state_to_gcs(tool_context: ToolContext) -> dict:
         dict: A dictionary containing the status and the json file's Cloud Storage URI (gcs_uri).
     """
 
+    # Snapshot on the loop; serialise + upload (blocking) in a worker thread.
     session_state = tool_context.state.to_dict()
     gcs_folder = session_state["gcs_folder"]
-    filename = "trawler_session_state.json"
 
-    storage_client = _get_gcs_client()
-    gcs_bucket = config.GCS_BUCKET_NAME
-    bucket = storage_client.bucket(gcs_bucket)
+    def _dump_and_upload() -> str:
+        content = json.dumps(session_state, indent=4)
+        return _upload_text_to_gcs(gcs_folder, "trawler_session_state.json", content)
 
-    # Per-invocation temp dir (see write_to_file): isolates concurrent runs that
-    # share this process's CWD; the GCS object key uses the file BASENAME.
-    with tempfile.TemporaryDirectory() as td:
-        local_file = os.path.join(td, filename)
-        with open(local_file, "w") as f:
-            json.dump(session_state, f, indent=4)
-
-        gcs_blob_name = f"{gcs_folder}/{filename}"
-        blob = bucket.blob(gcs_blob_name)
-        blob.upload_from_filename(local_file)
-
-    gcs_uri = f"gs://{gcs_bucket}/{gcs_blob_name}"
+    gcs_uri = await asyncio.to_thread(_dump_and_upload)
 
     # Return a dictionary indicating status and the Cloud Storage URI.
     return {
@@ -389,19 +391,8 @@ def _trawler_date(state_current_date: object) -> str:
 
 # refresh_date: str = max_date
 # refresh_date: Latest refresh date from the trends table in the format 'MM/DD/YYYY'. Use the default value provided.
-def write_trends_to_bq(tool_context: ToolContext) -> dict:
-    """
-    Writes the trends saved in the 'target_search_trends' state key to a BigQuery
-    table. Call `save_search_trends_to_session_state` for each trend first.
-
-    Args:
-        tool_context (ToolContext): The tool context.
-
-    Returns:
-        dict: A dictionary containing a 'status' key ('success' or 'error').
-              On success, status is 'success' and includes a 'trends' key with the inserted terms
-              On failure, status is 'error' and includes an 'error_message'.
-    """
+def _write_trend_rows(state: dict[str, Any], session_id: str) -> dict:
+    """Blocking body of write_trends_to_bq, on a state snapshot (worker thread)."""
     bq_client = _get_bigquery_client()
 
     # get latest refresh date
@@ -411,27 +402,27 @@ def write_trends_to_bq(tool_context: ToolContext) -> dict:
     # values to insert. One batch per session: every selected trend shares this
     # session-derived id (not uuid4), so an at-least-once re-run (resumed app)
     # MERGEs onto the same (uuid, target_trend) rows instead of duplicating them.
-    unique_id = stable_row_id(tool_context.session.id)
-    current_date = _trawler_date(tool_context.state.get("current_date"))
+    unique_id = stable_row_id(session_id)
+    current_date = _trawler_date(state.get("current_date"))
 
     gcs_url_prefix = "https://console.cloud.google.com/storage/browser"
-    gcs_folder = tool_context.state["gcs_folder"]
+    gcs_folder = state["gcs_folder"]
     # The folder write_to_file / save_session_state_to_gcs actually write into.
     trawler_gcs = f"{gcs_url_prefix}/{config.GCS_BUCKET_NAME}/{gcs_folder}"
 
     # Degradation note: empty on a clean run, or the collect_degradation_warnings
     # note(s) recorded by record_research_gaps when the resilient research wrapper
     # exhausted its retries. Parity with creative_evals.research_gaps.
-    research_gaps = tool_context.state.get("research_gaps", "")
+    research_gaps = state.get("research_gaps", "")
     table = f"{config.BQ_PROJECT_ID}.{config.BQ_DATASET_ID}.{config.BQ_TABLE_TARGETS}"
     # Per-trend research context for the creative run (best-effort, never raises).
-    info_gtrends = tool_context.state.get("info_gtrends")
-    selected_gtrends = tool_context.state.get("selected_gtrends")
-    trend_flags = tool_context.state.get("trend_flags")
+    info_gtrends = state.get("info_gtrends")
+    selected_gtrends = state.get("selected_gtrends")
+    trend_flags = state.get("trend_flags")
 
     try:
         # insert a row for each selected target search trend
-        target_trends = tool_context.state.get("target_search_trends")
+        target_trends: Any = state.get("target_search_trends")
         for trend in target_trends["target_search_trends"]:
             # write SQL (parameterized — see _build_trend_insert_sql)
             sql_query, query_params = _build_trend_insert_sql(
@@ -441,10 +432,10 @@ def write_trends_to_bq(tool_context: ToolContext) -> dict:
                 max_date=max_date,
                 current_date=current_date,
                 trawler_gcs=trawler_gcs,
-                brand=tool_context.state["brand"],
-                target_audience=tool_context.state["target_audience"],
-                target_product=tool_context.state["target_product"],
-                key_selling_points=tool_context.state["key_selling_points"],
+                brand=state["brand"],
+                target_audience=state["target_audience"],
+                target_product=state["target_product"],
+                key_selling_points=state["key_selling_points"],
                 research_gaps=research_gaps,
                 trend_context=trend_context_for(
                     trend, info_gtrends, selected_gtrends, flags=trend_flags
@@ -473,3 +464,23 @@ def write_trends_to_bq(tool_context: ToolContext) -> dict:
         # Let transient failures propagate so ADK 2.0 RetryConfig can retry.
         logging.exception(f"Failed to insert rows to bq: {e}")
         raise
+
+
+async def write_trends_to_bq(tool_context: ToolContext) -> dict:
+    """
+    Writes the trends saved in the 'target_search_trends' state key to a BigQuery
+    table. Call `save_search_trends_to_session_state` for each trend first.
+
+    Args:
+        tool_context (ToolContext): The tool context.
+
+    Returns:
+        dict: A dictionary containing a 'status' key ('success' or 'error').
+              On success, status is 'success' and includes a 'trends' key with the inserted terms
+              On failure, status is 'error' and includes an 'error_message'.
+    """
+    # The MERGEs (and the max-date lookup) block on BigQuery, so they run off the
+    # event loop on a state snapshot; the tool writes no state.
+    return await asyncio.to_thread(
+        _write_trend_rows, tool_context.state.to_dict(), tool_context.session.id
+    )

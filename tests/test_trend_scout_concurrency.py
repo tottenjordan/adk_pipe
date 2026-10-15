@@ -12,6 +12,7 @@ These tests reproduce the race deterministically in-process (two invocations via
 ``ThreadPoolExecutor``) and assert per-run isolation + zero bare-CWD leaks — no GCP.
 """
 
+import asyncio
 import json
 import os
 from concurrent.futures import ThreadPoolExecutor
@@ -36,7 +37,7 @@ def test_write_to_file_isolates_concurrent_runs(monkeypatch, tmp_path):
     monkeypatch.setattr(tools, "_get_gcs_client", lambda: FakeStorageClient(uploads))
 
     def _call(folder):
-        return tools.write_to_file(f"# trends for {folder}", _ctx(folder))
+        return asyncio.run(tools.write_to_file(f"# trends for {folder}", _ctx(folder)))
 
     with ThreadPoolExecutor(max_workers=2) as ex:
         results = list(ex.map(_call, ["run_a", "run_b"]))
@@ -61,7 +62,7 @@ def test_save_session_state_isolates_concurrent_runs(monkeypatch, tmp_path):
     monkeypatch.setattr(tools, "_get_gcs_client", lambda: FakeStorageClient(uploads))
 
     def _call(folder):
-        return tools.save_session_state_to_gcs(_ctx(folder))
+        return asyncio.run(tools.save_session_state_to_gcs(_ctx(folder)))
 
     with ThreadPoolExecutor(max_workers=2) as ex:
         results = list(ex.map(_call, ["run_a", "run_b"]))
@@ -86,7 +87,7 @@ def test_write_to_file_uploads_correct_content(monkeypatch, tmp_path):
     client = FakeStorageClient([])
     monkeypatch.setattr(tools, "_get_gcs_client", lambda: client)
 
-    tools.write_to_file("# unique content", _ctx("solo"))
+    asyncio.run(tools.write_to_file("# unique content", _ctx("solo")))
     assert client.contents["solo/selected_trends.txt"] == b"# unique content"
 
 
@@ -98,7 +99,7 @@ def test_save_session_state_uploads_valid_json(monkeypatch, tmp_path):
 
     ctx = _ctx("solo")
     ctx.state["some_key"] = "some_value"
-    tools.save_session_state_to_gcs(ctx)
+    asyncio.run(tools.save_session_state_to_gcs(ctx))
 
     parsed = json.loads(client.contents["solo/trawler_session_state.json"])
     assert parsed["some_key"] == "some_value"
