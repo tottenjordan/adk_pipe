@@ -439,9 +439,7 @@ class TestGatheredRefreshDate:
         return params["max_date"], len(calls)
 
     def test_uses_the_gathered_refresh_date(self, monkeypatch):
-        bound, calls = self._bound(
-            monkeypatch, {"gtrends_refresh_date": "2026-10-13"}
-        )
+        bound, calls = self._bound(monkeypatch, {"gtrends_refresh_date": "2026-10-13"})
         assert bound == "10/13/2026"
         assert calls == 0  # the max-date query never runs
 
