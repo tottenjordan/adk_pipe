@@ -82,10 +82,15 @@ class FakeGCS:
         blob.metadata = obj["metadata"]
         return blob
 
+    def _list_blobs(self, name: str, prefix: str = "", max_results=None):
+        paths = sorted(p for b, p in self.objects if b == name and p.startswith(prefix))
+        return [self._get_blob(name, p) for p in paths[:max_results]]
+
     def bucket(self, name: str):
         return SimpleNamespace(
             blob=lambda path: FakeBlob(self, name, path),
             get_blob=lambda path: self._get_blob(name, path),
+            list_blobs=lambda **kw: self._list_blobs(name, **kw),
         )
 
 
