@@ -46,6 +46,12 @@ from runserver.person_refs_store import build_store_from_env as build_person_ref
 from runserver.ratings_store import build_store_from_env as build_ratings_store
 from runserver.shares_store import build_store_from_env as build_shares_store
 
+# The api's entrypoint owns logging (library modules never configure it):
+# uvicorn sets up only its own loggers, so app INFO lines need a root handler.
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+)
+
 _AGENTS_DIR = "agents"
 _SESSION_URI = os.getenv("SESSION_SERVICE_URI") or None
 _ARTIFACT_URI = os.getenv("ARTIFACT_SERVICE_URI") or None

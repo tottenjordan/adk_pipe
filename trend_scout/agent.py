@@ -1,4 +1,3 @@
-import logging
 
 from google.adk.agents import Agent
 from google.adk.apps import App, ResumabilityConfig
@@ -32,12 +31,6 @@ from .tools import (
     write_to_file,
     write_trends_to_bq,
 )
-
-# --- config ---
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
-)
-
 
 # --- TREND SUBAGENTS ---
 gather_trends_agent = Agent(

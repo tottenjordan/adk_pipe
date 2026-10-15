@@ -38,10 +38,21 @@ from google.genai import types
 
 from agent_common.idempotency import stable_row_id
 
-# --- config ---
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
-)
+# --- logging ---
+LOG_FORMAT = "%(asctime)s - %(levelname)s - %(message)s"
+
+
+def ensure_default_logging() -> None:
+    """Give the root logger an INFO handler when nothing configured one.
+
+    Library modules never configure logging at import (an importer such as the
+    api launcher or a test owns the root logger). Entrypoints configure it
+    themselves (``deployment/async_app.py``, the deploy/test scripts); Agent
+    Engine has no entrypoint of ours, so ``log_run_start`` calls this on the
+    first run instead. A no-op whenever the root logger already has a handler.
+    """
+    if not logging.getLogger().handlers:
+        logging.basicConfig(level=logging.INFO, format=LOG_FORMAT)
 
 
 _EXHAUSTED_SUFFIX = "__retry_exhausted"
@@ -84,7 +95,10 @@ def log_run_start(callback_context: CallbackContext) -> None:
     per-user authz model (P3) the user_id is the caller's IAP email, so the line
     logs only a stable pseudonymous id (`stable_row_id(user_id)`): the same user
     always gets the same id, but the email never reaches the logs.
+
+    It first makes sure INFO lines reach a handler (``ensure_default_logging``).
     """
+    ensure_default_logging()
     logging.info(
         "run start: agent=%s invocation=%s session=%s user=%s",
         callback_context.agent_name,

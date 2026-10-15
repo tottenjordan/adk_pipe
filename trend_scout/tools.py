@@ -19,12 +19,6 @@ from agent_common.state import memorize  # noqa: F401  (ADK tool; re-exported)
 from .config import config
 from .trend_context import norm_term, sensitive_flags, trend_context_for
 
-# --- config ---
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
-)
-
-
 # ==============================
 # clients
 # =============================
