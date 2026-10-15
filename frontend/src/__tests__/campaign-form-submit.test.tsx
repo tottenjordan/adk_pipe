@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const push = vi.fn();
@@ -42,18 +42,14 @@ describe("campaign form submit", () => {
     render(<Home />);
     await waitFor(() => expect(submitButton()).toBeEnabled());
 
-    await act(async () => {
-      fireEvent.click(submitButton());
-    });
+    fireEvent.click(submitButton());
     await waitFor(() => expect(push).toHaveBeenCalledTimes(1));
     expect(push.mock.calls[0][0]).toMatch(/^\/run\/s-1\?/);
 
     // router.push has not unmounted the page yet: the button must stay busy.
     expect(submitButton()).toBeDisabled();
-    await act(async () => {
-      fireEvent.click(submitButton());
-      fireEvent.submit(submitButton().closest("form")!);
-    });
+    fireEvent.click(submitButton());
+    fireEvent.submit(submitButton().closest("form")!);
     expect(createSession).toHaveBeenCalledTimes(1);
     expect(push).toHaveBeenCalledTimes(1);
   });
@@ -62,9 +58,7 @@ describe("campaign form submit", () => {
     createSession.mockRejectedValue(new Error("offline"));
     render(<Home />);
     await waitFor(() => expect(submitButton()).toBeEnabled());
-    await act(async () => {
-      fireEvent.click(submitButton());
-    });
+    fireEvent.click(submitButton());
     expect(await screen.findByRole("alert")).toHaveTextContent("Couldn't start the run: offline.");
     expect(submitButton()).toBeEnabled();
   });
