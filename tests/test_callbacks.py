@@ -334,53 +334,121 @@ class TestSetInitialStates:
 
 
 # --- Rate limit callback ---
-class TestRateLimitLogic:
-    """Tests the rate limiting logic without importing CallbackContext."""
+class TestRateLimitCallback:
+    """The shared async limiter: temp:-scoped counters, non-blocking waits."""
 
-    def test_first_call_initializes_state(self):
-        """First call should set timer_start and request_count=1."""
-        state = {}
+    @staticmethod
+    def _cb(rpm_quota=3, rate_limit_seconds=60):
+        from agent_common.rate_limit import build_rate_limit_callback
+
+        cfg = pytypes.SimpleNamespace(
+            rpm_quota=rpm_quota, rate_limit_seconds=rate_limit_seconds
+        )
+        return build_rate_limit_callback(cfg)
+
+    @staticmethod
+    def _ctx(state=None):
+        return pytypes.SimpleNamespace(state={} if state is None else state)
+
+    def test_is_a_coroutine_function(self):
+        import inspect
+
+        assert inspect.iscoroutinefunction(self._cb())
+
+    def test_counters_are_invocation_scoped_temp_keys(self):
+        import asyncio
+
+        from google.adk.sessions.state import State
+
+        from agent_common.rate_limit import REQUEST_COUNT_KEY, TIMER_START_KEY
+
+        ctx = self._ctx()
+        asyncio.run(self._cb()(ctx, None))
+        assert set(ctx.state) == {TIMER_START_KEY, REQUEST_COUNT_KEY}
+        assert all(k.startswith(State.TEMP_PREFIX) for k in ctx.state)
+        assert ctx.state[REQUEST_COUNT_KEY] == 1
+        # The legacy persisted keys are gone.
+        assert "timer_start" not in ctx.state
+        assert "request_count" not in ctx.state
+
+    def test_temp_counters_are_not_persisted(self):
+        """ADK trims temp: keys from the event delta before persisting."""
+        import asyncio
+
+        from google.adk.events import Event, EventActions
+        from google.adk.sessions import InMemorySessionService
+
+        ctx = self._ctx()
+        asyncio.run(self._cb()(ctx, None))
+
+        async def run():
+            svc = InMemorySessionService()
+            session = await svc.create_session(app_name="a", user_id="u")
+            event = Event(author="x", actions=EventActions(state_delta=dict(ctx.state)))
+            await svc.append_event(session, event)
+            return await svc.get_session(
+                app_name="a", user_id="u", session_id=session.id
+            )
+
+        stored = asyncio.run(run())
+        assert stored is not None
+        assert not any(k.startswith("temp:") for k in stored.state)
+
+    def test_under_quota_counts_without_sleeping(self, monkeypatch):
+        import asyncio
+
+        from agent_common.rate_limit import REQUEST_COUNT_KEY
+
+        slept = []
+
+        async def fake_sleep(d):
+            slept.append(d)
+
+        monkeypatch.setattr("agent_common.rate_limit.asyncio.sleep", fake_sleep)
+        cb, ctx = self._cb(rpm_quota=3), self._ctx()
+        for _ in range(3):
+            asyncio.run(cb(ctx, None))
+        assert ctx.state[REQUEST_COUNT_KEY] == 3
+        assert slept == []
+
+    def test_over_quota_awaits_asyncio_sleep_and_resets(self, monkeypatch):
+        import asyncio
+
+        from agent_common.rate_limit import REQUEST_COUNT_KEY, TIMER_START_KEY
+
+        slept = []
+
+        async def fake_sleep(d):
+            slept.append(d)
+
+        def no_blocking_sleep(_d):
+            raise AssertionError("time.sleep would block the event loop")
+
+        monkeypatch.setattr("agent_common.rate_limit.asyncio.sleep", fake_sleep)
+        monkeypatch.setattr(time, "sleep", no_blocking_sleep)
         now = time.time()
+        ctx = self._ctx({TIMER_START_KEY: now - 30, REQUEST_COUNT_KEY: 3})
+        asyncio.run(self._cb(rpm_quota=3, rate_limit_seconds=60)(ctx, None))
+        assert len(slept) == 1
+        assert 29 <= slept[0] <= 32  # 60 - 30 + 1, minus elapsed test time
+        assert ctx.state[REQUEST_COUNT_KEY] == 1
+        assert ctx.state[TIMER_START_KEY] >= now
 
-        # Simulate first call logic
-        if "timer_start" not in state:
-            state["timer_start"] = now
-            state["request_count"] = 1
+    def test_over_quota_after_window_does_not_sleep(self, monkeypatch):
+        import asyncio
 
-        assert state["request_count"] == 1
-        assert state["timer_start"] == now
+        from agent_common.rate_limit import REQUEST_COUNT_KEY, TIMER_START_KEY
 
-    def test_subsequent_calls_increment_count(self):
-        state = {"timer_start": time.time(), "request_count": 5}
-        state["request_count"] = state["request_count"] + 1
-        assert state["request_count"] == 6
+        slept = []
 
-    def test_quota_exceeded_resets_count(self):
-        rpm_quota = 10
-        now = time.time()
-        state = {
-            "timer_start": now - 30,  # 30 seconds ago
-            "request_count": rpm_quota,
-        }
+        async def fake_sleep(d):
+            slept.append(d)
 
-        request_count = state["request_count"] + 1
-        if request_count > rpm_quota:
-            state["timer_start"] = now
-            state["request_count"] = 1
-
-        assert state["request_count"] == 1
-
-    def test_under_quota_keeps_counting(self):
-        rpm_quota = 1000
-        state = {"timer_start": time.time(), "request_count": 50}
-
-        request_count = state["request_count"] + 1
-        if request_count > rpm_quota:
-            state["request_count"] = 1
-        else:
-            state["request_count"] = request_count
-
-        assert state["request_count"] == 51
+        monkeypatch.setattr("agent_common.rate_limit.asyncio.sleep", fake_sleep)
+        ctx = self._ctx({TIMER_START_KEY: time.time() - 120, REQUEST_COUNT_KEY: 3})
+        asyncio.run(self._cb(rpm_quota=3, rate_limit_seconds=60)(ctx, None))
+        assert slept == []
+        assert ctx.state[REQUEST_COUNT_KEY] == 1
 
 
 class TestSkipReviserWithoutNotes:
