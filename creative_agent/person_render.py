@@ -31,8 +31,13 @@ def person_reference_uri(value: Any) -> str:
 
 def person_reference_available(value: Any) -> str:
     """``"yes"`` when ``value`` names a usable person reference, else ``""`` (the
-    visual agents read it as ``{person_reference_available?}``; never the URI)."""
-    return "yes" if person_reference_uri(value) else ""
+    visual agents read it as ``{person_reference_available?}``; never the URI).
+
+    Usable = a ``person-refs/`` URI (``person_reference_uri``) **and** a non-empty
+    ``consent_id``: ``adk web`` and direct engine sessions skip the api's consent
+    check, and a cast render without a consent id would carry no blob metadata
+    for the consent revoke cascade."""
+    return "yes" if person_reference_uri(value) and person_consent_id(value) else ""
 
 
 def person_consent_id(value: Any) -> str:

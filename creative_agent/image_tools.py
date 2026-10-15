@@ -53,6 +53,7 @@ from .person_render import (
     person_block_reason,
     person_consent_id,
     person_image_config,
+    person_reference_available,
     person_reference_uri,
 )
 from .rating_signals import strictness_flags
@@ -535,6 +536,9 @@ PERSON_REJECTED_NOTE = (
 PERSON_UNAVAILABLE_NOTE = (
     "{name}: person photo unavailable; rendered without the person"
 )
+PERSON_NO_CONSENT_NOTE = (
+    "Person reference has no consent id; rendered without the person"
+)
 
 
 async def _store_image(
@@ -923,6 +927,13 @@ async def generate_image(
         logging.warning(
             "Person reference ignored: not a gs:// photo under person-refs/"
         )
+    person_notes: list[str] = []
+    if person_uri and not person_reference_available(person_ref):
+        # No consent id (adk web / direct engine sessions skip the api's
+        # consent check): never cast, so no render lacks the revoke metadata.
+        logging.warning("Person reference ignored: no consent id")
+        person_uri = ""
+        person_notes.append(PERSON_NO_CONSENT_NOTE)
     final_visual_concepts_list, cast_warnings = enforce_person_casting(
         [c for c in final_visual_concepts_list if isinstance(c, dict)],
         available=bool(person_uri),
@@ -1091,14 +1102,16 @@ async def generate_image(
         # {concept: reason} for the results page, plus a run note (generic
         # `<key>__issues` marker → collect_degradation_warnings).
         tool_context.state["person_reference_rejected"] = person_rejected
-        tool_context.state["person_reference__issues"] = [
+        person_notes.extend(
             (
                 PERSON_UNAVAILABLE_NOTE
                 if reason == "photo_unavailable"
                 else PERSON_REJECTED_NOTE
             ).format(name=name)
             for name, reason in person_rejected.items()
-        ]
+        )
+    if person_notes:
+        tool_context.state["person_reference__issues"] = person_notes
 
     return {
         "status": "success",

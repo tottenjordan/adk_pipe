@@ -18,6 +18,7 @@ from creative_agent.person_render import (
     person_block_reason,
     person_consent_id,
     person_image_config,
+    person_reference_available,
     person_reference_uri,
 )
 from tests._fakes import FakeToolContext, noop_async
@@ -50,6 +51,16 @@ def test_person_reference_uri_shape():
 def test_person_consent_id():
     assert person_consent_id({"consent_id": " c1 "}) == "c1"
     assert person_consent_id({}) == "" and person_consent_id(None) == ""
+
+
+def test_person_reference_is_available_only_with_a_consent_id():
+    """CV-2: the api's consent check is skipped by `adk web` and direct engine
+    sessions, so the engine never casts a photo without a consent id."""
+    assert person_reference_available({"uri": PERSON_URI, "consent_id": "c1"}) == "yes"
+    for missing in ("", "  ", None, 3):
+        ref = {"uri": PERSON_URI, "consent_id": missing}
+        assert person_reference_available(ref) == "", missing
+    assert person_reference_available({"uri": PERSON_URI}) == ""
 
 
 def _response(*, image=True, finish=None, block=None):
@@ -443,6 +454,37 @@ def test_final_retryable_client_error_on_person_render_raises(monkeypatch, code)
     assert all(_is_person_call(call) for call in models.calls)  # no fallback
     assert "person_reference_rejected" not in ctx.state
     assert "person_reference__issues" not in ctx.state
+
+
+@pytest.mark.usefixtures("image_qa_off")
+@pytest.mark.parametrize("consent_id", ["", "   ", None])
+def test_person_reference_without_consent_id_is_never_cast(
+    monkeypatch, caplog, consent_id
+):
+    """CV-2: no consent id → no person part, no cast record (so no consent-less
+    cast render saved as an ADK artifact) and a run note."""
+    models, downloads = _patch(monkeypatch)
+    person = {"uri": PERSON_URI}
+    if consent_id is not None:
+        person["consent_id"] = consent_id
+    ctx = _ctx([_concept("cast", cast=True)], person=person)
+    saved = []
+
+    async def save_artifact(filename, artifact):
+        saved.append(filename)
+
+    ctx.save_artifact = save_artifact
+    with caplog.at_level(logging.INFO):
+        asyncio.run(image_tools.generate_image(ctx))
+    assert downloads == []
+    assert len(models.calls) == 1 and not _is_person_call(models.calls[0])
+    assert models.calls[0]["config"].image_config.person_generation is None
+    record = ctx.state["generated_images"]["cast"]
+    assert record.get("cast") is not True and "consent_id" not in record
+    # the plain (uncast) render is the only artifact copy
+    assert saved == [image_tools.artifact_key_for("cast")]
+    assert ctx.state["person_reference__issues"] == [image_tools.PERSON_NO_CONSENT_NOTE]
+    assert "alice-0123456789" not in caplog.text
 
 
 @pytest.mark.usefixtures("image_qa_off")
