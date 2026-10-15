@@ -404,6 +404,74 @@ class TestTrawlerDate:
         assert seen == [t.config.trend_timezone] * 3
 
 
+class TestGatheredRefreshDate:
+    """TS-2: rows carry the date the trends were GATHERED (state
+    gtrends_refresh_date), not the public table's latest date at write time
+    (an interactive pause can span a table refresh)."""
+
+    def _bound(self, monkeypatch, state_extra):
+        import trend_scout.tools as t
+
+        bq = FakeBigQueryClient()
+        monkeypatch.setattr(t, "_get_bigquery_client", lambda: bq)
+        calls = []
+
+        def max_date():
+            calls.append(1)
+            return "10/14/2026"
+
+        monkeypatch.setattr(t, "_get_gtrends_max_date", max_date)
+        ctx = FakeToolContext(session_id="sess-refresh")
+        ctx.state.update(
+            {
+                "gcs_folder": "2026_10_14_run",
+                "target_search_trends": {"target_search_trends": ["T1"]},
+                "brand": "PRS",
+                "target_audience": "musicians",
+                "target_product": "SE CE24",
+                "key_selling_points": "tone",
+                **state_extra,
+            }
+        )
+        asyncio.run(t.write_trends_to_bq(ctx))
+        (_, job_config) = bq.queries[-1]
+        params = {p.name: p.value for p in job_config.query_parameters}
+        return params["max_date"], len(calls)
+
+    def test_uses_the_gathered_refresh_date(self, monkeypatch):
+        bound, calls = self._bound(
+            monkeypatch, {"gtrends_refresh_date": "2026-10-13"}
+        )
+        assert bound == "10/13/2026"
+        assert calls == 0  # the max-date query never runs
+
+    def test_falls_back_to_the_table_max_date(self, monkeypatch):
+        for extra in ({}, {"gtrends_refresh_date": ""}, {"gtrends_refresh_date": "x"}):
+            assert self._bound(monkeypatch, extra) == ("10/14/2026", 1)
+
+    def test_gather_queries_are_time_bounded(self, monkeypatch):
+        import trend_scout.tools as t
+
+        day = datetime.date(2026, 10, 13)
+
+        def rows(sql, _job_config):
+            if "MAX(refresh_date)" in sql:
+                return [{"max_date": day}]
+            return [{"term": "a", "refresh_date": day}]
+
+        bq = FakeBigQueryClient(rows)
+        monkeypatch.setattr(t, "_get_bigquery_client", lambda: bq)
+        assert t._get_gtrends_max_date() == "10/13/2026"
+        assert t._query_daily_gtrends() == ("10/13/2026", [("a", 1, "2026-10-13")])
+        assert len(bq.queries) == 3  # max date, then (max date + top terms)
+        for _sql, job_config in bq.queries:
+            assert job_config is not None
+            assert int(job_config.job_timeout_ms) == t.GTRENDS_JOB_TIMEOUT_MS
+        assert [job.result_timeout for job in bq.jobs] == [
+            t.GTRENDS_RESULT_TIMEOUT_SECONDS
+        ] * 3
+
+
 # --- save_search_trends_to_session_state logic ---
 class TestSaveSearchTrends:
     def test_appends_trend_to_existing_list(self):
@@ -972,7 +1040,7 @@ class TestGetDailyGtrends:
             def to_dataframe(self):  # pragma: no cover - must not be used
                 raise AssertionError("to_dataframe needs pandas; iterate rows")
 
-            def result(self):
+            def result(self, timeout=None):
                 # BigQuery Row objects support mapping access by column name.
                 return [
                     {
@@ -1034,7 +1102,7 @@ class TestGetDailyGtrends:
             def to_dataframe(self):  # pragma: no cover - must not be used
                 raise AssertionError("to_dataframe needs pandas; iterate rows")
 
-            def result(self):
+            def result(self, timeout=None):
                 return iter([{"max_date": datetime.date(2026, 10, 11)}])
 
         class _Client:
