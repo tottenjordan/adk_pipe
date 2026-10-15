@@ -107,7 +107,7 @@ def test_gate_is_registered_labelled_and_the_version_bumped():
     assert TIMELY_GATES == frozenset({GATE})
     assert GATE not in ADVISORY_GATES | BRIEF_GATES | PERSON_GATES | TREND_GATES
     assert GATE_LABELS[GATE] == "Timely claim supported"
-    assert JUDGE_VERSION == "2026-10-15"
+    assert JUDGE_VERSION == "2026-10-15.1"
 
 
 def test_prompts_name_the_gate_and_the_new_counts():

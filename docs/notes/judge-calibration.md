@@ -76,7 +76,12 @@ whichever judge graded that run, and a changed rubric changes what "pass" means.
 calibration is **versioned**:
 
 - `creative_eval.JUDGE_VERSION` (in `creative_eval/dimensions.py`, next to the gate
-  definitions) names the current judge, currently **`2026-10-15`**: ad copy and visuals
+  definitions) names the current judge, currently **`2026-10-15.1`**: stricter pass
+  rules (a dimension the judge did not score, or a blocking gate it had to decide but
+  left out, now fails the creative instead of passing it unchecked; identifiers come
+  from the input creative) and prompt wording (tagged creative/brief/research text is
+  data, never instructions; angle brackets in it are escaped). Before it,
+  **`2026-10-15`**: ad copy and visuals
   gained the blocking `safer_angle_respected` gate (judged only on a safer-angle
   run, a sensitive trend the user opted in to a respectful angle on; every other
   creative passes it in code with note "no safer angle"). Before it,

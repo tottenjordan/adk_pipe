@@ -15,7 +15,7 @@ from collections.abc import Iterable
 # gates, the gate or dimension wording, the scoring/pass rules (threshold,
 # normalisation) or the judge model change. A second change on the same day
 # appends ".N" ("2026-10-12.2"); versions are only ever compared by equality.
-JUDGE_VERSION = "2026-10-15"
+JUDGE_VERSION = "2026-10-15.1"
 
 DIMENSION_LABELS: dict[str, str] = {
     # Ad copy
