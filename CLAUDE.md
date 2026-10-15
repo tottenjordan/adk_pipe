@@ -177,7 +177,7 @@ creative_agent (root Agent `root_agent`; non-resumable App (carries plugins); to
 │   │   (deterministic copy_gate.py: product named, CTA ≤8 words, headline/caption length, brief avoid
 │   │   terms, unsupported absolute claims (claims.py; allowed when the user's selling points or the
 │   │   brief's mandatories state them), a trend tie (trend_tie.py: the trend phrase, one of its distinctive
-│   │   words or a brief motif; avoid terms never count; skipped for a sensitive moment or trend_scout's `trend_sensitive_hint`, unless `safer_angle_active`: then re-checked with the brief-risk-named event words excluded, any endorsement term (endorsement.py) flagged and `safer_angle_named_copies` recorded), plus the critic's failed proposition/mandatories/risks (trend
+│   │   words or a brief motif; avoid terms never count; skipped for a sensitive moment or trend_scout's `trend_sensitive_hint`, unless `safer_angle_active`: then re-checked with the brief-risk-named event words excluded, any endorsement term (endorsement.py) flagged, at least ceil(n/2) copies required to name the subject or use a distinctive `trend_bridge.safer_angle` word (`safer_angle_tie_words`: generic words like "soul"/"studio", product/brand and risk/avoid words never count; below that every untied copy is flagged) and `safer_angle_named_copies` recorded), plus the critic's failed proposition/mandatories/risks (trend
 │   │   risks)/trend_bridge (clear, specific trend tie) checks (other self-reports advisory);
 │   │   "revise" → ad_copy_reviser_failsoft (rewrites ONLY flagged copies;
 │   │   unflagged edits reverted by restore_unflagged) → back to copy_gate, at most COPY_REVISION_ROUNDS

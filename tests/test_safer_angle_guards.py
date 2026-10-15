@@ -41,7 +41,14 @@ def _copy(original_id=1, **overrides):
 
 
 def _texts(issues):
-    return {k: [str(i) for i in v] for k, v in issues.items()}
+    """Issue texts, minus the at-least-half safer-angle tie (its own file,
+    tests/test_safer_angle_copy_tie.py; these single-copy cases would always
+    trip it)."""
+    texts = {
+        k: [str(i) for i in v if not str(i).startswith("not tied to the safer angle")]
+        for k, v in issues.items()
+    }
+    return {k: v for k, v in texts.items() if v}
 
 
 def _gate(*copies, **kwargs):
