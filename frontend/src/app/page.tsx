@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useState, useEffect, useRef } from "react";
+import { Suspense, useState, useEffect, useRef, useTransition } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -184,7 +184,9 @@ function HomeContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const formRef = useRef<HTMLFormElement>(null);
-  const [loading, setLoading] = useState(false);
+  // Pending from submit until the run page lands: a re-enabled button
+  // mid-navigation would let a second click create an orphan session.
+  const [starting, startRun] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [form, setForm] = useState<CampaignInput>(EMPTY_FORM);
   const [visualOpen, setVisualOpen] = useState(false);
@@ -250,12 +252,9 @@ function HomeContent() {
     1 + extraReferences.length < MAX_REFERENCE_IMAGES &&
     extraReferences.every((r) => r.uri.trim());
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!isValid || loading) return;
-    setLoading(true);
-    setError(null);
-
+  // Runs inside the startRun transition, so `starting` stays true until
+  // router.push lands (push is itself a transition) or the start fails.
+  const createAndOpenRun = async () => {
     try {
       const userId = SELF_USER_ID;
       // Seed the session's initial state: the agent (for run history), the
@@ -278,11 +277,8 @@ function HomeContent() {
         app: form.agent,
         userId,
       });
-      // Stay "loading" until the route changes: resetting here would re-enable the
-      // button mid-navigation, and a second click would create an orphan session.
       router.push(`/run/${session.id}?${params.toString()}`);
     } catch (err) {
-      setLoading(false);
       setError(
         err instanceof Error
           ? `Couldn't start the run: ${err.message}. Check your connection and try again.`
@@ -291,11 +287,18 @@ function HomeContent() {
     }
   };
 
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!isValid || starting) return;
+    setError(null);
+    startRun(createAndOpenRun);
+  };
+
   // Cmd/Ctrl+Enter submits from anywhere in the form (including textareas).
   const handleKeyDown = (e: React.KeyboardEvent<HTMLFormElement>) => {
     if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
-      if (isValid && !loading) formRef.current?.requestSubmit();
+      if (isValid && !starting) formRef.current?.requestSubmit();
     }
   };
 
@@ -719,9 +722,9 @@ function HomeContent() {
               type="submit"
               size="lg"
               className="h-10 px-5 text-sm font-semibold"
-              disabled={!isValid || loading}
+              disabled={!isValid || starting}
             >
-              {loading ? (
+              {starting ? (
                 <span className="flex items-center gap-2">
                   <span className="h-4 w-4 rounded-full border-2 border-primary-foreground/30 border-t-primary-foreground animate-spin" />
                   Starting…
