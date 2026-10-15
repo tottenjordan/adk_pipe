@@ -12,15 +12,11 @@ from fastapi import HTTPException
 
 from bandit.config import DEFAULT_EXPLORATION_SCALE, MAX_DWELL_S, scenario_noise_var
 from bandit.features import DIM
-from bandit_serving import predictor as predictor_mod
-from bandit_serving.predictor import (
-    MAX_DISTINCT_PARAMS,
-    MAX_SEED,
-    BanditPredictor,
-    GcsStorage,
-    LocalStorage,
-    resolve_params,
-)
+from bandit_serving import checkpoint as checkpoint_mod
+from bandit_serving import instances as instances_mod
+from bandit_serving.instances import MAX_SEED, resolve_params
+from bandit_serving.predictor import MAX_DISTINCT_PARAMS, BanditPredictor
+from bandit_serving.storage import GcsStorage, LocalStorage
 
 ARMS = [
     {"creative_id": "c1", "label": "One", "scores": {"overall": 0.8}},
@@ -232,13 +228,13 @@ def _spy_update_discounts(p, monkeypatch):
     import bandit_serving.predictor as pred
 
     seen: list[float] = []
-    real = pred._update_kernel
+    real = pred.update_kernel
 
     def spy(state, arms, X, rewards, valid, params, reward_scale=1.0):
         seen.append(params.discount)
         return real(state, arms, X, rewards, valid, params, reward_scale)
 
-    monkeypatch.setattr(pred, "_update_kernel", spy)
+    monkeypatch.setattr(pred, "update_kernel", spy)
     return seen
 
 
@@ -664,6 +660,73 @@ def test_checkpoint_round_trip(art):
     assert run(q, _rewards(more))[0]["model_version"] == "exp1-e0-v2"
 
 
+def _legacy_checkpoint(ckpt, meta):
+    """A checkpoint exactly as the pre-``CheckpointMeta`` predictor wrote it:
+    ``json.dumps`` of a plain dict + an ``.npz`` of a (3-arm, d=19) state."""
+    k, d = len(ARMS), DIM
+    precision = np.broadcast_to(np.eye(d, dtype=np.float32) * 2.0, (k, d, d))
+    b = np.arange(k * d, dtype=np.float32).reshape(k, d) / 100.0
+    ckpt.mkdir(parents=True, exist_ok=True)
+    np.savez(
+        ckpt / meta["npz"],
+        precision=precision,
+        b=b,
+        n=np.array([3, 4, 5], np.int32),
+        step=np.array(12, np.int32),
+    )
+    (ckpt / "latest.json").write_bytes(json.dumps(meta).encode("utf-8"))
+
+
+LEGACY_META = {
+    "experiment_id": "exp1",
+    "model_version": "exp1-e2-v7",
+    "npz": "exp1-e2-v7.npz",
+    "episode": 2,
+    "seed": 11,
+    "discount": 0.97,
+    "policy_stream": {"key_data": list(POLICY_RESET["policy_key"]), "batch_size": 8},
+    "n_updates": 7,
+    "calls": 5,
+    "feature_spec_version": "ctx-v1",
+    "saved_at": 1760000000.5,
+}
+
+
+@pytest.mark.parametrize(
+    "drop",
+    [(), ("discount", "policy_stream"), ("feature_spec_version", "saved_at")],
+    ids=["current", "before-discount-and-stream", "no-informational-keys"],
+)
+def test_pre_refactor_latest_json_restores(art, drop):
+    """``latest.json`` is an on-disk format: checkpoints written by the
+    pre-refactor predictor (incl. older ones without ``discount`` /
+    ``policy_stream``) restore unchanged."""
+    meta = {k: v for k, v in LEGACY_META.items() if k not in drop}
+    _legacy_checkpoint(art / "checkpoints", meta)
+    p = _predictor(art)
+    s = _state(p)
+    assert (s["model_version"], s["episode"], s["step"]) == ("exp1-e2-v7", 2, 12)
+    assert s["pulls"] == {"c1": 3, "c2": 4, "c3": 5}
+    assert p._calls == 5
+    assert p._update_params().discount == meta.get("discount", 1.0)
+    stream = p._policy_stream
+    if "policy_stream" in meta:
+        assert stream is not None and stream.to_json() == meta["policy_stream"]
+    else:
+        assert stream is None
+
+
+def test_checkpoint_meta_writes_the_legacy_bytes():
+    """``CheckpointMeta.to_json`` is byte-identical to the dict the
+    pre-refactor predictor dumped (same keys, same order)."""
+    meta = checkpoint_mod.CheckpointMeta.from_dict(LEGACY_META)
+    assert meta.to_json() == json.dumps(LEGACY_META).encode("utf-8")
+    old = {**LEGACY_META, "discount": None, "policy_stream": None}
+    assert checkpoint_mod.CheckpointMeta.from_dict(old).to_json() == (
+        json.dumps(old).encode("utf-8")
+    )
+
+
 def test_checkpoint_on_reset_and_time(art):
     p = _predictor(art, checkpoint_every=10_000, checkpoint_seconds=0.0)
     run(p, [{"type": "reset", "episode": 4, "seed": 2}])
@@ -738,14 +801,14 @@ def test_concurrency_smoke(art):
 
 
 def test_warmup_buckets_and_warm_load(art, monkeypatch, caplog):
-    from bandit_serving.predictor import warmup_buckets
+    from bandit_serving.kernels import warmup_buckets
 
     assert warmup_buckets() == []
     monkeypatch.setenv("BANDIT_WARMUP", "1")
     monkeypatch.setenv("BANDIT_WARMUP_BUCKETS", "1,20,x,5000")
     assert warmup_buckets() == [16, 32, 1024]
     monkeypatch.setenv("BANDIT_WARMUP_BUCKETS", "16")
-    caplog.set_level("INFO", logger="bandit_serving.predictor")
+    caplog.set_level("INFO", logger="bandit_serving")
     p = _predictor(art)
     assert "jit warm-up" in caplog.text
     assert _state(p)["step"] == 0  # warm-up never touches the live posterior
@@ -796,7 +859,7 @@ def test_unset_checkpoint_uri_disables_checkpoints_with_one_warning(
     monkeypatch.setattr(
         LocalStorage, "write_bytes", lambda self, rel, data: writes.append(rel)
     )
-    with caplog.at_level(logging.WARNING, logger=predictor_mod.__name__):
+    with caplog.at_level(logging.WARNING, logger="bandit_serving"):
         p = BanditPredictor(checkpoint_every=1, checkpoint_seconds=0.0)
         p.load(str(art))
         run(p, [{"type": "reset", "episode": 1, "seed": 3}])
@@ -816,7 +879,7 @@ def test_checkpoint_write_failure_is_one_concise_warning(art, caplog):
         raise PermissionError("storage.objects.create denied")
 
     p._ckpt_storage.write_bytes = denied  # type: ignore[method-assign]
-    with caplog.at_level(logging.WARNING, logger=predictor_mod.__name__):
+    with caplog.at_level(logging.WARNING, logger="bandit_serving"):
         _train(p, 1)
     assert _state(p)["model_version"] == "exp1-e0-v1"  # still serving
     failures = [r for r in caplog.records if "checkpoint" in r.getMessage()]
@@ -842,7 +905,7 @@ def test_npz_is_written_before_latest_json(art):
 
 
 def test_old_checkpoints_are_pruned(art, monkeypatch):
-    monkeypatch.setattr(predictor_mod, "CHECKPOINT_KEEP", 3)
+    monkeypatch.setattr(checkpoint_mod, "CHECKPOINT_KEEP", 3)
     ckpt = art / "checkpoints"
     p = _predictor(art, checkpoint_every=1)
     _train(p, 7)
@@ -854,7 +917,7 @@ def test_old_checkpoints_are_pruned(art, monkeypatch):
 
 
 def test_prune_failure_only_logs(art, monkeypatch, caplog):
-    monkeypatch.setattr(predictor_mod, "CHECKPOINT_KEEP", 1)
+    monkeypatch.setattr(checkpoint_mod, "CHECKPOINT_KEEP", 1)
     p = _predictor(art, checkpoint_every=1)
     assert p._ckpt_storage is not None
 
@@ -862,7 +925,7 @@ def test_prune_failure_only_logs(art, monkeypatch, caplog):
         raise OSError("delete denied")
 
     p._ckpt_storage.delete = nope  # type: ignore[method-assign]
-    with caplog.at_level(logging.WARNING, logger=predictor_mod.__name__):
+    with caplog.at_level(logging.WARNING, logger="bandit_serving"):
         _train(p, 3)
     assert _state(p)["model_version"] == "exp1-e0-v3"
     meta = json.loads((art / "checkpoints" / "latest.json").read_text())
@@ -1047,7 +1110,7 @@ def test_non_finite_update_keeps_the_previous_state(art):
     run(p, _rewards(preds[:1]))
     before = _state(p)
     rewards = [
-        predictor_mod._Reward(
+        instances_mod.Reward(
             d["request_id"], p._arm_index[d["chosen_arm"]], value
         )  # bypasses the parse-time bound
         for d, value in zip(preds[1:], (1e38, 1.0), strict=True)
@@ -1251,10 +1314,10 @@ def test_parse_turns_validation_exceptions_into_errors(art, monkeypatch, exc):
     ``preprocess`` and fail the whole request."""
     p = _predictor(art)
 
-    def boom(inst):
+    def boom(inst, arm_index):
         raise exc
 
-    monkeypatch.setattr(p, "_parse_decision", boom)
+    monkeypatch.setattr(instances_mod, "_parse_decision", boom)
     assert run(p, _decisions(1)) == [
         {"type": "error", "request_id": "r0", "error": str(exc)}
     ]

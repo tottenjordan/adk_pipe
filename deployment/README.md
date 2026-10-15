@@ -2097,8 +2097,9 @@ docker run --rm --entrypoint python -v /tmp/cfg:/cfg:ro <image> \
   -m bandit_traffic.main --in-process --dry-run --config /cfg/experiment.json --out /tmp/out
 ```
 
-Local run with no GCP: the `--in-process` fake endpoint (`bandit_traffic/fake_endpoint.py`, the
-contracts §2 semantics over `bandit.linear_ts`) and JSONL output instead of BigQuery:
+Local run with no GCP: `--in-process` runs the real `BanditPredictor` in the job's process
+(`bandit_traffic.endpoint_client.LocalPredictorEndpoint`: loaded from a temp copy of the run's
+`experiment.json`, no jit warm-up, no checkpoints) and writes JSONL instead of BigQuery:
 
 ```bash
 uv run python -m bandit_traffic.main --in-process --config /tmp/experiment.json \

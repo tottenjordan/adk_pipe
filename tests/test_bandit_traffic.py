@@ -1,5 +1,6 @@
 """The traffic loop end to end (``bandit_traffic.traffic`` / ``.main``), with the
-in-process fake endpoint and a fake BigQuery client (no GCP)."""
+real predictor in-process (``LocalPredictorEndpoint``) and a fake BigQuery
+client (no GCP)."""
 
 import dataclasses
 import json
@@ -25,8 +26,7 @@ from bandit.config import (
 from bandit.metrics import log_checkpoints, make_checkpoints, merge_checkpoints
 from bandit.policies import make_policy
 from bandit_traffic import bq, main, traffic
-from bandit_traffic.endpoint_client import InProcessClient
-from bandit_traffic.fake_endpoint import FakeBanditEndpoint
+from bandit_traffic.endpoint_client import InProcessClient, LocalPredictorEndpoint
 from tests._bandit_sizes import BATCH, HORIZON_M, HORIZON_S
 from tests._fake_bq import FakeBigQueryClient as FakeBQ
 
@@ -61,11 +61,12 @@ def _cfg(**kw):
 def run():
     cfg = _cfg()
     fake_bq = FakeBQ()
-    endpoint = FakeBanditEndpoint(cfg)
+    endpoint = LocalPredictorEndpoint(cfg)
+    client = RecordingClient(InProcessClient(endpoint))
     summary = traffic.run_traffic(
-        cfg, InProcessClient(endpoint), _writer(fake_bq), traffic.TrafficSettings()
+        cfg, client, _writer(fake_bq), traffic.TrafficSettings()
     )
-    return cfg, fake_bq, endpoint, summary
+    return cfg, fake_bq, (endpoint, client), summary
 
 
 def test_event_rows(run):
@@ -132,8 +133,8 @@ def test_linear_ts_metrics_match_events(run):
 
 
 def test_a_reward_request_per_batch(run):
-    _, _, endpoint, summary = run
-    kinds = [set(types) for types, _ in endpoint.calls]
+    _, _, (_, client), summary = run
+    kinds = [{i["type"] for i in req} for req in client.requests]
     assert kinds.count({"reset"}) == E
     assert kinds.count({"decision"}) == E * (T // BS)
     assert kinds.count({"reward"}) == E * (T // BS)
@@ -183,7 +184,7 @@ class RecordingClient:
 
 def _small_run(client_wrapper, settings, horizon=T):
     cfg = _cfg(horizon=horizon, episodes=1)
-    client = client_wrapper(InProcessClient(FakeBanditEndpoint(cfg)))
+    client = client_wrapper(InProcessClient(LocalPredictorEndpoint(cfg)))
     fake_bq = FakeBQ()
     summary = traffic.run_traffic(cfg, client, _writer(fake_bq), settings)
     return client, fake_bq, summary
@@ -371,7 +372,7 @@ def test_stop_flushes_buffered_events_and_written_metrics(learning):
     # stop 3 batches into the second episode / segment: the first one's metrics
     # are written, the buffered events of both are flushed, then TrafficStopped
     cfg = _cfg()
-    client = DecisionCounter(InProcessClient(FakeBanditEndpoint(cfg)))
+    client = DecisionCounter(InProcessClient(LocalPredictorEndpoint(cfg)))
     stop_after = T // BS + 3
     fake_bq = FakeBQ()
     settings = traffic.TrafficSettings(baselines=("oracle",), event_flush_rows=10**9)
@@ -401,7 +402,7 @@ def test_stop_before_the_first_episode_writes_nothing():
     with pytest.raises(traffic.TrafficStopped):
         traffic.run_traffic(
             cfg,
-            InProcessClient(FakeBanditEndpoint(cfg)),
+            InProcessClient(LocalPredictorEndpoint(cfg)),
             _writer(fake_bq),
             traffic.TrafficSettings(baselines=("oracle",)),
             stop=lambda: True,
@@ -428,7 +429,9 @@ def test_main_sigterm_stops_early_flushes_and_exits_nonzero(tmp_path, caplog):
                 os.kill(os.getpid(), signal.SIGTERM)
 
         cfg = _cfg()
-        client = DecisionCounter(InProcessClient(FakeBanditEndpoint(cfg)), on_decision)
+        client = DecisionCounter(
+            InProcessClient(LocalPredictorEndpoint(cfg)), on_decision
+        )
         fake_bq = FakeBQ()
         env = {"CONFIG_URI": str(cfg_path), "EXPERIMENT_ID": EID}
         with caplog.at_level("INFO", logger="bandit_traffic"):
@@ -468,7 +471,7 @@ def test_traffic_with_overrides_uses_tuned_environment():
     cfg = _cfg(episodes=1, scenario_overrides=ScenarioOverrides(segment_mix=MIX))
     tr = traffic.TrafficRunner(
         cfg,
-        InProcessClient(FakeBanditEndpoint(cfg)),
+        InProcessClient(LocalPredictorEndpoint(cfg)),
         _writer(FakeBQ()),
         traffic.TrafficSettings(),
     )
@@ -478,7 +481,7 @@ def test_traffic_with_overrides_uses_tuned_environment():
     fake_bq = FakeBQ()
     traffic.run_traffic(
         cfg,
-        InProcessClient(FakeBanditEndpoint(cfg)),
+        InProcessClient(LocalPredictorEndpoint(cfg)),
         _writer(fake_bq),
         traffic.TrafficSettings(baselines=("oracle",)),
     )
@@ -519,7 +522,7 @@ def test_main_dry_run_reads_overrides_from_config(tmp_path):
 def test_no_shift_run_is_unchanged(run):
     """Without shifts: log checkpoints, no ghost row, NULL shift payloads,
     run 1 everywhere and no reset discount."""
-    _, fake, endpoint, summary = run
+    _, fake, (endpoint, client), summary = run
     rows = fake.rows("bandit_episode_metrics")
     assert traffic.GHOST_POLICY not in {r["policy"] for r in rows}
     assert all(r["traffic_run"] == 1 for r in rows)
@@ -527,7 +530,9 @@ def test_no_shift_run_is_unchanged(run):
     cps = json.loads(rows[0]["curve"])["checkpoints"]
     assert cps == log_checkpoints(T, 50)
     assert summary.discount is None and summary.resolved_shifts == []
-    assert endpoint.discount is None
+    resets = [i for req in client.requests for i in req if i["type"] == "reset"]
+    assert resets and all("discount" not in i for i in resets)
+    assert endpoint.predictor._discount is None
     assert f"{EID}-r1-e0-linear_ts" in {bq.metrics_row_id(r) for r in rows}
 
 
@@ -553,7 +558,7 @@ def shifted():
         shifts_from_dict(SHIFTS), resolve_scenario(cfg), cfg.arms, cfg.ctr_mode
     )
     fake_bq = FakeBQ()
-    client = RecordingClient(InProcessClient(FakeBanditEndpoint(cfg)))
+    client = RecordingClient(InProcessClient(LocalPredictorEndpoint(cfg)))
     tr = traffic.TrafficRunner(
         cfg,
         client,
@@ -602,7 +607,7 @@ def test_shifted_run_sends_the_forget_discount(shifted):
         (0, j) for j in range(BS)
     ] + [(1, 0)]
     assert summary.discount == tr.discount == RESET_DISCOUNT_BOUNDS[0]
-    assert client.inner.target.discount == RESET_DISCOUNT_BOUNDS[0]
+    assert client.inner.target.predictor._discount == RESET_DISCOUNT_BOUNDS[0]
     assert traffic.run_discount(_cfg(horizon=40_000)) == 0.98
 
 
@@ -823,7 +828,7 @@ def continuous():
         shifts_from_dict(CONT_SHIFTS), resolve_scenario(cfg), cfg.arms, cfg.ctr_mode
     )
     fake_bq = FakeBQ()
-    client = RecordingClient(InProcessClient(FakeBanditEndpoint(cfg)))
+    client = RecordingClient(InProcessClient(LocalPredictorEndpoint(cfg)))
     tr = traffic.TrafficRunner(
         cfg,
         client,
@@ -1011,7 +1016,7 @@ def test_main_runs_continuous_from_env(tmp_path):
     cfg_path = _write_config(tmp_path)
     fake_bq = FakeBQ()
     env = {"CONFIG_URI": str(cfg_path), "EPISODES": "2", "LEARNING_MODE": "continuous"}
-    client = RecordingClient(InProcessClient(FakeBanditEndpoint(_cfg())))
+    client = RecordingClient(InProcessClient(LocalPredictorEndpoint(_cfg())))
     assert main.main([], env=env, client=client, writer=_writer(fake_bq)) == 0
     resets = [i for req in client.requests for i in req if i["type"] == "reset"]
     assert len(resets) == 1
@@ -1027,7 +1032,7 @@ class DeadlineExceeded(Exception):
 
 
 class StallingSdk:
-    """A fake ``aiplatform`` over the fake endpoint whose n-th decision request
+    """A fake ``aiplatform`` over the in-process predictor whose n-th decision request
     stalls (times out) and sets the stop flag, like SIGTERM during the stall."""
 
     def __init__(self, endpoint, stop, stall_at):
@@ -1047,8 +1052,8 @@ class StallingSdk:
                     if sdk.decision_calls >= sdk.stall_at:
                         sdk.stop.set()
                         raise DeadlineExceeded("predict timed out")
-                preds = sdk.endpoint.predict(list(instances), parameters)
-                return SimpleNamespace(predictions=preds)
+                out = sdk.endpoint.predict(list(instances), parameters)
+                return SimpleNamespace(predictions=out["predictions"])
 
         return _Endpoint()
 
@@ -1062,7 +1067,7 @@ def test_sigterm_during_a_stalled_predict_flushes_without_retrying(learning):
     cfg = _cfg()
     stop = threading.Event()
     stall_at = T // BS + 4  # the 4th batch of the second episode / segment
-    sdk = StallingSdk(FakeBanditEndpoint(cfg), stop, stall_at)
+    sdk = StallingSdk(LocalPredictorEndpoint(cfg), stop, stall_at)
     sleeps: list[float] = []
     client = VertexEndpointClient(
         "projects/p/locations/us-central1/endpoints/1",
@@ -1122,7 +1127,7 @@ def test_main_wires_the_sigterm_flag_into_the_built_client(tmp_path, monkeypatch
 
     def fake_build_client(args, env, cfg_, *, should_stop=None):
         seen["should_stop"] = should_stop
-        return SignalOnFirstDecision(InProcessClient(FakeBanditEndpoint(cfg)))
+        return SignalOnFirstDecision(InProcessClient(LocalPredictorEndpoint(cfg)))
 
     monkeypatch.setattr(main, "build_client", fake_build_client)
     previous = signal.signal(signal.SIGTERM, lambda s, f: None)
@@ -1159,7 +1164,7 @@ class RejectingClient(RecordingClient):
 
 def test_rejected_rewards_reach_progress_and_a_warning(caplog):
     cfg = _cfg()
-    client = RejectingClient(InProcessClient(FakeBanditEndpoint(cfg)), n=7)
+    client = RejectingClient(InProcessClient(LocalPredictorEndpoint(cfg)), n=7)
     fake_bq = FakeBQ()
     with caplog.at_level("WARNING", logger="bandit_traffic.traffic"):
         summary = traffic.run_traffic(
@@ -1186,7 +1191,7 @@ def test_segment_checkpoints_cover_a_shift_on_the_segment_boundary():
     )
     tr = traffic.TrafficRunner(
         cfg,
-        InProcessClient(FakeBanditEndpoint(cfg)),
+        InProcessClient(LocalPredictorEndpoint(cfg)),
         _writer(FakeBQ()),
         traffic.TrafficSettings(),
         shifts=shifts,
@@ -1236,7 +1241,7 @@ def test_reset_seed_formula(seed, episode):
 def test_reward_instance_shape(reward_mode):
     # engaged rewards carry dwell_s == reward (M25); click rewards none
     cfg = _cfg(episodes=1, reward_mode=reward_mode)
-    client = RecordingClient(InProcessClient(FakeBanditEndpoint(cfg)))
+    client = RecordingClient(InProcessClient(LocalPredictorEndpoint(cfg)))
     traffic.run_traffic(
         cfg, client, _writer(FakeBQ()), traffic.TrafficSettings(baselines=())
     )

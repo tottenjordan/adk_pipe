@@ -11,7 +11,9 @@ only request-level failures raise.
 - ``HttpClient``: a local CPR container (``POST {instances, parameters}`` to its
   predict URL, parse ``predictions``).
 - ``InProcessClient``: wraps any object with a ``predict(instances, parameters)``
-  method (the fake endpoint now, ``bandit_serving``'s ``BanditPredictor`` later).
+  method, e.g. ``LocalPredictorEndpoint`` (``--in-process``): the real
+  ``bandit_serving`` ``BanditPredictor`` in this process, called with the HTTP
+  body shape.
 
 The network clients retry transient failures (429 / 5xx / connection errors) with
 exponential backoff. Retrying a request is safe: decisions are recomputed and
@@ -23,18 +25,26 @@ backoff sleep and raises ``StopRequested`` once it is true, so a stalled
 endpoint can't hold the job past Cloud Run's SIGKILL grace window; the traffic
 loop then flushes its buffered events and stops (exit 143).
 
-No JAX here: this module is importable anywhere.
+No JAX at import: this module is importable anywhere (``LocalPredictorEndpoint``
+imports ``bandit_serving`` only when built).
 """
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
+import os
 import random
 import re
+import tempfile
 import time
 from collections.abc import Callable, Iterator, Sequence
-from typing import Any, Protocol
+from pathlib import Path
+from typing import TYPE_CHECKING, Any, Protocol
+
+if TYPE_CHECKING:
+    from bandit.config import ExperimentConfig
 
 log = logging.getLogger(__name__)
 
@@ -206,6 +216,48 @@ class InProcessClient:
         if isinstance(out, dict):  # a predictor returning the HTTP envelope
             out = out.get("predictions")
         return _check_predictions(out, len(instances))
+
+
+@contextlib.contextmanager
+def _env_var(name: str, value: str) -> Iterator[None]:
+    old = os.environ.get(name)
+    os.environ[name] = value
+    try:
+        yield
+    finally:
+        if old is None:
+            os.environ.pop(name, None)
+        else:
+            os.environ[name] = old
+
+
+class LocalPredictorEndpoint:
+    """The real CPR ``BanditPredictor`` in this process (``--in-process``, tests).
+
+    Loaded from a temporary directory holding the run's ``experiment.json``
+    (``LocalStorage``), with jit warm-up off (``BANDIT_WARMUP=0``) and no
+    checkpoint URI (checkpointing off). ``predict`` sends the HTTP client's
+    body (``{instances, parameters}``) through CPR's
+    ``postprocess(predict(preprocess(body)))`` and returns that envelope."""
+
+    def __init__(self, cfg: ExperimentConfig):
+        from bandit.config import experiment_config_to_dict
+        from bandit_serving.predictor import BanditPredictor
+
+        with tempfile.TemporaryDirectory() as tmp, _env_var("BANDIT_WARMUP", "0"):
+            path = Path(tmp) / "experiment.json"
+            path.write_text(json.dumps(experiment_config_to_dict(cfg)))
+            self.predictor = BanditPredictor(checkpoint_uri="")
+            self.predictor.load(tmp)
+
+    def predict(
+        self, instances: Sequence[dict], parameters: dict | None = None
+    ) -> dict[str, Any]:
+        body: dict[str, Any] = {"instances": list(instances)}
+        if parameters:
+            body["parameters"] = parameters
+        p = self.predictor
+        return p.postprocess(p.predict(p.preprocess(body)))
 
 
 class HttpClient:

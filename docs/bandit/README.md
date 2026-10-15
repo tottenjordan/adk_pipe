@@ -131,7 +131,10 @@ list](../screenshots/11-experiments.png).
 ## Components and key files
 
 **Core (`bandit/`, JAX, dev group only):**
-- `bandit/config.py`: `ArmSpec`, `LinTSParams`, `ExperimentConfig`, `experiment.json` load/dump, calibrated `default_noise_var`, `reward_scale`.
+- `bandit/config.py`: `ArmSpec`, `LinTSParams`, `ExperimentConfig`, `experiment.json` load/dump; re-exports the names below so the contracts §1 `bandit.config.*` paths stay valid.
+- `bandit/scenario.py`: scenario presets (`ScenarioConfig`, segments, drift, `BASE_MARGINALS`, `load_scenario`) and the §9 `ScenarioOverrides`.
+- `bandit/calibration.py`: calibrated `default_noise_var` / `scenario_noise_var`, discounts (incl. `default_shift_discount`), `reward_scale`, the endpoint's reward / reset-discount bounds, the shared `logit` / `sigmoid`.
+- `bandit/shifts.py`: §10 `ShiftSpec` parsing/validation and the §11 continuous-run rules (`LEARNING_MODES`, `validate_continuous_run`).
 - `bandit/features.py`: `ctx-v1` context encoding (d = 19), sensitive-key rejection.
 - `bandit/linear_ts.py`: pure, jit-able LinTS (`init_state`, `select`, `propensities`, `update` with optional discount).
 - `bandit/baselines.py` / `bandit/policies.py`: UCB1, ε-greedy, Beta-Bernoulli TS, uniform, oracle; the `name:key=value` policy-spec registry.
@@ -141,11 +144,12 @@ list](../screenshots/11-experiments.png).
 
 **Serving (`bandit_serving/`):**
 - `bandit_serving/predictor.py`: the CPR `BanditPredictor` (contracts §2 / §7). See [`bandit_serving/README.md`](../../bandit_serving/README.md).
+- `bandit_serving/instances.py` / `kernels.py` / `checkpoint.py` / `storage.py`: instance parsing + validation (pure), the jit kernels and padding buckets, `latest.json` (`CheckpointMeta`) + `.npz` snapshot/restore and the writer thread, local / GCS storage.
 
 **Traffic (`bandit_traffic/`):**
 - `bandit_traffic/main.py`: Cloud Run Job entrypoint and local CLI.
 - `bandit_traffic/traffic.py`: the episode loop (reset → decision/reward batches → local baseline replay → rows).
-- `bandit_traffic/endpoint_client.py` / `bandit_traffic/fake_endpoint.py`: Vertex, local-URL and in-process endpoint clients.
+- `bandit_traffic/endpoint_client.py`: Vertex, local-URL and in-process endpoint clients (`LocalPredictorEndpoint`: the real predictor in-process, for `--in-process`).
 - `bandit_traffic/bq.py`: row builders plus BigQuery and JSONL writers.
 
 **API (`runserver/`):**
@@ -239,7 +243,7 @@ change their attributes.
 | Layer | Where | What it defines |
 |---|---|---|
 | Attributes every reader has | `bandit/features.py` → `CONTEXT_SPEC` (`ctx-v1`) | The 10 coarse ad-request fields in the table above (device, OS, connection, census region, age band 21+, daypart, weekend, topic-matches-trend, interest-matches-product, ad frequency). Privacy-safe by construction: no IDs, location or IP, and sensitive keys are rejected. |
-| Default attribute mix | `bandit/config.py` → `BASE_MARGINALS` | Population-wide probabilities per attribute (e.g. 60% mobile, 32% desktop, 8% tablet; 2/7 weekend). |
+| Default attribute mix | `bandit/scenario.py` → `BASE_MARGINALS` (also `bandit.config.BASE_MARGINALS`) | Population-wide probabilities per attribute (e.g. 60% mobile, 32% desktop, 8% tablet; 2/7 weekend). |
 | Reader segments, per scenario | `bandit/scenarios/*.yaml` → `segments:` (`bandit.config.SegmentSpec`) | Each segment has a `name`, a `weight` (share of readers), `marginals` that override the defaults (e.g. `mobile_scrollers` are 95% mobile), a `dwell_factor` (engaged-time reward), and in `segment_winners` a `winner_key`: the creative-eval dimension (e.g. `stopping_power`, `trend_authenticity`, `audience_fit`) that picks the segment's best creative. |
 | How each reader responds to each creative | `bandit/environment.py` → `build_true_model` | Each reader's click probability per creative: a logistic model built from the creatives' eval-judge scores, the segment's affinity, and attribute × creative interactions, calibrated so the average click rate hits the scenario's `target_ctr`. That is about 4–4.7% in demo mode and about 0.8–0.9% in realistic mode. |
 
@@ -563,7 +567,7 @@ BANDIT_DEPLOY_MODE=fake TRUST_CLIENT_USER_ID=1 SESSION_SERVICE_URI=memory:// \
   ALLOW_ORIGINS=http://localhost:3000 uv run uvicorn deployment.async_app:app --port 8000
 cd frontend && npm run dev
 
-# traffic loop end to end against an in-process fake endpoint, JSONL instead of BigQuery
+# traffic loop end to end against the real predictor in-process, JSONL instead of BigQuery
 uv run python -m bandit_traffic.main --in-process --config /tmp/experiment.json \
   --episodes 2 --horizon 4000 --dry-run --out /tmp/traffic
 

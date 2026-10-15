@@ -39,20 +39,31 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 IMAGE_NAME = "trend-trawler-bandit"
 DEFAULT_BASE_IMAGE = "python:3.13-slim"
 SERVING_ENV = {"VERTEX_CPR_WEB_CONCURRENCY": "1"}  # == endpoint.SERVING_ENV
-SERVING_FILES = ("__init__.py", "predictor.py")
-#: ``bandit/`` modules the image needs at runtime: the predictor uses config,
+SERVING_FILES = (
+    "__init__.py",
+    "checkpoint.py",
+    "instances.py",
+    "kernels.py",
+    "predictor.py",
+    "storage.py",
+)
+#: ``bandit/`` modules the image needs at runtime: the predictor uses config
+#: (+ calibration, scenario, shifts),
 #: features, linear_ts and aggregate; the traffic job also needs the simulator,
 #: environment, policies, baselines and metrics. Only the CLI stays out.
 BANDIT_RUNTIME_FILES = (
     "__init__.py",
     "aggregate.py",
     "baselines.py",
+    "calibration.py",
     "config.py",
     "environment.py",
     "features.py",
     "linear_ts.py",
     "metrics.py",
     "policies.py",
+    "scenario.py",
+    "shifts.py",
     "simulate.py",
 )
 #: ``bandit_traffic/`` modules (the traffic job, run via a command override).
@@ -60,7 +71,6 @@ TRAFFIC_FILES = (
     "__init__.py",
     "bq.py",
     "endpoint_client.py",
-    "fake_endpoint.py",
     "main.py",
     "traffic.py",
 )
