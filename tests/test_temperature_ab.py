@@ -1134,3 +1134,64 @@ def test_no_agent_imports():
             src = open(mod.__file__ or "").read() if mod.__file__ else ""
             assert "import creative_agent" not in src
             assert "from creative_agent" not in src
+
+
+class TestRehydrate:
+    """--rehydrate re-reads each record's full state (one replay, no new runs)."""
+
+    def _write(self, root: Path, arm: str, app: str, cell_id: str, sid: str | None):
+        path = root / arm / app / f"{cell_id}.json"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(
+            json.dumps(
+                {
+                    "cell_id": cell_id,
+                    "arm": arm,
+                    "app": app,
+                    "base_url": f"https://{arm}",
+                    "user_id": "u@x",
+                    "session_id": sid,
+                    "state": {"brand": "X"},
+                    "metrics": {"finalized": False},
+                }
+            )
+        )
+        return path
+
+    def test_rewrites_state_and_metrics_from_the_replay(self, tmp_path):
+        arms = {
+            "tuned": {"audience": "https://aud"},
+            "default": {"audience": "https://aud"},
+        }
+        done = self._write(tmp_path, "tuned", "creative_agent", "c1", "s1")
+        no_sid = self._write(tmp_path, "default", "creative_agent", "c2", None)
+        minted, replays = [], []
+
+        def replay(base_url, user_id, sid, token, *, app, tt_user):
+            replays.append((base_url, sid, token, app, tt_user))
+            return [], {"brand": "X", "finalize_done": True}
+
+        deps = run_ab.Deps(
+            mint=lambda aud, sa: minted.append(aud) or "tok", replay=replay
+        )
+
+        updated = run_ab.rehydrate(
+            arms, results_root=tmp_path, invoker_sa="sa", deps=deps
+        )
+
+        assert updated == [done]
+        record = json.loads(done.read_text())
+        assert record["state"]["finalize_done"] is True
+        assert record["metrics"]["finalized"] is True
+        assert replays == [("https://tuned", "s1", "tok", "creative_agent", "u@x")]
+        assert minted == ["https://aud"]  # one token per audience
+        assert json.loads(no_sid.read_text())["metrics"] == {"finalized": False}
+
+    def test_an_empty_replay_leaves_the_record_alone(self, tmp_path):
+        arms = {"tuned": {"audience": "https://aud"}}
+        path = self._write(tmp_path, "tuned", "creative_agent", "c1", "s1")
+        before = path.read_text()
+        deps = run_ab.Deps(mint=lambda aud, sa: "tok", replay=lambda *a, **k: ([], {}))
+
+        assert run_ab.rehydrate(arms, results_root=tmp_path, deps=deps) == []
+        assert path.read_text() == before

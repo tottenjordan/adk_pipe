@@ -214,6 +214,34 @@ def start_run(
     )
 
 
+def fetch_replay(
+    base_url: str,
+    user_id: str,
+    session_id: str,
+    token: str,
+    *,
+    app: str = APP_NAME,
+    tt_user: str | None = None,
+) -> tuple[list[dict], dict]:
+    """A finished session's full event log and state (one ``since=0`` replay)."""
+    base = f"{base_url}/runs/{_seg(app)}/{_seg(user_id)}/{_seg(session_id)}"
+    payload = _get(f"{base}?since=0", token, **_user_kwargs(tt_user))
+    return payload.get("events") or [], payload.get("state") or {}
+
+
+def _final_state(base: str, token: str, tt_user: str | None) -> dict | None:
+    """The session's full state from a ``since=0`` replay, or None if it fails."""
+    for _ in range(3):
+        try:
+            payload = _get(f"{base}?since=0", token, **_user_kwargs(tt_user))
+        except (TimeoutError, urllib.error.URLError, OSError) as exc:
+            print(f"  [poll] final state read failed, retrying: {exc!r}", flush=True)
+            time.sleep(POLL_INTERVAL_S)
+            continue
+        return payload.get("state") or None
+    return None
+
+
 def poll_to_terminal(
     base_url: str,
     user_id: str,
@@ -257,6 +285,10 @@ def poll_to_terminal(
         state = payload.get("state") or state
         error = payload.get("error")
         if status in TERMINAL_STATUSES:
+            if "state" not in payload:
+                # The api returns ``state`` only on a full replay (since=0), so a
+                # terminal incremental poll is re-read once for the final state.
+                state = _final_state(base, token, tt_user) or state
             return events, state, status, error
         time.sleep(POLL_INTERVAL_S)
     raise TimeoutError(

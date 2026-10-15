@@ -97,6 +97,7 @@ class Deps:
     create_session: Callable[..., str] = run_trial.create_session
     start_run: Callable[..., dict] = run_trial.start_run
     poll: Callable[..., tuple] = field(default=_poll)
+    replay: Callable[..., tuple] = run_trial.fetch_replay
     log_counts: Callable[[str, float, float], dict | None] = metrics.scrape_log_counts
     sleep: Callable[[float], None] = time.sleep
     clock: Callable[[], float] = time.time
@@ -248,6 +249,56 @@ def run_ab(
     return written
 
 
+def rehydrate(
+    arms: dict[str, dict],
+    *,
+    results_root: Path = RESULTS_ROOT,
+    invoker_sa: str = INVOKER_SA,
+    deps: Deps | None = None,
+) -> list[Path]:
+    """Re-read each recorded session's full state and recompute its metrics.
+
+    For records written before the driver fetched the final state (the api sends
+    ``state`` only on a ``since=0`` replay): no new runs, one GET per record.
+    """
+    deps = deps or Deps()
+    tokens: dict[str, str] = {}
+    updated: list[Path] = []
+    for path in sorted(results_root.glob("*/*/*.json")):
+        record = json.loads(path.read_text())
+        sid, arm = record.get("session_id"), record.get("arm")
+        if not sid or arm not in arms:
+            continue
+        audience = arms[arm]["audience"]
+        if audience not in tokens:
+            tokens[audience] = deps.mint(audience, invoker_sa)
+        events, state = deps.replay(
+            record["base_url"],
+            record["user_id"],
+            sid,
+            tokens[audience],
+            app=record["app"],
+            tt_user=record["user_id"],
+        )
+        if not state:
+            print(f"[ab] no state for {record['cell_id']}; left as is", flush=True)
+            continue
+        record["state"] = state
+        record["metrics"] = metrics.state_metrics(record["app"], state)
+        if events:
+            record["events_count"] = len(events)
+            try:
+                record["summary"] = summary_to_dict(summarize_run(events, state))
+            except Exception:  # noqa: BLE001
+                pass
+        tmp = path.with_suffix(".json.tmp")
+        tmp.write_text(json.dumps(record, indent=2, default=str))
+        tmp.replace(path)
+        print(f"[ab] rehydrated {record['cell_id']}: {record['metrics']}", flush=True)
+        updated.append(path)
+    return updated
+
+
 def _parse_args(argv=None) -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument(
@@ -264,6 +315,11 @@ def _parse_args(argv=None) -> argparse.Namespace:
     )
     p.add_argument("--gap-secs", type=float, default=60.0)
     p.add_argument("--dry-run", action="store_true", help="print the plan only")
+    p.add_argument(
+        "--rehydrate",
+        action="store_true",
+        help="re-read each recorded session's full state and recompute metrics",
+    )
     p.add_argument("--results-root", type=Path, default=RESULTS_ROOT)
     p.add_argument(
         "--invoker-sa",
@@ -290,6 +346,9 @@ def main(argv=None) -> None:
             "--invoker-sa / $EXP_INVOKER_SA is required: the api trusts X-TT-User "
             "only with an ID token of the proxy SA (tt-web-sa)"
         )
+    if args.rehydrate:
+        rehydrate(arms, results_root=args.results_root, invoker_sa=args.invoker_sa)
+        return
     run_ab(
         arms,
         cells,
