@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type Dispatch, type SetStateAction } from "react";
+import { useRef, useState, type Dispatch, type SetStateAction } from "react";
 
 /**
  * In-memory drafts of the interactive review panels, keyed by the paused
@@ -19,12 +19,14 @@ export function useReviewDraft<T>(
   const [value, setValue] = useState<T>(() =>
     key && drafts.has(key) ? (drafts.get(key) as T) : init()
   );
+  // The latest value set, so functional updates chain within one event without
+  // a state updater (updaters must be pure; saving the draft is a side effect).
+  const latest = useRef(value);
   const set: Dispatch<SetStateAction<T>> = (next) => {
-    setValue((prev) => {
-      const resolved = typeof next === "function" ? (next as (p: T) => T)(prev) : next;
-      if (key) drafts.set(key, resolved);
-      return resolved;
-    });
+    const resolved = typeof next === "function" ? (next as (p: T) => T)(latest.current) : next;
+    latest.current = resolved;
+    if (key) drafts.set(key, resolved);
+    setValue(resolved);
   };
   return [value, set];
 }
