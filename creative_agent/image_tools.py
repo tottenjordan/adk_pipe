@@ -572,10 +572,20 @@ async def _store_image(
         # Nothing reads these artifacts back; the results page uses the GCS image.
         logging.info(f"Saved cast image '{artifact_key}' to GCS only (no artifact)")
         return img_gcs_uri
-    await tool_context.save_artifact(
-        filename=artifact_key,
-        artifact=types.Part.from_bytes(data=image_bytes, mime_type=mime_type),
-    )
+    try:
+        await tool_context.save_artifact(
+            filename=artifact_key,
+            artifact=types.Part.from_bytes(data=image_bytes, mime_type=mime_type),
+        )
+    except Exception as artifact_exc:
+        # Best effort: nothing reads image artifacts back (the results page,
+        # gallery and judge use the GCS image), so a failed copy must not abort
+        # the batch after earlier (possibly cast) uploads are already in GCS.
+        logging.warning(
+            f"Artifact save failed for '{artifact_key}'; keeping the GCS image "
+            f"({type(artifact_exc).__name__})"
+        )
+        return img_gcs_uri
     logging.info(f"Saved image artifact, '{artifact_key}', to '{img_gcs_uri}'")
     return img_gcs_uri
 
@@ -1060,6 +1070,11 @@ async def generate_image(
             if not task.done():
                 task.cancel()
         await asyncio.gather(*tasks, return_exceptions=True)
+        if generated_images:
+            # Every finished upload reaches state, even when a later step
+            # raised: a cast render in GCS must stay visible to cast_renders and
+            # the consent revoke cascade (an INFRA_RETRY re-run overwrites it).
+            tool_context.state["generated_images"] = generated_images
 
     # Mark as done so subsequent calls are idempotent
     tool_context.state["_images_generated"] = True

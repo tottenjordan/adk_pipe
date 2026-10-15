@@ -255,6 +255,71 @@ def test_cast_render_is_not_saved_as_an_adk_artifact(monkeypatch):
     ]
 
 
+@pytest.mark.usefixtures("image_qa_off")
+def test_failed_artifact_save_after_a_cast_upload_keeps_the_cast_in_state(
+    monkeypatch, caplog
+):
+    """CV-1: the ADK artifact copy is best effort (nothing reads it back). A failed
+    save after a cast upload must not abort the batch, or the cast object would sit
+    in GCS outside state and outside the consent revoke cascade."""
+    _patch(monkeypatch)
+    monkeypatch.setattr(
+        image_tools, "_save_to_gcs", lambda **kw: f"gs://b/f/d/{kw['filename']}"
+    )
+    ctx = _ctx(
+        [
+            _concept("cast", cast=True),
+            _concept("plain", cast=False, prompt="A flat cartoon skate."),
+        ],
+        person=_PERSON,
+    )
+
+    async def save_artifact(filename, artifact):
+        raise RuntimeError("artifact service down")
+
+    ctx.save_artifact = save_artifact
+    with caplog.at_level(logging.INFO):
+        result = asyncio.run(image_tools.generate_image(ctx))
+    assert result["status"] == "success"
+    images = ctx.state["generated_images"]
+    assert images["cast"]["cast"] is True
+    assert images["cast"]["consent_id"] == "consent-1234"
+    assert images["cast"]["gcs_uri"] == "gs://b/f/d/cast.png"
+    assert images["plain"]["gcs_uri"] == "gs://b/f/d/plain.png"  # GCS copy kept
+    assert "alice-0123456789" not in caplog.text
+
+
+@pytest.mark.usefixtures("image_qa_off")
+def test_upload_records_reach_state_even_when_a_later_step_raises(monkeypatch):
+    """CV-1: each successful upload is recorded as it happens and written to
+    state in a ``finally``, so a later failure still leaves the cast URI (with its
+    consent id) where ``cast_renders`` / the revoke cascade read it."""
+    _patch(monkeypatch)
+    real_store = image_tools._store_image
+    calls = []
+
+    async def store(*a, **k):
+        calls.append(k.get("consent_id"))
+        if len(calls) == 2:
+            raise RuntimeError("boom")
+        return await real_store(*a, **k)
+
+    monkeypatch.setattr(image_tools, "_store_image", store)
+    ctx = _ctx(
+        [
+            _concept("cast", cast=True),
+            _concept("plain", cast=False, prompt="A flat cartoon skate."),
+        ],
+        person=_PERSON,
+    )
+    with pytest.raises(RuntimeError, match="boom"):
+        asyncio.run(image_tools.generate_image(ctx))
+    images = ctx.state["generated_images"]
+    assert list(images) == ["cast"]
+    assert images["cast"]["consent_id"] == "consent-1234"
+    assert "_images_generated" not in ctx.state  # a retry renders again
+
+
 def test_save_to_gcs_sets_metadata_only_when_given(monkeypatch):
     from creative_agent import gcs_tools
 
