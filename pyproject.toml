@@ -75,8 +75,8 @@ dev = [
     "jax[cpu]>=0.11.2",
     "pytest>=9.1.1",
     "pytest-xdist>=3.8.0",
-    "ruff==0.16.10",
-    "ty==0.0.85",
+    "ruff==0.17.0",
+    "ty==0.0.86",
 ]
 
 [tool.pytest.ini_options]

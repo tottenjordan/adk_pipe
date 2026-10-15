@@ -5,7 +5,7 @@
 # Deliberately NOT the root requirements.txt: that one is the Agent Engine
 # deploy file and must stay jax-free.
 jax[cpu]==0.11.2
-numpy==2.5.3
+numpy==2.5.4
 pyyaml==6.0.3
 google-cloud-storage==3.17.0
 # The CPR model server (fastapi, uvicorn, the PredictionHandler); pinned so a
