@@ -413,3 +413,93 @@ def test_run_step_does_not_retry_non_transient_errors_or_error_dicts(monkeypatch
     ctx, slept = _run_step(monkeypatch, error_dict)
     assert len(calls) == 1 and slept == []
     assert "nope" in ctx.state["creative_gallery_gcs_uri__issues"]
+
+
+# --- sync persistence steps run off the event loop --- #
+
+
+def test_run_step_runs_a_sync_step_in_a_worker_thread():
+    """A sync tool (blocking BigQuery/GCS I/O) must not run on the loop thread."""
+    seen: dict[str, Any] = {}
+
+    def step(ctx):
+        seen["thread"] = threading.get_ident()
+        seen["read"] = ctx.state.get("seed")
+        seen["session"] = ctx.session.id
+        ctx.state["creative_gallery_gcs_uri"] = "gs://b/g.html"
+        return {"status": "success"}
+
+    async def main() -> FakeToolContext:
+        seen["loop"] = threading.get_ident()
+        ctx = FakeToolContext({"seed": "x"})
+        await fin._run_step(ctx, fin.GALLERY_KEY, step)  # ty: ignore[invalid-argument-type]
+        return ctx
+
+    ctx = asyncio.run(main())
+    assert seen["thread"] != seen["loop"]
+    assert seen["read"] == "x" and seen["session"] == "test-session"
+    # The thread wrote to a buffer; the write is applied to ctx.state on the loop.
+    assert ctx.state["creative_gallery_gcs_uri"] == "gs://b/g.html"
+
+
+def test_run_step_applies_thread_writes_made_before_an_error():
+    """write_trends_to_bq sets creative_row_uuid before its MERGE can raise."""
+
+    def step(ctx):
+        ctx.state["creative_row_uuid"] = "row1"
+        raise ValueError("merge failed")
+
+    ctx = FakeToolContext({})
+    asyncio.run(fin._run_step(ctx, fin.TRENDS_ROW_KEY, step))  # ty: ignore[invalid-argument-type]
+    assert ctx.state["creative_row_uuid"] == "row1"
+    assert "merge failed" in ctx.state["creative_row_uuid__issues"]
+
+
+def test_run_step_keeps_an_async_step_on_the_loop():
+    seen: dict[str, int] = {}
+
+    async def step(ctx):
+        seen["step"] = threading.get_ident()
+        return {"status": "success"}
+
+    async def main() -> None:
+        seen["loop"] = threading.get_ident()
+        ctx = FakeToolContext({})
+        await fin._run_step(ctx, fin.GALLERY_KEY, step)  # ty: ignore[invalid-argument-type]
+
+    asyncio.run(main())
+    assert seen["step"] == seen["loop"]
+
+
+def test_run_step_runs_the_real_bq_writer_off_the_loop(monkeypatch):
+    """The real write_trends_to_bq's blocking query().result() is off the loop."""
+    threads: list[int] = []
+    bq = FakeBigQueryClient()
+    real_query = bq.query
+
+    def query(*a, **k):
+        threads.append(threading.get_ident())
+        return real_query(*a, **k)
+
+    monkeypatch.setattr(bq, "query", query)
+    monkeypatch.setattr(fin.bq_tools, "_get_bigquery_client", lambda: bq)
+    state = {
+        "target_search_trends": "trend",
+        "gcs_folder": "f",
+        "agent_output_dir": "d",
+        "brand": "b",
+        "target_audience": "a",
+        "target_product": "p",
+        "key_selling_points": "k",
+    }
+
+    async def main() -> tuple[int, FakeToolContext]:
+        ctx = FakeToolContext(state)
+        step = fin.bq_tools.write_trends_to_bq
+        await fin._run_step(ctx, fin.TRENDS_ROW_KEY, step)  # ty: ignore[invalid-argument-type]
+        return threading.get_ident(), ctx
+
+    loop_thread, ctx = asyncio.run(main())
+    assert threads and all(t != loop_thread for t in threads)
+    assert ctx.state["creative_row_uuid"]
+    assert "creative_row_uuid__issues" not in ctx.state

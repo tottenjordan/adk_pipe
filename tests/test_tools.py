@@ -1,5 +1,6 @@
 """Tests for backend tool functions (pure logic, no external service calls)."""
 
+import asyncio
 import datetime
 import string
 from types import SimpleNamespace
@@ -231,7 +232,7 @@ class TestTrendScoutWriteTrendsIdempotent:
                 "key_selling_points": "wide tonal range",
             }
         )
-        t.write_trends_to_bq(ctx)
+        asyncio.run(t.write_trends_to_bq(ctx))
         out = []
         for sql, job_config in bq.queries:
             assert "MERGE" in sql
@@ -306,7 +307,7 @@ class TestTrendContextColumn:
                 "selected_gtrends": '### T1\n* **The "Hook":** Hook one\n',
             }
         )
-        t.write_trends_to_bq(ctx)
+        asyncio.run(t.write_trends_to_bq(ctx))
         bound = {}
         for _, job_config in bq.queries:
             params = {p.name: p.value for p in job_config.query_parameters}
@@ -344,7 +345,7 @@ class TestTrendContextColumn:
                 ),
             }
         )
-        t.write_trends_to_bq(ctx)
+        asyncio.run(t.write_trends_to_bq(ctx))
         bound = {}
         for _, job_config in bq.queries:
             params = {p.name: p.value for p in job_config.query_parameters}
@@ -379,7 +380,7 @@ class TestTrawlerDate:
                 **state_extra,
             }
         )
-        t.write_trends_to_bq(ctx)
+        asyncio.run(t.write_trends_to_bq(ctx))
         (_, job_config) = bq.queries[-1]
         params = {p.name: p.value for p in job_config.query_parameters}
         return params["current_date"]
@@ -956,7 +957,7 @@ class TestWriteTrendsRaisesOnBqErrors:
             }
         )
         with pytest.raises(RuntimeError, match="BigQuery insert returned errors"):
-            t.write_trends_to_bq(ctx)
+            asyncio.run(t.write_trends_to_bq(ctx))
 
 
 class TestGetDailyGtrends:
@@ -994,7 +995,7 @@ class TestGetDailyGtrends:
         monkeypatch.setattr(t, "_get_bigquery_client", lambda: _Client())
         monkeypatch.setattr(t, "_get_gtrends_max_date", lambda: "10/11/2026")
         ctx = FakeToolContext()
-        out = t.get_daily_gtrends(ctx)
+        out = asyncio.run(t.get_daily_gtrends(ctx))
 
         (sql, job_config) = queries[-1]
         assert "10/11/2026" not in sql

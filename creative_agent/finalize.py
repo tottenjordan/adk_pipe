@@ -192,6 +192,50 @@ def _transient_exceptions() -> tuple[type[BaseException], ...]:
     return tuple(excs)
 
 
+class _RecordingState(dict):
+    """Thread-side stand-in for ``ctx.state``: a plain-dict snapshot that records writes.
+
+    The worker thread reads and writes this copy only; :func:`_run_sync_step_in_thread`
+    applies the recorded ``writes`` to the real ADK ``State`` back on the loop.
+    """
+
+    def __init__(self, snapshot: Mapping[str, Any]) -> None:
+        super().__init__(snapshot)
+        self.writes: dict[str, Any] = {}
+
+    def __setitem__(self, key: str, value: Any) -> None:
+        super().__setitem__(key, value)
+        self.writes[key] = value
+
+    def setdefault(self, key: str, default: Any = None) -> Any:
+        if key not in self:
+            self[key] = default
+        return self[key]
+
+    def to_dict(self) -> dict[str, Any]:
+        return dict(self)
+
+
+async def _run_sync_step_in_thread(ctx: Context, step: Callable[[Context], Any]) -> Any:
+    """Run a sync persistence tool in a worker thread, off the event loop.
+
+    ADK runs a sync step inline on the loop, so the tools' blocking BigQuery
+    ``query().result()`` / GCS uploads would stall every concurrent run and poll
+    in the api process. The thread gets a minimal ``state`` + ``session`` holder
+    (same snapshot pattern as :func:`evaluate_creatives_node`; the tools read
+    only those), and its state writes are applied to ``ctx.state`` on the loop
+    afterwards, also when the tool raised (``write_trends_to_bq`` sets
+    ``creative_row_uuid`` before its MERGE, which :func:`persist_node` relies on).
+    """
+    state = _RecordingState(ctx.state.to_dict())
+    holder = SimpleNamespace(state=state, session=ctx.session)
+    try:
+        return await asyncio.to_thread(step, holder)  # ty: ignore[invalid-argument-type]
+    finally:
+        for key, value in state.writes.items():
+            ctx.state[key] = value
+
+
 async def _run_step(
     ctx: Context, key: str, step: Callable[[Context], Any]
 ) -> dict[str, Any] | None:
@@ -209,7 +253,10 @@ async def _run_step(
     attempts = len(_RETRY_DELAYS) + 1
     for attempt in range(attempts):
         try:
-            result = step(ctx)
+            if inspect.iscoroutinefunction(step):
+                result = await step(ctx)
+            else:
+                result = await _run_sync_step_in_thread(ctx, step)
             if inspect.isawaitable(result):
                 result = await result
             break
@@ -249,11 +296,10 @@ async def persist_node(ctx: Context) -> None:
     Fixed order, one step at a time: eval report JSON (GCS) → HTML gallery
     (GCS) → creative row (BigQuery, sets ``creative_row_uuid``) → eval row
     (BigQuery), last because it links to both ``creative_row_uuid`` and
-    ``eval_report_gcs_uri``. The sync tools run inline on the event loop (as
-    they did as root tools: ADK runs sync tools inline unless a tool thread pool
-    is configured) because they write ``ctx.state``, which must not be touched
-    from a worker thread; the gallery's own blocking I/O already runs in
-    threads. Running the three independent saves concurrently would save a few
+    ``eval_report_gcs_uri``. The sync tools run in a worker thread on a state
+    snapshot, their state writes applied on the loop (:func:`_run_sync_step_in_thread`;
+    ``ctx.state`` is never touched from the thread); the async gallery tool runs
+    on the loop and does its own blocking I/O in threads. Running the three independent saves concurrently would save a few
     seconds at most; a deterministic order keeps state writes simple.
 
     Without an evaluation report both eval writes are skipped (the GCS tool

@@ -165,7 +165,7 @@ tests/
 ├── test_retry_node.py               # RetryUntilKeyNode (retry-on-empty graph wrapper; transient errors as missed attempts; is_populated; NodeTool no-stall)
 ├── test_root_history.py            # agent_common.history: ADK replays earlier pipelines' sub-agent turns + node inputs into a root's request (measured on the real creative root), the trim keeps only user/root turns + call/response pairs, precise matching, both roots wired
 ├── test_early_ad_copy_eval.py       # early ad-copy judging (evaluate_ad_copies_only / evaluate_ad_copies_node): partial stored, reused by finalize only when the fingerprint matches, failed copies re-judged, fail-soft
-├── test_finalize.py                 # creative_agent/finalize.py nodes: summary formatting, judge off-loop on a snapshot, per-step isolation + ordering in persist_node, skipped eval writes
+├── test_finalize.py                 # creative_agent/finalize.py nodes: summary formatting, judge off-loop on a snapshot, per-step isolation + ordering in persist_node, sync steps off the loop, skipped eval writes
 ├── test_fail_soft_node.py           # FailSoftNode (optional-step exception → on_error state delta; successors still run; DynamicNodeFailError unwrap)
 ├── test_retry_config.py             # scoped RetryConfig constants on infra agents
 ├── test_research_alignment.py       # research prompts, inputs and brief helpers agree with each agent's input and the deterministic gates (planner fallbacks, named tokens, source de-duplication, schema/doc wording)
@@ -190,6 +190,7 @@ tests/
 ├── test_trend_scout_graph.py        # trend_scout understand_trends graph run end-to-end (stub models)
 ├── test_trend_scout_history.py      # trend_scout root history trim (measured on the real App, stub models): gather/pick AgentTool runs are isolated, the understand_trends (and, on a cache miss, trend_digest) NodeTool leaks 2 sub-agent turns + 2 node inputs into the root's final request without drop_other_agent_context, 0 with it; resumed review_trends checkpoint response kept; trim wired before the rate limiter
 ├── test_trend_scout_concurrency.py  # trend_scout GCS-export tools: per-run scratch isolation
+├── test_trend_scout_tools_off_loop.py # trend_scout BigQuery/GCS tools: async, blocking I/O off the event loop, model-facing declarations unchanged (golden)
 ├── test_trend_scout_logging.py      # trend_scout wiring of the shared observability callbacks
 ├── test_trend_digest.py             # trend_scout trend digest: terms_hash / normalize_draft / SQL builders (param-only) + schema file; real-App graph runs for cache hit (state restored, no model call), miss (describe → classify reads summaries → one MERGE), failed describe (unavailable, no write), < 80% coverage, other terms_hash, BigQuery error/timeout, disabled (classifier only)
 ├── test_trend_scout_sensitive.py    # trend_scout sensitive trends: TrendFlags schema, classify_trends_agent wiring + instruction (inside trend_digest; the root digests right after gather, both branches), pick prompt never selects flagged terms, save_search_trends_to_session_state refuses flagged auto picks (dict/JSON/fenced flags; interactive picks saved; malformed flags never block), sensitive_flags parser
