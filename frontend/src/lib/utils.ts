@@ -122,3 +122,19 @@ export const RATING_LEARNING_FIELD: DisplayFieldDef = {
   key: "learn_from_ratings",
   value: formatRatingLearning,
 }
+
+/**
+ * The run's respectful-angle status for the metadata display: "On" when the
+ * run opted in (`safer_angle_opt_in`) or the backend activated it
+ * (`safer_angle_active` "yes"), else `""` (hidden; absent on older runs).
+ */
+export function formatSaferAngle(state: Record<string, unknown>): string {
+  return state.safer_angle_opt_in === true || state.safer_angle_active === "yes" ? "On" : ""
+}
+
+/** Campaign-metadata row for the sensitive-trend "respectful angle" opt-in. */
+export const SAFER_ANGLE_FIELD: DisplayFieldDef = {
+  label: "Safer angle",
+  key: "safer_angle_opt_in",
+  value: formatSaferAngle,
+}
