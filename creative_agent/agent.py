@@ -42,11 +42,14 @@ from .copy_gate import (
     brief_avoid,
     brief_mandatories,
     brief_motifs,
+    brief_risks,
+    brief_safer_angle,
     enforce_timely_copy_cap,
     flatten_copy_issues,
     format_copy_issues,
     gate_copies,
     residual_issues,
+    safer_angle_named_copies,
     structural_issues,
 )
 from .finalize import (
@@ -797,13 +800,44 @@ def _copy_issues(state: Mapping[str, Any]) -> dict[str, list[CopyIssue]]:
         trend_terms=str(state.get("target_search_trends") or ""),
         motifs=brief_motifs(brief),
         trend_sensitive=_trend_sensitive(state),
+        safer_angle_active=safer_angle_active(state),
+        risks=brief_risks(brief),
+        safer_angle=brief_safer_angle(brief),
     )
 
 
 def _trend_sensitive(state: Mapping[str, Any]) -> bool:
-    """The validated current moment is sensitive (never referenced)."""
+    """The trend must not be referenced: the validated current moment is
+    sensitive, or trend_scout flagged the trend (``trend_sensitive_hint``),
+    which covers a creative run whose own situation search missed it."""
     situation = state.get("trend_situation")
-    return isinstance(situation, Mapping) and situation.get("phase") == "sensitive"
+    return (
+        isinstance(situation, Mapping) and situation.get("phase") == "sensitive"
+    ) or state.get("trend_sensitive_hint") == "yes"
+
+
+def safer_angle_active(state: Mapping[str, Any]) -> bool:
+    """The run takes a safer angle on a sensitive trend (``"yes"``; missing or
+    anything else = off)."""
+    return state.get("safer_angle_active") == "yes"
+
+
+def _safer_angle_delta(state: Mapping[str, Any], critique: Any) -> dict[str, Any]:
+    """``safer_angle_named_copies`` (the copies naming the trend's subject)
+    when the safer angle is active; {} otherwise, so other runs' deltas are
+    unchanged."""
+    if not safer_angle_active(state):
+        return {}
+    brief = state.get("creative_brief")
+    return {
+        "safer_angle_named_copies": safer_angle_named_copies(
+            critique,
+            trend_terms=str(state.get("target_search_trends") or ""),
+            avoid=brief_avoid(brief),
+            risks=brief_risks(brief),
+            safer_angle=brief_safer_angle(brief),
+        )
+    }
 
 
 def _residual(
@@ -855,6 +889,7 @@ def cap_and_residual_copies(state: Mapping[str, Any]) -> dict[str, Any]:
             delta["ad_copy_critique"] = capped
             state = {**state, "ad_copy_critique": capped}
     delta["ad_copy_critique__issues"] = residual_copy_issues(state)
+    delta.update(_safer_angle_delta(state, state.get("ad_copy_critique")))
     return delta
 
 
@@ -881,6 +916,7 @@ def copy_gate_decision(
             critique = base["ad_copy_critique"] = capped
             state = {**state, "ad_copy_critique": capped}
     issues = _copy_issues(state) if is_populated(critique) else {}
+    base.update(_safer_angle_delta(state, critique))
     if not issues:
         return "ok", {
             **base,
@@ -925,6 +961,7 @@ def _ad_copy_reviser_failed(state: Mapping[str, Any], exc: Exception) -> dict[st
         "ad_copy_critique": critique,
         "ad_copy_critique__issues": _residual(state, critique, issues),
         "ad_copy_revision_rounds_used": max(used, config.copy_revision_rounds),
+        **_safer_angle_delta(state, critique),
     }
 
 

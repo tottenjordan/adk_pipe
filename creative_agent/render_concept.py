@@ -159,6 +159,7 @@ async def render_concept(
     budget: image_tools._RerenderBudget | None = None,
     fallback_without_person: bool = True,
     pacing: RenderPacing | None = None,
+    safer_angle_active: bool = False,
 ) -> RenderResult:
     """Render ``concept`` (its ``image_generation_prompt``) once, then QA it and
     re-render while it fails (bounded by ``config.image_qa_max_rerenders`` and
@@ -170,6 +171,8 @@ async def render_concept(
     filter blocks the render, ``fallback_without_person`` re-renders a generic
     hero (prompt neutralised, judged as uncast); otherwise the result carries no
     image and the ``rejected_reason``. Infra errors on a first render propagate.
+    ``safer_angle_active`` (a sensitive trend's safer angle) adds image QA's
+    public-figure likeness check.
     """
     references = references or RenderReferences()
     pacing = pacing or RenderPacing()
@@ -263,6 +266,7 @@ async def render_concept(
             claims_done=pacing.claims_done,
             strictness=strictness,
             person_image=person_image_of(person) if cast else None,
+            safer_angle_active=safer_angle_active,
         )
         return _result(kept, attempts, record, issue, cast, rejected, entry, True)
     finally:

@@ -8,8 +8,9 @@ user-visible warning, so false positives are kept low):
   cannot express (product named, CTA, lengths, the brief's avoid terms,
   unsupported absolute claims such as "guaranteed" / "indestructible", and
   with the run's trend a trend tie via ``trend_tie.has_trend_tie``, skipped
-  for a sensitive moment) — gate a revision AND, if they survive it, are
-  recorded as residual issues;
+  for a sensitive moment unless the run takes a safer angle, which also
+  flags endorsement wording, see below) — gate a revision AND, if they
+  survive it, are recorded as residual issues;
 * **self_reported** issues — the critic's own failed ``brief_checks`` — gate a
   revision only for ``proposition``, ``mandatories``, ``risks`` and
   ``trend_bridge`` (the brief's hard contract, its trend risks and a clear,
@@ -29,6 +30,16 @@ default none) only ever tightens: ``weak_cta`` caps the CTA at
 ``STRICT_CTA_WORDS`` (6) words, and ``off_brief`` also gates the critic's
 failed ``reason_to_believe`` self-report (``OFF_BRIEF_BRIEF_CHECKS``; still
 never recorded as residual issues; ``trend_bridge`` already gates).
+
+Safer angle (``safer_angle_active``: the user picked a sensitive trend and
+opted in to a respectful, positive angle on its subject): any copy field with
+an ``endorsement.endorsement_terms`` hit is flagged (the real person never
+endorses or speaks for the product), and the trend tie is checked again even
+for a sensitive moment (connecting through the safer angle is the point), with
+the trend words that the brief's ``trend_bridge.risks`` name (the sensitive
+event: "murder", "trial") never counting as a tie unless the brief's
+``trend_bridge.safer_angle`` uses them (``safer_angle_tie_avoid``).
+``safer_angle_named_copies`` lists the copies that name the trend's subject.
 
 Matching (product named, avoid terms) uses ``text_match``: accent-folded,
 Unicode-aware, plural-insensitive (s / es / ies↔y), and brands written with
@@ -60,9 +71,10 @@ from typing import Any, Literal
 
 from .brief_check import clean_term, parse_brief
 from .claims import unsupported_claims
+from .endorsement import endorsement_terms
 from .temporal_terms import temporal_terms
 from .text_match import PACKAGING_WORDS, contains_phrase, fold, same_word, words
-from .trend_tie import has_trend_tie, tie_terms
+from .trend_tie import distinctive_trend_tokens, has_trend_tie, tie_terms
 
 MAX_HEADLINE_CHARS = 60
 MAX_CAPTION_CHARS = 2200
@@ -219,14 +231,77 @@ def brief_mandatories(brief: Mapping[str, Any] | str | None) -> list[str]:
 def brief_motifs(brief: Any) -> list[str]:
     """The structured brief's ``trend_bridge.motifs`` (brief dict, its JSON
     string, or a dict holding a ``TrendBridge`` model); [] when missing."""
+    motifs = _bridge_field(brief, "motifs")
+    if not isinstance(motifs, list):
+        return []
+    return [m.strip() for m in motifs if isinstance(m, str) and m.strip()]
+
+
+def _bridge_field(brief: Any, field: str) -> Any:
     data = parse_brief(brief)
     bridge = data.get("trend_bridge") if data is not None else None
     if hasattr(bridge, "model_dump"):
         bridge = bridge.model_dump()
-    motifs = bridge.get("motifs") if isinstance(bridge, Mapping) else None
-    if not isinstance(motifs, list):
+    return bridge.get(field) if isinstance(bridge, Mapping) else None
+
+
+def brief_risks(brief: Any) -> list[str]:
+    """The structured brief's ``trend_bridge.risks``; [] when missing."""
+    risks = _bridge_field(brief, "risks")
+    if not isinstance(risks, list):
         return []
-    return [m.strip() for m in motifs if isinstance(m, str) and m.strip()]
+    return [r.strip() for r in risks if isinstance(r, str) and r.strip()]
+
+
+def brief_safer_angle(brief: Any) -> str:
+    """The structured brief's ``trend_bridge.safer_angle``; "" when missing."""
+    angle = _bridge_field(brief, "safer_angle")
+    return angle.strip() if isinstance(angle, str) else ""
+
+
+def safer_angle_tie_avoid(
+    trend: str,
+    *,
+    avoid: Sequence[str] = (),
+    risks: Sequence[str] = (),
+    safer_angle: str = "",
+) -> list[str]:
+    """``avoid`` plus the trend's distinctive tokens that a brief risk names
+    but the safer angle does not: the sensitive event's words ("murder",
+    "trial" in "tupac shakur murder trial") never count as a trend tie, while
+    the subject's name, which the safer angle uses, still does."""
+    extra = [
+        token
+        for token in distinctive_trend_tokens(trend, avoid)
+        if any(contains_phrase(risk, token) for risk in risks)
+        and not contains_phrase(safer_angle, token)
+    ]
+    return [*avoid, *extra]
+
+
+def safer_angle_named_copies(
+    copies: Any,
+    *,
+    trend_terms: str,
+    avoid: Sequence[str] = (),
+    risks: Sequence[str] = (),
+    safer_angle: str = "",
+) -> list[str]:
+    """The keys (``copy_keys``) of the copies whose text names the trend's
+    subject: the trend phrase or one of its distinctive words, minus the
+    ``safer_angle_tie_avoid`` words (motifs do not count). [] without a trend."""
+    if not words(trend_terms):
+        return []
+    tie_avoid = safer_angle_tie_avoid(
+        trend_terms, avoid=avoid, risks=risks, safer_angle=safer_angle
+    )
+    parsed = parse_copies(copies)
+    named: list[str] = []
+    for key, copy in zip(copy_keys(parsed), parsed, strict=True):
+        text = " ".join(_text(copy.get(f)) for f in _COPY_FIELDS)
+        if has_trend_tie(text, trend=trend_terms, avoid=tie_avoid):
+            named.append(key)
+    return named
 
 
 def _text(value: Any) -> str:
@@ -456,6 +531,8 @@ def _deterministic_issues(
     trend_terms: str = "",
     motifs: Sequence[str] = (),
     trend_sensitive: bool = False,
+    safer_angle_active: bool = False,
+    tie_avoid: Sequence[str] | None = None,
 ) -> list[str]:
     issues: list[str] = []
     copy_text = " ".join(_text(copy.get(f)) for f in _COPY_FIELDS)
@@ -516,6 +593,12 @@ def _deterministic_issues(
                 f"({', '.join(terms)}): {fix}"
             )
 
+    if safer_angle_active and (terms := endorsement_terms(copy_text)):
+        issues.append(
+            f"implies endorsement or speaks for the real person "
+            f"({', '.join(terms)}): remove it."
+        )
+
     for term in avoid:
         if contains_phrase(copy_text, term):
             issues.append(
@@ -525,13 +608,18 @@ def _deterministic_issues(
 
     # The trend tie (pre-judge counterpart of the judge's blocking
     # trend_connected gate): never for a sensitive moment, whose event the
-    # creative work must not reference; an avoid term never counts as a tie.
+    # creative work must not reference, unless the run takes a safer angle
+    # (then the event's words never count, ``tie_avoid``); an avoid term never
+    # counts as a tie.
+    tie_avoid = list(avoid) if tie_avoid is None else list(tie_avoid)
     if (
         trend_terms.strip()
-        and not trend_sensitive
-        and not has_trend_tie(copy_text, trend=trend_terms, motifs=motifs, avoid=avoid)
+        and (safer_angle_active or not trend_sensitive)
+        and not has_trend_tie(
+            copy_text, trend=trend_terms, motifs=motifs, avoid=tie_avoid
+        )
     ):
-        examples = ", ".join(tie_terms(trend_terms, motifs, avoid=avoid))
+        examples = ", ".join(tie_terms(trend_terms, motifs, avoid=tie_avoid))
         issues.append(
             "not clearly tied to the trend: name it or one of its motifs"
             + (f" (e.g. {examples})" if examples else "")
@@ -572,6 +660,8 @@ def _check_copy(
     trend_terms: str = "",
     motifs: Sequence[str] = (),
     trend_sensitive: bool = False,
+    safer_angle_active: bool = False,
+    tie_avoid: Sequence[str] | None = None,
 ) -> list[CopyIssue]:
     deterministic = _deterministic_issues(
         copy,
@@ -584,6 +674,8 @@ def _check_copy(
         trend_terms=trend_terms,
         motifs=motifs,
         trend_sensitive=trend_sensitive,
+        safer_angle_active=safer_angle_active,
+        tie_avoid=tie_avoid,
     )
     self_reported = _self_reported_issues(copy, gating_brief_checks(strictness))
     return [CopyIssue("deterministic", text) for text in deterministic] + [
@@ -606,6 +698,9 @@ def gate_copies(
     trend_terms: str = "",
     motifs: Sequence[str] = (),
     trend_sensitive: bool = False,
+    safer_angle_active: bool = False,
+    risks: Sequence[str] = (),
+    safer_angle: str = "",
 ) -> dict[str, list[CopyIssue]]:
     """The copies' gating issues, keyed by ``copy_keys``.
 
@@ -642,13 +737,27 @@ def gate_copies(
     brief's ``trend_bridge.motifs``) is flagged (``trend_tie.has_trend_tie``;
     an avoid term never counts as a tie); skipped when ``trend_sensitive``
     (the current moment is sensitive and must not be referenced). It is
-    separate from ``trend``, which only exempts avoid terms. Never raises.
+    separate from ``trend``, which only exempts avoid terms.
+    ``safer_angle_active`` (the run takes a safer angle on a sensitive trend;
+    default False = the checks above, unchanged) flags any endorsement term
+    (``endorsement.endorsement_terms``) and checks the trend tie even when
+    ``trend_sensitive``, never counting the trend words that ``risks`` (the
+    brief's ``trend_bridge.risks``) name unless ``safer_angle`` (its
+    ``trend_bridge.safer_angle``) uses them (``safer_angle_tie_avoid``).
+    Never raises.
     """
     terms = _avoid_terms(
         avoid, product=target_product, mandatories=mandatories, trend=trend
     )
     parsed = parse_copies(copies)
     timely_room = sum(c.get("uses_trend_state") is True for c in parsed) < max_timely
+    tie_avoid = (
+        safer_angle_tie_avoid(
+            trend_terms, avoid=terms, risks=risks, safer_angle=safer_angle
+        )
+        if safer_angle_active
+        else None
+    )
     issues: dict[str, list[CopyIssue]] = {}
     for key, copy in zip(copy_keys(parsed), parsed, strict=True):
         if found := _check_copy(
@@ -662,6 +771,8 @@ def gate_copies(
             trend_terms=trend_terms,
             motifs=motifs,
             trend_sensitive=trend_sensitive,
+            safer_angle_active=safer_angle_active,
+            tie_avoid=tie_avoid,
         ):
             issues[key] = found
     return issues

@@ -27,7 +27,7 @@ VISUAL_CONCEPT_REVISER_INSTR = (
     + """
     4.  Leave every concept the note does NOT mention completely UNCHANGED — same field values, verbatim.
     5.  If `visual_revision_notes` is empty or missing, return the concepts EXACTLY as given, unchanged. If `final_visual_concepts` is empty, output an object whose `visual_concepts` list is empty.
-    6.  Preserve the list order, the count, and every field of each concept. Do NOT drop, add, reorder, or rename concepts.{person_casting_rules?}{timely_rules?}{rating_limits?}
+    6.  Preserve the list order, the count, and every field of each concept. Do NOT drop, add, reorder, or rename concepts.{person_casting_rules?}{timely_rules?}{rating_limits?}{safer_angle_visual_rules?}
     </INSTRUCTIONS>
 
     <CONTEXT>
