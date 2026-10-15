@@ -1105,6 +1105,36 @@ def test_main_passes_the_stop_flag_to_the_endpoint_client(tmp_path):
     assert main.build_client(args, {}, _cfg(), should_stop=flag).should_stop is flag
 
 
+def test_main_wires_the_sigterm_flag_into_the_built_client(tmp_path, monkeypatch):
+    import os
+    import signal
+
+    seen: dict = {}
+    cfg = _cfg()
+
+    class SignalOnFirstDecision(DecisionCounter):
+        def predict(self, instances, parameters=None):
+            if instances[0]["type"] == "decision" and "before" not in seen:
+                seen["before"] = seen["should_stop"]()
+                os.kill(os.getpid(), signal.SIGTERM)
+                seen["after"] = seen["should_stop"]()
+            return super().predict(instances, parameters)
+
+    def fake_build_client(args, env, cfg_, *, should_stop=None):
+        seen["should_stop"] = should_stop
+        return SignalOnFirstDecision(InProcessClient(FakeBanditEndpoint(cfg)))
+
+    monkeypatch.setattr(main, "build_client", fake_build_client)
+    previous = signal.signal(signal.SIGTERM, lambda s, f: None)
+    try:
+        env = {"CONFIG_URI": str(_write_config(tmp_path)), "EXPERIMENT_ID": EID}
+        code = main.main(["--in-process"], env=env, writer=_writer(FakeBQ()))
+    finally:
+        signal.signal(signal.SIGTERM, previous)
+    assert code == main.EXIT_STOPPED
+    assert (seen["before"], seen["after"]) == (False, True)
+
+
 class RejectingClient(RecordingClient):
     """Answers the first ``n`` rewards ``accepted: false`` (an endpoint restart
     mid-run: the in-flight batch's rewards come back ``unknown request_id``)."""
