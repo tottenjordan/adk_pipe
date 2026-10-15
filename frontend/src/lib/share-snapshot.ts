@@ -11,6 +11,7 @@
  * read `shares/` anyway (IAM condition), so this is defence in depth.
  */
 
+import "server-only";
 import { GCS_FETCH_TIMEOUT_MS } from "@/lib/fetch-timeout";
 import { getAccessToken } from "@/lib/gcp-auth";
 import { BUCKET_RE } from "@/lib/gcs";

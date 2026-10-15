@@ -5,6 +5,7 @@
  * read `process.env` and build the authenticated JSON API URL.
  */
 
+import "server-only";
 import { BUCKET_RE } from "@/lib/gcs";
 
 type Env = Record<string, string | undefined>;

@@ -1,3 +1,4 @@
+import "server-only";
 import { createRemoteJWKSet, jwtVerify, type JWTVerifyGetKey } from "jose";
 
 export const IAP_ISSUER = "https://cloud.google.com/iap";
