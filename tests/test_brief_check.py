@@ -541,12 +541,43 @@ def test_brief_flags_an_absolute_proposition():
     assert "indestructible" in issue
 
 
-def test_brief_claim_allowed_by_selling_points_or_mandatories():
+def test_brief_claim_allowed_by_selling_points():
     brief = _brief(single_minded_proposition="Rocket Skates carry a lifetime warranty.")
     assert _claim_issues(brief, key_selling_points="Lifetime warranty") == []
     assert _claim_issues(brief, key_selling_points=["Lifetime warranty"]) == []
+
+
+def test_brief_mandatories_do_not_allow_a_claim():
+    # The brief writer writes the mandatories, so they can't license a claim.
+    brief = _brief(single_minded_proposition="Rocket Skates carry a lifetime warranty.")
     brief["mandatories"] = ["name Rocket Skates", "mention the lifetime warranty"]
-    assert _claim_issues(brief) == []
+    issues = _claim_issues(brief)
+    assert any("(lifetime)" in i for i in issues)
+
+
+def _mandatory_claim_issues(brief, **kwargs):
+    return [i for i in check_brief(brief, **kwargs) if "mandatories" in i]
+
+
+def test_mandatory_with_an_invented_claim_is_flagged():
+    brief = _brief(
+        mandatories=[
+            "name Rocket Skates",
+            "say Rocket Skates are guaranteed to stay in tune",
+        ]
+    )
+    (issue,) = _mandatory_claim_issues(brief, key_selling_points="Great tone")
+    assert "guaranteed" in issue
+    assert "selling points" in issue
+
+
+def test_mandatory_claim_in_the_selling_points_is_allowed():
+    brief = _brief(
+        mandatories=["name Rocket Skates", "mention the lifetime warranty"],
+        single_minded_proposition="Rocket Skates carry a lifetime warranty.",
+    )
+    assert _mandatory_claim_issues(brief, key_selling_points="Lifetime warranty") == []
+    assert _claim_issues(brief, key_selling_points=["Lifetime warranty"]) == []
 
 
 def test_clean_brief_has_no_claim_issues():

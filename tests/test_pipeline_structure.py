@@ -2058,7 +2058,7 @@ def test_copy_gate_decision_reads_the_brief_avoid_list():
     assert copy_gate_decision(state, 1)[0] == "ok"
 
 
-def test_copy_gate_decision_allows_claims_from_selling_points_and_mandatories():
+def test_copy_gate_decision_allows_claims_only_from_selling_points():
     from creative_agent.agent import copy_gate_decision
 
     copy = _final_copy(1, body_text="Rocket Skates with a lifetime warranty.")
@@ -2068,8 +2068,11 @@ def test_copy_gate_decision_allows_claims_from_selling_points_and_mandatories():
     for points in ("Lifetime warranty", ["Fast", "Lifetime warranty"]):
         state = _copy_state(copy, key_selling_points=points)
         assert copy_gate_decision(state, 1)[0] == "ok"
+    # The brief writer writes the mandatories, so they never license a claim.
     brief = {**_clean_brief(), "mandatories": ["mention the lifetime warranty"]}
-    assert copy_gate_decision(_copy_state(copy, creative_brief=brief), 1)[0] == "ok"
+    route, delta = copy_gate_decision(_copy_state(copy, creative_brief=brief), 1)
+    assert route == "revise"
+    assert "unsupported absolute claim (lifetime)" in delta["ad_copy_issues"]
 
 
 def test_brief_gate_allows_claims_from_selling_points():
