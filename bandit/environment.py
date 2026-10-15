@@ -62,6 +62,7 @@ import numpy as np
 from jax import Array
 
 from bandit import features
+from bandit.calibration import logit, sigmoid
 from bandit.config import (
     BASE_MARGINALS,
     LEADER,
@@ -121,11 +122,6 @@ class Environment:
         return len(self.arms)
 
 
-def _logit(p: np.ndarray | float) -> np.ndarray:
-    p = np.asarray(p, np.float64)
-    return np.log(p) - np.log1p(-p)
-
-
 def _level_probs(marginals: dict[str, Any]) -> np.ndarray:
     """(G, Lmax) probabilities for one segment (BASE_MARGINALS + overrides)."""
     lmax = features.COLUMN_TABLE.shape[1]
@@ -155,7 +151,7 @@ def _expected_features(level_probs: np.ndarray) -> np.ndarray:
 
 def _rank_ctrs(knots: tuple[float, ...], k: int, scale: float) -> np.ndarray:
     """K marginal CTRs best -> worst, interpolating ``knots`` in logit space."""
-    lk = _logit(np.asarray(knots) * scale)
+    lk = logit(np.asarray(knots) * scale)
     return np.interp(np.linspace(0, 1, k), np.linspace(0, 1, len(knots)), lk)
 
 
@@ -282,7 +278,7 @@ def build_true_model(
     winners: tuple[int, ...] | None = None
     if sc.arm_effect == "segment_winners":
         winners = tuple(_greedy_winners(sc, adj))
-        lift_logit = float(_logit(target + sc.lift_pp * scale) - _logit(target))
+        lift_logit = float(logit(target + sc.lift_pp * scale) - logit(target))
         for s_idx, w in enumerate(winners):
             v = b + u[s_idx] + theta @ m_seg[s_idx]
             best_other = np.max(np.delete(v, w))
@@ -369,10 +365,6 @@ def build_true_model(
 P_MAX = 1.0 - 1e-6
 
 
-def _sigmoid(z: np.ndarray | float) -> np.ndarray:
-    return 1.0 / (1.0 + np.exp(-np.asarray(z, np.float64)))
-
-
 def _no_shifts(s_count: int, k: int, p: int = 0) -> dict[str, np.ndarray]:
     return {
         "start": np.zeros(p),
@@ -451,7 +443,7 @@ def _resolve_shifts(
         leaves["start"][j] = r
         w = _drift_weight_np(r, drift_start, drift_width)
         V = (1.0 - w) * seg_logit + w * seg_logit[:, perm] + offsets
-        ctr = _sigmoid(V)
+        ctr = sigmoid(V)
         rec: dict[str, Any] = {
             "index": i,
             "kind": s.kind,
@@ -503,10 +495,10 @@ def _resolve_shifts(
                 best_other = float(np.max(np.delete(ctr[sg], a)))
                 if s.kind == "promote":
                     goal = min(best_other + float(s.lift_pp or 0.0), 0.999)
-                    delta = max(0.0, float(_logit(goal)) - V[sg, a])
+                    delta = max(0.0, float(logit(goal)) - V[sg, a])
                 else:
                     goal = max(best_other - float(s.drop_pp or 0.0), 1e-6)
-                    delta = min(0.0, float(_logit(goal)) - V[sg, a])
+                    delta = min(0.0, float(logit(goal)) - V[sg, a])
                 leaves["logit"][j, sg, a] = delta
                 offsets[sg, a] += delta
                 targets.append(
@@ -514,7 +506,7 @@ def _resolve_shifts(
                         "segment": segment_names[sg],
                         "ctr_before": float(ctr[sg, a]),
                         "best_other_ctr": best_other,
-                        "ctr_after": float(_sigmoid(V[sg, a] + delta)),
+                        "ctr_after": float(sigmoid(V[sg, a] + delta)),
                         "logit_offset": float(delta),
                     }
                 )

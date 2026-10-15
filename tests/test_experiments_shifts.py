@@ -68,11 +68,11 @@ def _one(**over):
     return [{**VALID[0], **over}]
 
 
-# --- parity with bandit.config ------------------------------------------------------
+# --- parity with bandit.shifts ------------------------------------------------------
 
 
 def test_shift_constants_parity_with_bandit():
-    from bandit import config as bc
+    from bandit import shifts as bc
 
     assert ex.SHIFT_KINDS == bc.SHIFT_KINDS
     assert ex.SHIFT_BOUNDS == bc.SHIFT_BOUNDS

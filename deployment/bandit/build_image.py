@@ -47,19 +47,23 @@ SERVING_FILES = (
     "predictor.py",
     "storage.py",
 )
-#: ``bandit/`` modules the image needs at runtime: the predictor uses config,
+#: ``bandit/`` modules the image needs at runtime: the predictor uses config
+#: (+ calibration, scenario, shifts),
 #: features, linear_ts and aggregate; the traffic job also needs the simulator,
 #: environment, policies, baselines and metrics. Only the CLI stays out.
 BANDIT_RUNTIME_FILES = (
     "__init__.py",
     "aggregate.py",
     "baselines.py",
+    "calibration.py",
     "config.py",
     "environment.py",
     "features.py",
     "linear_ts.py",
     "metrics.py",
     "policies.py",
+    "scenario.py",
+    "shifts.py",
     "simulate.py",
 )
 #: ``bandit_traffic/`` modules (the traffic job, run via a command override).
