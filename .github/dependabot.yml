@@ -60,7 +60,8 @@ updates:
       # eslint-config-next supports eslint 9; bump with Next.
       - dependency-name: "eslint"
         update-types: ["version-update:semver-major"]
-      # Held at the engines floor (Node 22, .nvmrc); the image and CI run 24.
+      # Held at the engines floor (Node 22, package.json engines); .nvmrc, the
+      # image and CI run 24.
       - dependency-name: "@types/node"
         update-types: ["version-update:semver-major"]
       # typescript-eslint (via eslint-config-next) peers typescript <6.1;
