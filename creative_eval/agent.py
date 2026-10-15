@@ -16,14 +16,9 @@ from agent_common import collect_degradation_warnings
 
 from .brief import parse_brief
 from .config import EvalConfig
-from .evaluate import (
-    _is_failed,
-    build_report,
-    evaluate_all_concurrently,
-    run_trend_situation,
-    safer_angle_active,
-    safer_angle_reason,
-)
+from .evaluate import evaluate_all_concurrently
+from .gates import run_trend_situation, safer_angle_active, safer_angle_reason
+from .report import _is_failed, build_report
 from .schemas import AdCopyEvaluation, CreativeScore, VisualConceptEvaluation
 
 logger = logging.getLogger(__name__)
@@ -66,7 +61,7 @@ def ad_copy_eval_fingerprint(state: Mapping[str, Any]) -> str:
 
     Ad copies, brief, campaign, the validated ``trend_situation`` and the
     ``trend_sensitive_hint`` that turns it off (a timely copy is judged
-    against it, :func:`creative_eval.evaluate.run_trend_situation`), the
+    against it, :func:`creative_eval.gates.run_trend_situation`), the
     safer-angle state (``safer_angle_active``,
     ``safer_angle_sensitive_reason``, ``safer_angle_named_copies``; the brief's
     ``trend_bridge.safer_angle`` is in the brief) and the judge. An early ad-copy evaluation is

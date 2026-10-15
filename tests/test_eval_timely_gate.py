@@ -28,16 +28,18 @@ from creative_eval.dimensions import (
     VISUAL_GATES,
 )
 from creative_eval.evaluate import (
-    NO_TIMELY_NOTE,
-    NOT_CHECKED_NOTE,
-    creative_is_timely,
     evaluate_ad_copy,
     evaluate_all_concurrently,
     evaluate_visual_concept,
-    moment_block,
+)
+from creative_eval.gates import (
+    NO_TIMELY_NOTE,
+    NOT_CHECKED_NOTE,
+    creative_is_timely,
     normalize_gates,
     unreported_gates_warning,
 )
+from creative_eval.judge import moment_block
 from creative_eval.schemas import (
     AdCopyEvaluation,
     CreativeEvaluationReport,

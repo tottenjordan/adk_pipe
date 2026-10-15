@@ -17,11 +17,8 @@ from creative_eval.dimensions import (
     PERSON_GATES,
     VISUAL_GATES,
 )
-from creative_eval.evaluate import (
-    NO_PERSON_CAST_NOTE,
-    evaluate_visual_concept,
-    normalize_gates,
-)
+from creative_eval.evaluate import evaluate_visual_concept
+from creative_eval.gates import NO_PERSON_CAST_NOTE, normalize_gates
 from creative_eval.schemas import GateResult
 from tests._eval_fakes import verdict_dicts
 
@@ -86,13 +83,13 @@ def test_cast_concept_keeps_the_judges_verdict():
 
 
 def test_cast_concept_missing_the_gate_fails_not_checked():
-    from creative_eval.evaluate import NOT_CHECKED_NOTE
+    from creative_eval.gates import NOT_CHECKED_NOTE
 
     raw = [GateResult(gate=g, passed=True) for g in VISUAL_GATES if g != GATE]
     gates = normalize_gates(raw, VISUAL_GATES, brief_used=True, person_cast=True)
     gate = next(g for g in gates if g.gate == GATE)
     assert gate.passed is False and gate.note == NOT_CHECKED_NOTE
-    from creative_eval.evaluate import unreported_gates_warning
+    from creative_eval.gates import unreported_gates_warning
     from creative_eval.schemas import CreativeScore, VisualConceptEvaluation
 
     ev = VisualConceptEvaluation(

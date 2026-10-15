@@ -97,7 +97,7 @@ def _safer_angle_gate(scope: str, subject: str, extra: str, fail_on: str) -> str
     )
 
 
-# The judge's <CURRENT_MOMENT> section (creative_eval.evaluate.moment_block),
+# The judge's <CURRENT_MOMENT> section (creative_eval.judge.moment_block),
 # shown only for a timely creative.
 MOMENT_HEADER = (
     "Current moment (validated from research; the only facts a timely claim may state):"
@@ -332,7 +332,7 @@ VISUAL_IMAGE_ATTACHED = """The rendered ad image is attached. Judge the rendered
 VISUAL_IMAGE_MISSING = """No rendered image is available. Judge the image generation prompt as a description of the planned image."""
 
 # Cast concepts: the consented person's reference photo is attached after the
-# rendered image, preceded by this label (creative_eval.evaluate).
+# rendered image, preceded by this label (creative_eval.judge).
 PERSON_PHOTO_LABEL = "Reference photo of the consented person cast as the hero:"
 
 VISUAL_PERSON_PHOTO_ATTACHED = """The reference photo of the consented person cast as the hero is attached after the rendered ad image. It is ground truth for that person's own appearance: their tattoos, piercings, glasses, hairstyle, facial hair, skin marks and clothing style shown in the reference photo are correct and intended. Never count those features as visual defects, hallucinations, added attributes or disrespectful depiction; judge the person's likeness and respectful depiction against the reference photo."""
