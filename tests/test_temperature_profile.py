@@ -42,7 +42,6 @@ _CREATIVE = [
     ["campaign_web_synthesizer", None],
     ["combined_report_composer", None],
     ["combined_web_evaluator", None],
-    ["creative_eval_agent", None],
     ["enhanced_combined_searcher", None],
     ["gs_web_planner", None],
     ["gs_web_searcher", None],
@@ -61,6 +60,8 @@ _CREATIVE = [
 # Recorded from origin/main (cc5686b) before the seam: the unique
 # [name, temperature] pairs, sorted (workflow graphs hold copies of some agents,
 # and interactive_creative's root shares creative_agent's name and value).
+# creative_eval_agent (temperature unset) was dropped from the list when the
+# unused agent was deleted.
 GOLDEN_TUNED = {
     "creative_agent": _CREATIVE,
     "interactive_creative": [*_CREATIVE, ["visual_concept_reviser", 0.4]],

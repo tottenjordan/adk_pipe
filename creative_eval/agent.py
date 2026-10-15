@@ -1,13 +1,9 @@
-"""ADK agent integration for creative evaluation.
+"""Creative evaluation entry points for the creative_agent pipeline.
 
-Provides an evaluation agent that can be plugged into the creative_agent
-pipeline as an additional step after visual generation.
-
-Usage:
-    from creative_eval.agent import creative_eval_agent
-
-    # Add to root_agent tools:
-    tools=[..., AgentTool(agent=creative_eval_agent)]
+Plain functions on a ``tool_context``-like object (anything with ``.state``),
+called directly by creative_agent's ``finalize_pipeline`` nodes
+(``creative_agent/finalize.py``): :func:`evaluate_ad_copies_only` (early
+ad-copy judging) and :func:`evaluate_all_creatives` (the full report).
 """
 
 import hashlib
@@ -16,13 +12,7 @@ import logging
 from collections.abc import Mapping
 from typing import Any
 
-from google.adk.agents import Agent
-
-from agent_common import (
-    build_gemini,
-    collect_degradation_warnings,
-    log_empty_turn_finish_reason,
-)
+from agent_common import collect_degradation_warnings
 
 from .brief import parse_brief
 from .config import EvalConfig
@@ -309,26 +299,3 @@ def evaluate_all_creatives(tool_context) -> dict:
         "weakest_dimensions": summary.weakest_dimensions,
         "failed_creatives": failed_creatives,
     }
-
-
-# ADK Agent that wraps the evaluation tool
-creative_eval_agent = Agent(
-    model=build_gemini(_config.eval_model),
-    name="creative_eval_agent",
-    include_contents="none",
-    description="Evaluate the quality of generated ad copies and visual concepts using LLM-as-judge scoring.",
-    instruction="""Role: You are a Creative Quality Evaluation Specialist.
-
-    Your task is to evaluate all finalized ad copies and visual concepts using the `evaluate_all_creatives` tool.
-
-    <INSTRUCTIONS>
-    1. Call the `evaluate_all_creatives` tool to score all creatives in the session.
-    2. Report the results: overall pass rate, average scores, and weakest dimensions.
-    3. Highlight any creatives listed in `failed_creatives` (score < 0.7 or a failed compliance check) and explain why, using their `failed_gates` (failed checks) and `improvements` (the weakest failed dimensions).
-    </INSTRUCTIONS>
-
-    Call the tool now and report the results.
-    """,
-    tools=[evaluate_all_creatives],
-    after_model_callback=log_empty_turn_finish_reason,
-)
