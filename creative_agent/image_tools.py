@@ -28,7 +28,8 @@ import hashlib
 import json
 import logging
 import random
-from collections.abc import Awaitable, Mapping
+import threading
+from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -391,8 +392,13 @@ async def _store_image(
     mime_type: str,
     artifact_key: str,
     consent_id: str | None = None,
+    *,
+    before_upload: Callable[[], None] | None = None,
 ) -> str | None:
     """Upload to GCS + save the ADK artifact → the gs:// URI, or None.
+
+    ``before_upload`` runs in the upload's worker thread right before
+    ``_save_to_gcs`` (``_upload_all`` uses it to start uploads in order).
 
     A per-image GCS failure is logged and returns None so one bad upload
     doesn't abort the whole batch (_save_to_gcs raises on failure — it never
@@ -401,14 +407,19 @@ async def _store_image(
     deletes only objects that carry it) and is not saved as an ADK artifact.
     """
     extra = {"metadata": {"consent_id": consent_id}} if consent_id else {}
-    try:
-        img_gcs_uri = await asyncio.to_thread(
-            _save_to_gcs,
+
+    def upload() -> str:
+        if before_upload is not None:
+            before_upload()
+        return _save_to_gcs(
             tool_context=tool_context,
             image_bytes=image_bytes,
             filename=artifact_key,
             **extra,
         )
+
+    try:
+        img_gcs_uri = await asyncio.to_thread(upload)
     except Exception as gcs_exc:
         logging.error(
             f"GCS upload failed for '{artifact_key}', skipping image: {gcs_exc}"
@@ -806,11 +817,59 @@ def _image_record(
     return record
 
 
+# Kept images uploaded at once (GCS writes are independent; small bound).
+UPLOAD_CONCURRENCY = 4
+# Safety bound on an upload waiting for the previous one to start.
+_UPLOAD_ORDER_WAIT_SECS = 30.0
+
+
+async def _upload_all(
+    tool_context: ToolContext, jobs: list[tuple[bytes, str, str, str | None]]
+) -> list[str | None | BaseException]:
+    """Upload ``(image_bytes, mime, artifact_key, consent_id)`` jobs
+    concurrently (at most ``UPLOAD_CONCURRENCY`` in flight) → per job, in job
+    order, the gs:// URI, None (upload failed, logged) or the exception.
+
+    Uploads start in job order, so the ``_save_to_gcs`` calls keep concept order
+    while their I/O overlaps: the semaphore (FIFO, acquired with no await
+    before it) submits the worker threads in job order, and each thread waits
+    until the previous job's thread has entered ``_save_to_gcs`` (a
+    ``threading.Event``; the executor queue is FIFO, so the previous job is
+    always already running and the wait can't starve it)."""
+    slots = asyncio.Semaphore(UPLOAD_CONCURRENCY)
+    started = [threading.Event() for _ in jobs]
+
+    async def one(i: int, job: tuple[bytes, str, str, str | None]) -> str | None:
+        image_bytes, mime, artifact_key, consent_id = job
+
+        def entered() -> None:  # in the worker thread, right before the upload
+            if i:
+                started[i - 1].wait(_UPLOAD_ORDER_WAIT_SECS)
+            started[i].set()
+
+        try:
+            async with slots:
+                return await _store_image(
+                    tool_context,
+                    image_bytes,
+                    mime,
+                    artifact_key,
+                    consent_id=consent_id,
+                    before_upload=entered,
+                )
+        finally:
+            started[i].set()  # never leave the next upload waiting
+
+    return await asyncio.gather(
+        *(one(i, job) for i, job in enumerate(jobs)), return_exceptions=True
+    )
+
+
 async def _persist_results(
     plan: RenderPlan, results: list["RenderResult"], tool_context: ToolContext
 ) -> list[str]:
-    """Upload each kept image (concept order) and write the run's state →
-    the saved artifact keys.
+    """Upload the kept images (concurrently, ``_upload_all``) and write the
+    run's state → the saved artifact keys; records keep concept order.
 
     Every finished upload reaches ``generated_images`` in a ``finally``, even
     when a later step raised: a cast render in GCS must stay visible to
@@ -823,31 +882,43 @@ async def _persist_results(
     qa_issues: list[str] = []
     qa_unavailable: list[str] = []
     person_rejected: dict[str, str] = {}
+    kept: list[tuple[RenderResult, str]] = []
+    for result, artifact_key in zip(results, plan.artifact_keys, strict=True):
+        name = str(result.concept.get("concept_name") or "")
+        if result.rejected_reason is not None:
+            person_rejected[name] = result.rejected_reason
+        if result.qa_unavailable:
+            qa_unavailable.append(result.concept["concept_name"])
+        if result.qa_issue:
+            qa_issues.append(result.qa_issue)
+        if result.image_bytes is not None:
+            kept.append((result, artifact_key))
+    failure: BaseException | None = None
     try:
-        for result, artifact_key in zip(results, plan.artifact_keys, strict=True):
-            name = str(result.concept.get("concept_name") or "")
-            if result.rejected_reason is not None:
-                person_rejected[name] = result.rejected_reason
-            if result.qa_unavailable:
-                qa_unavailable.append(result.concept["concept_name"])
-            if result.qa_issue:
-                qa_issues.append(result.qa_issue)
-            if result.image_bytes is None:
+        uploaded = await _upload_all(
+            tool_context,
+            [
+                (
+                    result.image_bytes or b"",
+                    result.mime,
+                    artifact_key,
+                    plan.consent_id if plan.person_uri and result.cast else None,
+                )
+                for result, artifact_key in kept
+            ],
+        )
+        for (result, artifact_key), gcs_uri in zip(kept, uploaded, strict=True):
+            if isinstance(gcs_uri, BaseException):
+                failure = failure or gcs_uri
                 continue
-            consent_id = plan.consent_id if plan.person_uri and result.cast else None
-            gcs_uri = await _store_image(
-                tool_context,
-                result.image_bytes,
-                result.mime,
-                artifact_key,
-                consent_id=consent_id,
-            )
             if gcs_uri is None:
                 continue
             saved_keys.append(artifact_key)
             generated_images[result.concept["concept_name"]] = _image_record(
                 plan, result, artifact_key, gcs_uri
             )
+        if failure is not None:
+            raise failure
     finally:
         if generated_images:
             state["generated_images"] = generated_images
