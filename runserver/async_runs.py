@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 import json
 import logging
 import os
@@ -996,6 +997,14 @@ def merge_visual_concept_edits(
 
     Returns ``(merged_envelope, revision_notes)``.
     """
+    envelope, notes, _noted = _merge_visual_concept_edits(current, edits)
+    return envelope, notes
+
+
+def _merge_visual_concept_edits(
+    current: dict | None, edits: list | None
+) -> tuple[dict, str, list[int]]:
+    """``merge_visual_concept_edits`` plus the indices of the noted concepts."""
     envelope = dict(current) if isinstance(current, dict) else {}
     concepts = [
         dict(c) if isinstance(c, dict) else c
@@ -1003,6 +1012,7 @@ def merge_visual_concept_edits(
     ]
 
     notes_lines: list[str] = []
+    noted: list[int] = []
     for edit in edits or []:
         if not isinstance(edit, dict):
             continue
@@ -1023,9 +1033,49 @@ def merge_visual_concept_edits(
             name = concept.get("concept_name")
             label = f"Concept {idx} ({name})" if name else f"Concept {idx}"
             notes_lines.append(f"{label}: {note}")
+            if idx not in noted:
+                noted.append(idx)
 
     envelope["visual_concepts"] = concepts
-    return envelope, "\n".join(notes_lines)
+    return envelope, "\n".join(notes_lines), noted
+
+
+def visual_concept_edits_delta(current: dict | None, edits: list | None) -> dict:
+    """Pure: the checkpoint-3 resume's state delta (direct edits + notes).
+
+    Writes the merged ``final_visual_concepts``, clears the stale pre-checkpoint
+    ``final_visual_concepts__issues`` and records the reviser's scope:
+    ``visual_revision_notes`` (the notes), ``visual_revision_flagged_ids`` (the
+    issue keys, ``concept_guard.concept_keys``, of the concepts the notes name)
+    and ``visual_revision_snapshot`` (the concepts after the direct edits,
+    before the reviser). The reviser's ``restore_revision_unflagged_concepts``
+    after-callback restores every other concept from the snapshot, so a model
+    can neither paraphrase away a direct edit nor rename an unnoted concept.
+    Without notes all three are cleared (``None``): the reviser is skipped.
+    """
+    merged, notes, noted = _merge_visual_concept_edits(current, edits)
+    delta: dict = {
+        "final_visual_concepts": merged,
+        # The pre-checkpoint concept_gate verdict is stale once the user edits
+        # (interactive's visual_concept_reviser re-guards and re-checks, on its
+        # no-notes skip path too).
+        "final_visual_concepts__issues": None,
+        "visual_revision_notes": None,
+        "visual_revision_flagged_ids": None,
+        "visual_revision_snapshot": None,
+    }
+    if not notes:
+        return delta
+    # Lazy import: see merge_research_edit (the facade builds the agent graph).
+    from creative_agent.concept_guard import concept_keys
+
+    concepts = merged["visual_concepts"]
+    if all(isinstance(c, dict) for c in concepts):
+        keys = concept_keys(concepts)
+        delta["visual_revision_flagged_ids"] = [keys[i] for i in noted]
+        delta["visual_revision_snapshot"] = copy.deepcopy(merged)
+    delta["visual_revision_notes"] = notes
+    return delta
 
 
 RESEARCH_EDIT_FIELD = "combined_final_cited_report"
@@ -1231,18 +1281,9 @@ async def _apply_visual_concept_edits(
     session = await _get_session_or_none(session_service, app_name, user_id, session_id)
     if session is None:
         return
-    merged, notes = merge_visual_concept_edits(
+    delta = visual_concept_edits_delta(
         session.state.get("final_visual_concepts"), edits
     )
-    # The pre-checkpoint concept_gate verdict is stale once the user edits:
-    # clear it (interactive's visual_concept_reviser re-guards and re-checks,
-    # on its no-notes skip path too).
-    delta: dict = {
-        "final_visual_concepts": merged,
-        "final_visual_concepts__issues": None,
-    }
-    if notes:
-        delta["visual_revision_notes"] = notes
     event = Event(
         author=RUNSERVER_AUTHOR,
         invocation_id=RUNSERVER_AUTHOR,

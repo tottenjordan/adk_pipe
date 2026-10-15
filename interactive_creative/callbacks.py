@@ -14,6 +14,29 @@ from creative_agent import callbacks as ca_callbacks
 
 _EMPTY_CONCEPTS_JSON = json.dumps({"visual_concepts": []})
 
+# The checkpoint-3 revision inputs the resume writes
+# (runserver.async_runs.visual_concept_edits_delta): the notes, the noted
+# concepts' keys and the pre-reviser snapshot. Cleared once the reviser ran
+# (or was skipped), so a later reviser call never re-applies stale notes.
+VISUAL_REVISION_INPUT_KEYS = (
+    "visual_revision_notes",
+    "visual_revision_flagged_ids",
+    "visual_revision_snapshot",
+)
+
+
+def _clear_visual_revision_inputs(state: Any) -> None:
+    for key in VISUAL_REVISION_INPUT_KEYS:
+        if state.get(key) is not None:
+            state[key] = None
+
+
+def clear_visual_revision_inputs(callback_context: CallbackContext) -> None:
+    """`after_agent_callback` on `visual_concept_reviser` (last): clear the
+    checkpoint-3 revision inputs once they were applied. Returns None."""
+    _clear_visual_revision_inputs(callback_context.state)
+    return None
+
 
 def skip_reviser_without_notes(
     callback_context: CallbackContext,
@@ -38,7 +61,8 @@ def skip_reviser_without_notes(
     timely-cap and trend/product/brand_cue guard
     (`ensure_trend_and_product_callback`), then the deterministic concept checks
     re-recorded as `final_visual_concepts__issues`
-    (`recheck_concept_issues_callback`). The echo is the guarded value.
+    (`recheck_concept_issues_callback`). The echo is the guarded value. Every
+    skip also clears the revision inputs (`VISUAL_REVISION_INPUT_KEYS`).
     """
     state = callback_context.state
     notes = state.get("visual_revision_notes")
@@ -49,6 +73,7 @@ def skip_reviser_without_notes(
     )
     if has_notes and has_concepts:
         return None
+    _clear_visual_revision_inputs(state)
     if not has_concepts:
         return types.Content(
             role="model", parts=[types.Part(text=_EMPTY_CONCEPTS_JSON)]

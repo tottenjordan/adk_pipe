@@ -39,6 +39,7 @@ from interactive_creative.callbacks import (
     USER_REVISER_TOOL,
     USER_REVISION_FAILED_KEY,
     clear_copy_revision_inputs,
+    clear_visual_revision_inputs,
     skip_reviser_without_notes,
     user_copy_revision_failed,
 )
@@ -86,17 +87,25 @@ visual_concept_reviser = Agent(
         callbacks.scrub_surrogates_in_response,
         callbacks.log_empty_turn_finish_reason,
     ],
-    # Same trend-motif + product guard as visual_concept_finalizer: a revision
-    # note must not drop either from the prompt that is rendered. Then the
+    # First the deterministic scope backstop (like the fixer's
+    # restore_unflagged_concepts_callback): only the concepts the notes name
+    # may change; any other concept the model paraphrased (e.g. a direct
+    # edit), renamed, dropped or invented is restored from the resume's
+    # pre-reviser snapshot, and noted concepts keep their names (image keys).
+    # Then the same trend-motif + product guard as visual_concept_finalizer: a
+    # revision note must not drop either from the prompt that is rendered. Then the
     # deterministic concept checks are re-run on the guarded concepts so
     # final_visual_concepts__issues reflects them, not the pre-checkpoint
     # concept_gate verdict (record only, no fix loop). (Neither is reached on
     # the skip path — a before_agent reply ends the reviser's invocation — so
     # skip_reviser_without_notes runs both itself before echoing, guarding
-    # direct edits made without notes.)
+    # direct edits made without notes.) Last, the revision inputs are cleared
+    # (the skip path clears them too), so stale notes are never re-applied.
     after_agent_callback=[
+        callbacks.restore_revision_unflagged_concepts,
         callbacks.ensure_trend_and_product_callback,
         callbacks.recheck_concept_issues_callback,
+        clear_visual_revision_inputs,
     ],
 )
 

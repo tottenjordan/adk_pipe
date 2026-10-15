@@ -853,3 +853,134 @@ def test_checkpoint_3_direct_edit_without_notes_is_guarded(monkeypatch):
     issues = state["final_visual_concepts__issues"]
     assert issues and "Totally Wrong" in " ".join(issues)
     assert "stale" not in " ".join(issues)
+
+
+def _concept(i: int, name: str) -> dict[str, Any]:
+    """A schema-valid VisualConceptFinal paired with copy ``i + 1``."""
+    return {
+        "concept_name": name,
+        "ad_copy_id": i + 1,
+        "trend": TREND,
+        "trend_reference": "The roadrunner sprint.",
+        "markets_product": "Skates are fast.",
+        "audience_appeal": "Coyotes want speed.",
+        "selection_rationale": "Speed sells.",
+        "social_caption": "Zoom.",
+        "concept_summary": f"Concept {i}.",
+        "headline": "Beep beep",
+        "call_to_action": "Skate now!",
+        "visual_style": "Watercolor",
+        "aspect_ratio": "1:1",
+        "trend_motif": "a roadrunner dust cloud",
+        "image_generation_prompt": (
+            f"A watercolor of Rocket Skates and a roadrunner dust cloud, scene {i}."
+        ),
+    }
+
+
+_NAMES = ["Dust", "Sprint", "Mesa", "Canyon"]
+_EDITED_PROMPT = "A watercolor of Rocket Skates and a roadrunner dust cloud at dawn."
+_REVISED_PROMPT = (
+    "A neon watercolor of Rocket Skates and a roadrunner dust cloud, scene 2."
+)
+
+
+def _misbehaving_reviser_output(concepts: list[dict[str, Any]]) -> dict[str, Any]:
+    """The reviser paraphrases concept 0, renames concepts 2 and 3 and
+    revises concept 2's prompt (the only one the notes name)."""
+    out = [dict(c) for c in concepts]
+    out[0] = {
+        **concepts[0],
+        "image_generation_prompt": "A paraphrased watercolor of a roadrunner.",
+    }
+    out[2] = {
+        **concepts[2],
+        "concept_name": "Neon Mesa",
+        "image_generation_prompt": _REVISED_PROMPT,
+    }
+    out[3] = {**concepts[3], "concept_name": "Renamed Canyon"}
+    return {"visual_concepts": out}
+
+
+def _run_checkpoint_3_reviser(monkeypatch, concepts, edits, reviser_output):
+    """Pause at checkpoint 3, resume with ``edits`` and let the root call the
+    reviser once (its model scripted to ``reviser_output``); returns the final
+    state and the reviser's model."""
+    import interactive_creative.agent as ic
+
+    root_llm = _patch_root(monkeypatch)
+    reviser_llm = _RecordingLlm()
+    reviser_llm.push(text_response(json.dumps(reviser_output)))
+    monkeypatch.setattr(ic.visual_concept_reviser, "model", reviser_llm)
+    root_llm.push(fc_response("review_visual_concepts", {}, "fc-cp3"))
+    root_llm.push(
+        fc_response("visual_concept_reviser", {"request": "apply"}, "fc-rev"),
+        text_response("ROOT DONE"),
+    )
+    svc = InMemorySessionService()
+
+    async def go():
+        await svc.create_session(
+            app_name=APP,
+            user_id=USER,
+            session_id=SID,
+            state={
+                **_seed_state(),
+                "ad_copy_critique": _STORED_ADS,
+                "final_visual_concepts": {"visual_concepts": concepts},
+            },
+        )
+        common = {
+            "app_name": APP,
+            "user_id": USER,
+            "session_id": SID,
+            "session_service": svc,
+            "runner_factory": _runner_factory(svc),
+        }
+        _, task = await start_run(message="go", **common)
+        await task
+        _, task = await start_resume(
+            function_call_id="fc-cp3",
+            function_name="review_visual_concepts",
+            response={"status": "approved", "instruction": "continue"},
+            edits=edits,
+            **common,
+        )
+        await task
+        return dict((await _session(svc)).state)
+
+    return asyncio.run(go()), reviser_llm
+
+
+def test_checkpoint_3_reviser_changes_only_the_noted_concepts(monkeypatch):
+    """IC-1: a note on concept 2 plus a direct edit on concept 0. The reviser
+    paraphrases concept 0 (wiping the edit), renames concepts 2 and 3 and
+    revises concept 2: the deterministic backstop keeps the direct edit and
+    every name, and only the noted concept 2 takes the reviser's change. The
+    revision inputs are cleared afterwards (IC-3)."""
+    concepts = [_concept(i, n) for i, n in enumerate(_NAMES)]
+
+    state, reviser_llm = _run_checkpoint_3_reviser(
+        monkeypatch,
+        concepts,
+        [
+            {"index": 0, "image_generation_prompt": _EDITED_PROMPT},
+            {"index": 2, "revision_note": "make it neon"},
+        ],
+        _misbehaving_reviser_output(concepts),
+    )
+
+    assert len(reviser_llm.requests) == 1  # notes present: the model ran
+    final = state["final_visual_concepts"]["visual_concepts"]
+    assert [c["concept_name"] for c in final] == _NAMES
+    prompts = [c["image_generation_prompt"] for c in final]
+    assert prompts[0] == _EDITED_PROMPT
+    assert prompts[1] == concepts[1]["image_generation_prompt"]
+    assert prompts[2] == _REVISED_PROMPT
+    assert prompts[3] == concepts[3]["image_generation_prompt"]
+    for key in (
+        "visual_revision_notes",
+        "visual_revision_flagged_ids",
+        "visual_revision_snapshot",
+    ):
+        assert state.get(key) is None, key

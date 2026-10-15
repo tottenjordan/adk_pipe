@@ -1439,15 +1439,20 @@ def test_interactive_reviser_model_callbacks_match_the_schema_producers():
 
 
 def test_interactive_reviser_rechecks_concepts_after_the_guard():
-    """The reviser's after_agent chain: the motif/product guard, THEN the
+    """The reviser's after_agent chain: the restore-unflagged backstop first
+    (only noted concepts change, IC-1), the motif/product guard, THEN the
     deterministic recheck (so the residual marker reflects the guarded,
-    post-checkpoint concepts, not the pre-checkpoint gate's verdict)."""
+    post-checkpoint concepts, not the pre-checkpoint gate's verdict), and
+    last the revision inputs are cleared (IC-3)."""
     from creative_agent import callbacks
     from interactive_creative.agent import visual_concept_reviser
+    from interactive_creative.callbacks import clear_visual_revision_inputs
 
     assert visual_concept_reviser.after_agent_callback == [
+        callbacks.restore_revision_unflagged_concepts,
         callbacks.ensure_trend_and_product_callback,
         callbacks.recheck_concept_issues_callback,
+        clear_visual_revision_inputs,
     ]
 
 
