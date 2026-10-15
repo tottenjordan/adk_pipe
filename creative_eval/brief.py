@@ -73,16 +73,41 @@ def _content_rules(items: list[str]) -> list[str]:
     return [item for item in items if not _PRODUCTION_MEDIUM.search(item)]
 
 
-def format_brief_for_judge(brief: Mapping[str, Any] | None) -> str:
+def _safer_angle_lines(
+    brief: Mapping[str, Any] | None, sensitive_reason: Any
+) -> list[str]:
+    """The safer-angle lines of a safer-angle run's brief block (pure).
+
+    "Safer angle: …" (the brief's ``trend_bridge.safer_angle``) and
+    "Sensitive event (never referenced): …", each only when present.
+    """
+    bridge = _mapping((brief or {}).get("trend_bridge"))
+    angle = _text(bridge.get("safer_angle"))
+    reason = _text(sensitive_reason)
+    return [
+        *([f"Safer angle: {angle}"] if angle else []),
+        *([f"Sensitive event (never referenced): {reason}"] if reason else []),
+    ]
+
+
+def format_brief_for_judge(
+    brief: Mapping[str, Any] | None,
+    *,
+    safer_angle: bool = False,
+    sensitive_reason: str = "",
+) -> str:
     """The judge's ``<CREATIVE_BRIEF>`` block for a parsed brief (pure).
 
     Covers what the gates check against: proposition, reasons to believe,
     mandatories, avoid (+ brand don'ts), the trend bridge (+ its risks, only
     when the brief names any) and the brand cues. Missing or malformed fields
-    render as "(none)"; ``None`` → :data:`NO_BRIEF_BLOCK`.
+    render as "(none)"; ``None`` → :data:`NO_BRIEF_BLOCK`. On a safer-angle
+    run (``safer_angle``) the brief's safer angle and the ``sensitive_reason``
+    are added (each only when present; also after :data:`NO_BRIEF_BLOCK`).
     """
+    extra = _safer_angle_lines(brief, sensitive_reason) if safer_angle else []
     if brief is None:
-        return NO_BRIEF_BLOCK
+        return "\n".join([NO_BRIEF_BLOCK, *extra])
     raw_rtbs = brief.get("reasons_to_believe")
     rtbs = [
         _text(r.get("claim")) if isinstance(r, Mapping) else _text(r)
@@ -110,6 +135,7 @@ def format_brief_for_judge(brief: Mapping[str, Any] | None) -> str:
             f"Trend bridge: fit {fit} ({fit_mode}) — "
             f"{_text(bridge.get('bridge')) or _NONE}",
             *risk_lines,
+            *extra,
             f"Brand tone of voice: {_text(brand.get('tone_of_voice')) or _NONE}",
             "Brand distinctive assets: "
             + ("; ".join(_texts(brand.get("distinctive_assets"))) or _NONE),

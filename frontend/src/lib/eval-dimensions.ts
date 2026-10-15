@@ -43,6 +43,8 @@ export const GATE_LABELS: Readonly<Record<string, string>> = {
   person_depicted_respectfully: "Person depicted respectfully",
   // Timely creatives (ad copy + visual)
   timely_claim_supported: "Timely claim supported",
+  // Safer-angle runs on a sensitive trend (ad copy + visual)
+  safer_angle_respected: "Respectful reference",
   // The judge skipped every check (one failed entry; mirrors creative_eval)
   gates_reported: "Checks reported",
 };

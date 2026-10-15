@@ -76,7 +76,11 @@ whichever judge graded that run, and a changed rubric changes what "pass" means.
 calibration is **versioned**:
 
 - `creative_eval.JUDGE_VERSION` (in `creative_eval/dimensions.py`, next to the gate
-  definitions) names the current judge, currently **`2026-10-13.1`**: small, illegible
+  definitions) names the current judge, currently **`2026-10-15`**: ad copy and visuals
+  gained the blocking `safer_angle_respected` gate (judged only on a safer-angle
+  run, a sensitive trend the user opted in to a respectful angle on; every other
+  creative passes it in code with note "no safer angle"). Before it,
+  **`2026-10-13.1`**: small, illegible
   or garbled text printed on the product or its packaging (label fine print, small
   lettering) is no longer a `no_visual_defects` failure (the judge looks at the product's
   shape, parts and placement instead; large ad-like gibberish is still a defect), and

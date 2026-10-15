@@ -35,6 +35,7 @@ from .dimensions import (
     JUDGE_VERSION,
     NO_GATES_GATE,
     PERSON_GATES,
+    SAFER_ANGLE_GATES,
     TIMELY_GATES,
     TREND_GATES,
     VISUAL_GATES,
@@ -90,6 +91,25 @@ NO_TREND_NOTE = "no trend"
 # Note on a TIMELY_GATES gate for a creative that does not reference a
 # validated timely moment.
 NO_TIMELY_NOTE = "not timely"
+# Note on a SAFER_ANGLE_GATES gate on a run without a safer angle.
+NO_SAFER_ANGLE_NOTE = "no safer angle"
+
+
+def safer_angle_active(state: Mapping[str, Any]) -> bool:
+    """True on a safer-angle run: ``state["safer_angle_active"] == "yes"`` (pure).
+
+    The user deliberately picked a sensitive trend and opted in to a
+    respectful, positive angle on its subject; anything else is inactive.
+    """
+    return state.get("safer_angle_active") == "yes"
+
+
+def safer_angle_reason(state: Mapping[str, Any]) -> str:
+    """The run's ``safer_angle_sensitive_reason`` ("" unless a safer-angle run)."""
+    if not safer_angle_active(state):
+        return ""
+    reason = state.get("safer_angle_sensitive_reason")
+    return reason.strip() if isinstance(reason, str) else ""
 
 
 def normalize_gates(
@@ -100,6 +120,7 @@ def normalize_gates(
     person_cast: bool = False,
     trend_given: bool = True,
     timely: bool = False,
+    safer_angle: bool = False,
 ) -> list[GateResult]:
     """The judge's gates, reduced to exactly ``expected`` in order (pure).
 
@@ -116,9 +137,12 @@ def normalize_gates(
     with note "no trend" (decided in code, never the judge; they need no
     brief, so a missing brief never passes them). Unless ``timely`` (the
     creative references a validated timely moment, :func:`creative_is_timely`)
-    the ``TIMELY_GATES`` pass with note "not timely". A person gate omitted for
-    a cast concept, or a timely gate omitted for a timely creative, fails as
-    "not checked" (unverified). ``advisory`` is set from ``ADVISORY_GATES``,
+    the ``TIMELY_GATES`` pass with note "not timely", and unless
+    ``safer_angle`` (a safer-angle run, :func:`safer_angle_active`) the
+    ``SAFER_ANGLE_GATES`` pass with note "no safer angle". A person gate
+    omitted for a cast concept, a timely gate omitted for a timely creative,
+    or a safer-angle gate omitted on a safer-angle run, fails as "not checked"
+    (unverified). ``advisory`` is set from ``ADVISORY_GATES``,
     never the judge.
     """
     reported: dict[str, GateResultIn | GateResult] = {}
@@ -139,6 +163,8 @@ def normalize_gates(
             out.append(GateResult(gate=name, passed=True, note=NO_TREND_NOTE))
         elif name in TIMELY_GATES and not timely:
             out.append(GateResult(gate=name, passed=True, note=NO_TIMELY_NOTE))
+        elif name in SAFER_ANGLE_GATES and not safer_angle:
+            out.append(GateResult(gate=name, passed=True, note=NO_SAFER_ANGLE_NOTE))
         elif name in reported:
             gate = reported[name]
             out.append(
@@ -149,9 +175,9 @@ def normalize_gates(
                     advisory=advisory,
                 )
             )
-        elif name in PERSON_GATES or name in TIMELY_GATES:
-            # A real cast person / a timely claim must be checked: an omission
-            # fails (unverified).
+        elif name in PERSON_GATES | TIMELY_GATES | SAFER_ANGLE_GATES:
+            # A real cast person / a timely claim / a safer angle must be
+            # checked: an omission fails (unverified).
             logger.warning("judge did not report required gate %r", name)
             out.append(GateResult(gate=name, passed=False, note=NOT_CHECKED_NOTE))
         else:
@@ -173,6 +199,7 @@ def score_from_judge(
     person_cast: bool = False,
     trend_given: bool = True,
     timely: bool = False,
+    safer_angle: bool = False,
 ) -> CreativeScore:
     """Map the judge's raw score to the report's ``CreativeScore`` (pure).
 
@@ -187,6 +214,7 @@ def score_from_judge(
         person_cast=person_cast,
         trend_given=trend_given,
         timely=timely,
+        safer_angle=safer_angle,
     )
     score = _score_from_verdicts(judged.verdicts, threshold, gates)
     score.strengths = list(judged.strengths)
@@ -450,6 +478,8 @@ def evaluate_ad_copy(
     brief: Mapping[str, Any] | None = None,
     trend_situation: Mapping[str, Any] | None = None,
     sources: Mapping[str, Any] | None = None,
+    safer_angle: bool = False,
+    sensitive_reason: str = "",
 ) -> AdCopyEvaluation:
     """Evaluate a single ad copy using Gemini-as-judge.
 
@@ -464,6 +494,9 @@ def evaluate_ad_copy(
                          copy flagged ``uses_trend_state`` under a timely
                          moment is judged against it (``timely_claim_supported``).
         sources: ``state["sources"]`` (the moment's cited source URLs).
+        safer_angle: A safer-angle run (:func:`safer_angle_active`): the judge
+                     checks ``safer_angle_respected``.
+        sensitive_reason: The sensitive event never to reference (judge context).
 
     Returns:
         AdCopyEvaluation with per-dimension scores and binary gates.
@@ -478,8 +511,11 @@ def evaluate_ad_copy(
         **campaign_context,
         **ad_copy,
         angle=angle_line(brief, ad_copy.get("angle_id") or ""),
-        brief_block=format_brief_for_judge(brief),
+        brief_block=format_brief_for_judge(
+            brief, safer_angle=safer_angle, sensitive_reason=sensitive_reason
+        ),
         timely="yes" if timely else "no",
+        safer_angle="yes" if safer_angle else "no",
         moment_section=_moment_section(timely, trend_situation, sources),
     )
 
@@ -510,6 +546,7 @@ def evaluate_ad_copy(
                     str(campaign_context.get("target_search_trend") or "").strip()
                 ),
                 timely=timely,
+                safer_angle=safer_angle,
             ),
             timely=timely,
         )
@@ -540,6 +577,8 @@ def evaluate_visual_concept(
     trend_situation: Mapping[str, Any] | None = None,
     sources: Mapping[str, Any] | None = None,
     paired_copy_timely: bool = False,
+    safer_angle: bool = False,
+    sensitive_reason: str = "",
 ) -> VisualConceptEvaluation:
     """Evaluate a single visual concept using Gemini-as-judge.
 
@@ -572,6 +611,9 @@ def evaluate_visual_concept(
                          moment is judged against it.
         sources: ``state["sources"]`` (the moment's cited source URLs).
         paired_copy_timely: The paired ad copy is flagged ``uses_trend_state``.
+        safer_angle: A safer-angle run (:func:`safer_angle_active`): the judge
+                     checks ``safer_angle_respected``.
+        sensitive_reason: The sensitive event never to reference (judge context).
 
     Returns:
         VisualConceptEvaluation with per-dimension scores and binary gates.
@@ -616,8 +658,11 @@ def evaluate_visual_concept(
                 "brand_cue": visual_concept.get("brand_cue") or "(none)",
                 "person_cast": "yes" if person_cast else "no",
                 "timely": "yes" if timely else "no",
+                "safer_angle": "yes" if safer_angle else "no",
             },
-            brief_block=format_brief_for_judge(brief),
+            brief_block=format_brief_for_judge(
+                brief, safer_angle=safer_angle, sensitive_reason=sensitive_reason
+            ),
             image_section=image_section,
             moment_section=moment_section,
         )
@@ -655,6 +700,7 @@ def evaluate_visual_concept(
                 brief_used=brief is not None,
                 person_cast=person_cast,
                 timely=timely,
+                safer_angle=safer_angle,
             ),
             image_judged=bool(uri),
             timely=timely,
@@ -762,7 +808,8 @@ def unreported_gates_warning(
 
     Such gates pass as "not checked" (see :func:`normalize_gates`); the
     warning keeps that leniency visible. A person gate left out for a cast
-    concept, or a timely gate left out for a timely creative, fails instead
+    concept, a timely gate left out for a timely creative, or a safer-angle
+    gate left out on a safer-angle run, fails instead
     and gets its own entry.
     """
     gates = [g for e in [*ad_evals, *visual_evals] for g in e.score.gates]
@@ -782,6 +829,15 @@ def unreported_gates_warning(
         noun = "check" if timely == 1 else "checks"
         out.append(
             f"{timely} timely {noun} not reported by the judge (failed as not checked)"
+        )
+    safer = sum(
+        g.note == NOT_CHECKED_NOTE and g.gate in SAFER_ANGLE_GATES for g in gates
+    )
+    if safer:
+        noun = "check" if safer == 1 else "checks"
+        out.append(
+            f"{safer} safer-angle {noun} not reported by the judge "
+            "(failed as not checked)"
         )
     return out
 
@@ -810,6 +866,8 @@ def evaluate_all_concurrently(
     trend_situation: Mapping[str, Any] | None = None,
     sources: Mapping[str, Any] | None = None,
     paired_ad_copies: Sequence[Any] | None = None,
+    safer_angle: bool = False,
+    sensitive_reason: str = "",
 ) -> tuple[list[AdCopyEvaluation], list[VisualConceptEvaluation]]:
     """Evaluate all ad copies and visual concepts concurrently, preserving order.
 
@@ -824,7 +882,9 @@ def evaluate_all_concurrently(
     creatives (:func:`creative_is_timely`) are judged against
     ``trend_situation``; a visual concept pairs with its copy among
     ``paired_ad_copies`` (default ``ad_copies``; pass the full list when only
-    some copies are judged here).
+    some copies are judged here). On a safer-angle run (``safer_angle``)
+    every creative is judged for ``safer_angle_respected``, with the
+    ``sensitive_reason`` in its brief block.
     """
     total = len(ad_copies) + len(visual_concepts)
     if total == 0:
@@ -846,6 +906,8 @@ def evaluate_all_concurrently(
                 trend_situation=trend_situation,
                 sources=sources,
                 paired_ad_copies=paired_ad_copies,
+                safer_angle=safer_angle,
+                sensitive_reason=sensitive_reason,
             )
 
     images = generated_images if isinstance(generated_images, Mapping) else {}
@@ -865,6 +927,8 @@ def evaluate_all_concurrently(
                 brief=brief,
                 trend_situation=trend_situation,
                 sources=sources,
+                safer_angle=safer_angle,
+                sensitive_reason=sensitive_reason,
             )
             for ac in ad_copies
         ]
@@ -881,6 +945,8 @@ def evaluate_all_concurrently(
                 trend_situation=trend_situation,
                 sources=sources,
                 paired_copy_timely=paired_copy_timely(vc, copy_ids),
+                safer_angle=safer_angle,
+                sensitive_reason=sensitive_reason,
             )
             for vc in visual_concepts
         ]
@@ -946,6 +1012,8 @@ def evaluate_creatives(
     person_reference: Any = None,
     trend_situation: Mapping[str, Any] | None = None,
     sources: Mapping[str, Any] | None = None,
+    safer_angle: bool = False,
+    sensitive_reason: str = "",
 ) -> CreativeEvaluationReport:
     """Evaluate all creatives from a single agent run.
 
@@ -964,6 +1032,9 @@ def evaluate_creatives(
         trend_situation: The run's validated moment; timely creatives are
                judged against it (``timely_claim_supported``).
         sources: ``state["sources"]`` (the moment's cited source URLs).
+        safer_angle: A safer-angle run: every creative is judged for
+               ``safer_angle_respected`` (else passed with "no safer angle").
+        sensitive_reason: The sensitive event never to reference.
 
     Returns:
         CreativeEvaluationReport with per-creative and aggregate scores.
@@ -991,6 +1062,8 @@ def evaluate_creatives(
             person_reference=person_reference,
             trend_situation=trend_situation,
             sources=sources,
+            safer_angle=safer_angle,
+            sensitive_reason=sensitive_reason,
         )
 
     summary = _build_summary(ad_evals, visual_evals)
