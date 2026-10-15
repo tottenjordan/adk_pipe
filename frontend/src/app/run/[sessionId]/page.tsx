@@ -51,11 +51,7 @@ const CAMPAIGN_FIELD_DEFS: DisplayFieldDef[] = [
   SAFER_ANGLE_FIELD,
 ];
 
-export default function RunPage({
-  params,
-}: {
-  params: Promise<{ sessionId: string }>;
-}) {
+export default function RunPage({ params }: PageProps<"/run/[sessionId]">) {
   const { sessionId } = use(params);
   const searchParams = useSearchParams();
   const router = useRouter();

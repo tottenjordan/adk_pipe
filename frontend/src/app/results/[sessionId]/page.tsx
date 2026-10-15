@@ -77,11 +77,7 @@ const CAMPAIGN_FIELD_DEFS: DisplayFieldDef[] = [
 
 const EMPTY_STATE: Record<string, unknown> = {};
 
-export default function ResultsPage({
-  params,
-}: {
-  params: Promise<{ sessionId: string }>;
-}) {
+export default function ResultsPage({ params }: PageProps<"/results/[sessionId]">) {
   const { sessionId } = use(params);
   const searchParams = useSearchParams();
   const appName = searchParams.get("app") || "trend_scout";

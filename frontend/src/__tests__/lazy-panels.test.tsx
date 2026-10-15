@@ -69,7 +69,7 @@ function renderPage() {
   });
   return render(
     <Suspense fallback={null}>
-      <ResultsPage params={params} />
+      <ResultsPage params={params} searchParams={Promise.resolve({})} />
     </Suspense>
   );
 }
