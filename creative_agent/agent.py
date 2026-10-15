@@ -772,17 +772,18 @@ _COPY_REVISION_CLEARED: dict[str, Any] = {
 }
 
 
-def _copy_issues(state: Mapping[str, Any]) -> dict[str, list[CopyIssue]]:
+def _copy_issues(
+    state: Mapping[str, Any], policy: RunPolicy | None = None
+) -> dict[str, list[CopyIssue]]:
     return gate_copies(
-        state.get("ad_copy_critique"), RunPolicy.from_state(state, config)
+        state.get("ad_copy_critique"), policy or RunPolicy.from_state(state, config)
     )
 
 
-def _safer_angle_delta(state: Mapping[str, Any], critique: Any) -> dict[str, Any]:
+def _safer_angle_delta(policy: RunPolicy, critique: Any) -> dict[str, Any]:
     """``safer_angle_named_copies`` (the copies naming the trend's subject)
     when the safer angle is active; {} otherwise, so other runs' deltas are
     unchanged. The brief's raw avoid list (not the gate's filtered terms)."""
-    policy = RunPolicy.from_state(state, config)
     if not policy.safer_angle_active:
         return {}
     return {
@@ -808,6 +809,24 @@ def _residual(
     return residual + structural_issues(critique, has_brief=has_brief) or None
 
 
+def _apply_timely_cap(
+    state: Mapping[str, Any], policy: RunPolicy | None = None
+) -> dict[str, Any]:
+    """``{"ad_copy_critique": capped}`` when ``enforce_timely_copy_cap``
+    changed the copies (flags beyond MAX_TIMELY_CONCEPTS, or any flag without
+    a timely moment, cleared; one warning logged per cleared copy), else {}."""
+    critique = state.get("ad_copy_critique")
+    if not is_populated(critique):
+        return {}
+    policy = policy or RunPolicy.from_state(state, config)
+    capped, warns = enforce_timely_copy_cap(
+        critique, timely_ok=policy.timely_ok, max_timely=policy.max_timely
+    )
+    for warning in warns:
+        logging.warning(f"timely copy cap: {warning}")
+    return {} if capped is critique else {"ad_copy_critique": capped}
+
+
 def residual_copy_issues(state: Mapping[str, Any]) -> list[str] | None:
     """The copy gate's warning-only residual for the current copies (pure).
 
@@ -831,22 +850,11 @@ def cap_and_residual_copies(state: Mapping[str, Any]) -> dict[str, Any]:
     capped copies as ``ad_copy_critique__issues``. Exported via the facade
     for interactive_creative's checkpoint-2 user revision.
     """
-    delta: dict[str, Any] = {}
-    critique = state.get("ad_copy_critique")
     policy = RunPolicy.from_state(state, config)
-    if is_populated(critique):
-        capped, warns = enforce_timely_copy_cap(
-            critique,
-            timely_ok=policy.timely_ok,
-            max_timely=policy.max_timely,
-        )
-        for warning in warns:
-            logging.warning(f"timely copy cap: {warning}")
-        if capped is not critique:
-            delta["ad_copy_critique"] = capped
-            state = {**state, "ad_copy_critique": capped}
+    delta = _apply_timely_cap(state, policy)
+    state = {**state, **delta}
     delta["ad_copy_critique__issues"] = residual_copy_issues(state)
-    delta.update(_safer_angle_delta(state, state.get("ad_copy_critique")))
+    delta.update(_safer_angle_delta(policy, state.get("ad_copy_critique")))
     return delta
 
 
@@ -859,22 +867,12 @@ def copy_gate_decision(
     MAX_TIMELY_CONCEPTS, or any flag without a timely moment, are cleared and
     the capped copies are written back (``base``) before they are checked.
     """
-    critique = state.get("ad_copy_critique")
-    base: dict[str, Any] = {}
     policy = RunPolicy.from_state(state, config)
-    if is_populated(critique):
-        capped, warns = enforce_timely_copy_cap(
-            critique,
-            timely_ok=policy.timely_ok,
-            max_timely=policy.max_timely,
-        )
-        for warning in warns:
-            logging.warning(f"timely copy cap: {warning}")
-        if capped is not critique:
-            critique = base["ad_copy_critique"] = capped
-            state = {**state, "ad_copy_critique": capped}
-    issues = _copy_issues(state) if is_populated(critique) else {}
-    base.update(_safer_angle_delta(state, critique))
+    base = _apply_timely_cap(state, policy)
+    state = {**state, **base}
+    critique = state.get("ad_copy_critique")
+    issues = _copy_issues(state, policy) if is_populated(critique) else {}
+    base.update(_safer_angle_delta(policy, critique))
     if not issues:
         return "ok", {
             **base,
@@ -913,13 +911,14 @@ def _ad_copy_reviser_failed(state: Mapping[str, Any], exc: Exception) -> dict[st
     before = state.get("ad_copy_critique__before_revision")
     critique = before if is_populated(before) else state.get("ad_copy_critique")
     used = int(state.get("ad_copy_revision_rounds_used") or 0)
-    issues = _copy_issues({**state, "ad_copy_critique": critique})
+    policy = RunPolicy.from_state(state, config)
+    issues = _copy_issues({**state, "ad_copy_critique": critique}, policy)
     return {
         **_COPY_REVISION_CLEARED,
         "ad_copy_critique": critique,
         "ad_copy_critique__issues": _residual(state, critique, issues),
         "ad_copy_revision_rounds_used": max(used, config.copy_revision_rounds),
-        **_safer_angle_delta(state, critique),
+        **_safer_angle_delta(policy, critique),
     }
 
 
