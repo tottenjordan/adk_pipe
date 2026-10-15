@@ -200,6 +200,7 @@ tests/
 ├── test_trend_tie.py                # creative_agent/trend_tie.py: distinctive trend token / full phrase / brief motif (adjacent-word motif phrases) tie, generic query tokens + years + short tokens don't count, avoid terms never count, empty trend passes, tie_terms examples
 ├── test_endorsement.py             # creative_agent/endorsement.py lexicon: whole-word/fold/hyphen matching, pinned idioms (partner up, real estate, lower-case rip)
 ├── test_safer_angle_guards.py      # safer angle on a sensitive trend: copy gate endorsement flag + re-enabled trend tie (risk-named event words excluded) + safer_angle_named_copies, trend_sensitive_hint tie skip, image-QA public_figure_likeness (critical, only when active)
+├── test_safer_angle_copy_tie.py    # safer angle: at least ceil(n/2) copies must name the subject or use a distinctive safer-angle word (generic/product/brand/risk/avoid words never count), else every untied copy is flagged; gate routing + interactive residual path
 ├── test_visual_concept_prompts.py   # visual concept prompts: shared brand_cue / copy-quoted in-image text / brief avoid + fit_mode rules (drafter, critic, finalizer), finalizer angle_id, interactive reviser keeps brand_cue; brace-safety
 ├── test_visual_intent_prompts.py    # optional visual-intent {key?} tokens + IMAGE_PROMPT_GUIDE no-braces + {style_shortlist?}/composition/text-cap rules
 ├── test_workflow_api_contract.py    # offline pins on the upstream ADK graph-Workflow behaviours the P2 migration relies on
@@ -372,7 +373,7 @@ tests/
   skips flagged rows), `test_trend_tie.py` (matcher), `test_copy_gate.py` (trend-tie issue,
   skipped for a sensitive moment), `test_endorsement.py` (endorsement lexicon + pinned idioms),
   `test_safer_angle_guards.py` (safer angle: endorsement flag, re-enabled trend tie, named copies,
-  hint-based tie skip, image-QA public-figure rule + plumbing); frontend `trend-flags.test.ts`, `review-trends.test.tsx`,
+  hint-based tie skip, image-QA public-figure rule + plumbing), `test_safer_angle_copy_tie.py` (at-least-half safer-angle tie); frontend `trend-flags.test.ts`, `review-trends.test.tsx`,
   `trend-cards.test.tsx`, `campaign-form-sensitive.test.tsx`, `trend-situation.test.tsx`.
 - **Async-job run model** — `test_async_runs.py`: detached kick-off returns immediately,
   `_drive_run` appends a `done`/`error` terminal marker, poll derives status + slices
