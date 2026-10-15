@@ -88,6 +88,70 @@ describe("PersonSelect", () => {
       />,
     );
     await waitFor(() => expect(onChange).toHaveBeenCalledWith(null));
+    expect(onChange).toHaveBeenCalledTimes(1);
+  });
+
+  it("drops a stale person exactly once, even if the parent never clears it", async () => {
+    listPersonRefs.mockResolvedValue({ personRefs: REFS, prefix: null });
+    const gone = { uri: "gs://b/person-refs/a-1/gone.jpg", consentId: "consent-gone" };
+    const onChange = vi.fn();
+    const { rerender } = render(<PersonSelect value={gone} onChange={(v) => onChange(v)} />);
+    await waitFor(() => expect(onChange).toHaveBeenCalledWith(null));
+    // A parent that ignores the call and passes a fresh inline onChange.
+    rerender(<PersonSelect value={gone} onChange={(v) => onChange(v)} />);
+    rerender(<PersonSelect value={gone} onChange={(v) => onChange(v)} />);
+    expect(onChange).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("combobox")).toHaveValue("");
+  });
+
+  it("drops a stale person set before the list loads, once it loads", async () => {
+    let resolve!: (v: unknown) => void;
+    listPersonRefs.mockReturnValue(new Promise((r) => (resolve = r)));
+    const onChange = vi.fn();
+    const { rerender } = render(<PersonSelect value={null} onChange={onChange} />);
+    // Duplicate brief applied while the list is still loading.
+    rerender(
+      <PersonSelect
+        value={{ uri: "gs://b/person-refs/a-1/gone.jpg", consentId: "consent-gone" }}
+        onChange={onChange}
+      />,
+    );
+    expect(onChange).not.toHaveBeenCalled();
+    resolve({ personRefs: REFS, prefix: null });
+    await waitFor(() => expect(onChange).toHaveBeenCalledWith(null));
+    expect(onChange).toHaveBeenCalledTimes(1);
+  });
+
+  it("drops a stale person passed in after the list loaded", async () => {
+    listPersonRefs.mockResolvedValue({ personRefs: REFS, prefix: null });
+    const onChange = vi.fn();
+    const { rerender } = render(<PersonSelect value={null} onChange={onChange} />);
+    await waitFor(() => expect(screen.getByRole("option", { name: "Sam" })).toBeInTheDocument());
+    // "Duplicate here" on the runs list: the brief's person was since revoked.
+    rerender(
+      <PersonSelect
+        value={{ uri: "gs://b/person-refs/a-1/gone.jpg", consentId: "consent-gone" }}
+        onChange={onChange}
+      />,
+    );
+    await waitFor(() => expect(onChange).toHaveBeenCalledWith(null));
+    expect(onChange).toHaveBeenCalledTimes(1);
+  });
+
+  it("never drops an active person, before or after the list loads", async () => {
+    listPersonRefs.mockResolvedValue({ personRefs: REFS, prefix: null });
+    const onChange = vi.fn();
+    const me = { uri: "gs://b/person-refs/a-1/me.jpg", consentId: "consent-1234" };
+    const { rerender } = render(<PersonSelect value={me} onChange={onChange} />);
+    await waitFor(() => expect(screen.getByRole("combobox")).toHaveValue("consent-1234"));
+    rerender(
+      <PersonSelect
+        value={{ uri: "gs://b/person-refs/a-1/sam.png", consentId: "consent-5678" }}
+        onChange={onChange}
+      />,
+    );
+    expect(screen.getByRole("combobox")).toHaveValue("consent-5678");
+    expect(onChange).not.toHaveBeenCalled();
   });
 
   it("points to /people when nobody is registered", async () => {
