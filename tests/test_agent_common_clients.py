@@ -96,6 +96,21 @@ def test_reset_drops_the_cached_client(fake_bigquery):
     assert clients.get_bigquery_client() is not first
 
 
+def test_bq_project_change_builds_a_new_client(fake_bigquery, monkeypatch):
+    """N-3 M23: the cache is keyed by project, so a changed BQ_PROJECT_ID
+    never reuses a client bound to the old project."""
+    from agent_common import clients
+
+    monkeypatch.setattr(BaseAgentConfiguration, "BQ_PROJECT_ID", "proj-a")
+    a = clients.get_bigquery_client()
+    assert clients.get_bigquery_client() is a
+    monkeypatch.setattr(BaseAgentConfiguration, "BQ_PROJECT_ID", "proj-b")
+    b = clients.get_bigquery_client()
+    assert b is not a
+    assert (a.project, b.project) == ("proj-a", "proj-b")
+    assert clients.get_bigquery_client() is b
+
+
 def test_importing_agents_builds_no_bigquery_client():
     """Agent Engine pickles the agents at deploy: no client at import time.
 

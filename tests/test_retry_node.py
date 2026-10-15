@@ -492,6 +492,19 @@ def test_cancelled_499_is_transient_also_when_wrapped():
     )
 
 
+def test_code_499_alone_is_transient():
+    """N-3 M1: the 499 code counts on its own, whatever the status says."""
+    from google.genai import errors
+
+    from agent_common.retry_node import is_transient_error
+
+    for status in ("UNKNOWN", "INVALID_ARGUMENT", None):
+        body = {"error": {"code": 499, "message": "client closed"}}
+        if status:
+            body["error"]["status"] = status
+        assert is_transient_error(errors.ClientError(499, body)), status
+
+
 def test_transient_error_on_every_attempt_exhausts_like_empty_output(sleeps, caplog):
     child, calls = _raising_child([_quota_error() for _ in range(3)])
 
