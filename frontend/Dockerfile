@@ -2,12 +2,21 @@
 # BuildKit syntax (cache mounts). Built by the repo-root `cloudbuild.yaml` (buildx +
 # registry layer cache); `gcloud run deploy --source ./frontend` still works.
 
+# ---- base ----
+# Node 24 LTS, pinned by exact tag + digest (reproducible builds). Written once,
+# here, as a literal FROM: Dependabot's docker ecosystem (.github/dependabot.yml,
+# /frontend) bumps tag and digest together, but skips `FROM node:${ARG}` lines, so
+# both stages build FROM this one instead of sharing an ARG.
+FROM node:24.22.0-slim@sha256:a5f4366e834695d5f363b920c104953a535d3a9864d1bdf74566a0ebe01daee5 AS base
+# Opt out of Next telemetry for `next build` (builder) and the server (runner).
+ENV NEXT_TELEMETRY_DISABLED=1
+
 # ---- builder ----
 # npm ci and next build share one stage, so node_modules is never copied between
 # stages (that COPY alone took ~39 s). The `npm ci` layer only changes with
 # package.json / package-lock.json, so the registry cache reuses it on source-only
 # changes. `npm run build` keeps Next's TypeScript check.
-FROM node:22-slim AS builder
+FROM base AS builder
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN --mount=type=cache,target=/root/.npm npm ci
@@ -15,15 +24,15 @@ COPY . .
 RUN npm run build
 
 # ---- runner ----
-FROM node:22-slim AS runner
+FROM base AS runner
 WORKDIR /app
-ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1
-RUN groupadd -r nodejs && useradd -r -g nodejs nextjs
-# Standalone server + assets it does not bundle itself.
+ENV NODE_ENV=production
+# Standalone server + assets it does not bundle itself. Runs as the image's
+# built-in non-root `node` user, which owns .next (the server writes .next/cache).
 COPY --from=builder /app/public ./public
-COPY --from=builder --chown=nextjs:nodejs /app/.next/standalone ./
-COPY --from=builder --chown=nextjs:nodejs /app/.next/static ./.next/static
-USER nextjs
+COPY --from=builder --chown=node:node /app/.next/standalone ./
+COPY --from=builder --chown=node:node /app/.next/static ./.next/static
+USER node
 ENV PORT=8080 HOSTNAME=0.0.0.0
 EXPOSE 8080
 CMD ["node", "server.js"]

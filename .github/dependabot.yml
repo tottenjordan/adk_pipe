@@ -60,7 +60,8 @@ updates:
       # eslint-config-next supports eslint 9; bump with Next.
       - dependency-name: "eslint"
         update-types: ["version-update:semver-major"]
-      # Tracks the Node 22 runtime (.nvmrc, Dockerfile, CI).
+      # Held at the engines floor (Node 22, package.json engines); .nvmrc, the
+      # image and CI run 24.
       - dependency-name: "@types/node"
         update-types: ["version-update:semver-major"]
       # typescript-eslint (via eslint-config-next) peers typescript <6.1;
@@ -85,8 +86,10 @@ updates:
         update-types: ["minor", "patch"]
     ignore:
       # Runtime versions are chosen deliberately (Python 3.13 per pyproject
-      # requires-python/CI; Node 22 LTS per .nvmrc/engines). Docker tags treat
-      # 3.13 -> 3.14 as a minor bump, so pin by version range.
+      # requires-python/CI; Node 24 LTS for frontend/Dockerfile + CI). Docker
+      # tags treat 3.13 -> 3.14 as a minor bump, so pin by version range.
+      # frontend/Dockerfile pins node by tag + digest; this entry bumps both
+      # (new 24.x tags, and digest-only refreshes of the same tag).
       - dependency-name: "python"
         versions: [">=3.14"]
       - dependency-name: "node"
