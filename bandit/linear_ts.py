@@ -209,7 +209,13 @@ def update(
     rewards: Array,
     params: LinTSParams,
 ) -> LinTSState:
-    """Batched conjugate update via scatter-add of xxᵀ/σ² and r·x/σ².
+    """Batched conjugate update: add Σ xxᵀ/σ² and Σ r·x/σ² per arm.
+
+    The batch is reduced per arm first (one-hot einsum) and added to the
+    running sums once, so the float32 state is rounded once per batch and arm.
+    A scatter-add of every row would round each small increment against a
+    large running sum the same way every time (deterministic bias: about 1.3%
+    in Λ and 12% of the largest coefficient of μ after 1.5M realistic rounds).
 
     If ``params.discount`` (γ) < 1, the posterior first decays toward the prior
     (once per call, i.e. per batch): Λ ← γΛ + (1-γ)I/τ², b ← γb. γ = 1 is an
@@ -221,8 +227,8 @@ def update(
     precision = gamma * state.precision + (1.0 - gamma) * prior[None]
     b = gamma * state.b
     inv_noise = 1.0 / params.noise_var
-    outer = jnp.einsum("nd,ne->nde", X, X) * inv_noise
-    precision = precision.at[arms].add(outer)
-    b = b.at[arms].add(X * (rewards * inv_noise)[:, None])
+    onehot = jax.nn.one_hot(arms, state.b.shape[0], dtype=precision.dtype)
+    precision = precision + jnp.einsum("nk,nd,ne->kde", onehot, X, X) * inv_noise
+    b = b + jnp.einsum("nk,n,nd->kd", onehot, rewards * inv_noise, X)
     n = state.n.at[arms].add(1)
     return LinTSState(precision, b, n, state.step + arms.shape[0])
