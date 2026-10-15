@@ -36,7 +36,7 @@ export default function RootLayout({
         <SkipLink />
         <SiteHeader />
         {/* tabIndex -1: the skip link's focus target, not a control, so no ring. */}
-        <main id="main" tabIndex={-1} className="flex-1 focus:outline-none">
+        <main id="main" tabIndex={-1} className="flex-1 focus:outline-hidden">
           {children}
         </main>
       </body>

@@ -593,7 +593,7 @@ export function ReviewPanel({
   }
   if (!panel) return null;
   return (
-    <section ref={ref} tabIndex={-1} aria-label="Review" className="outline-none">
+    <section ref={ref} tabIndex={-1} aria-label="Review" className="outline-hidden">
       {panel}
     </section>
   );

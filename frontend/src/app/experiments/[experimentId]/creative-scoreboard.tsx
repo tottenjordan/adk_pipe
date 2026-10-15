@@ -222,7 +222,7 @@ export function CreativeScoreboard({
                     }}
                     aria-label={`Details for ${lane.name}`}
                     aria-haspopup="dialog"
-                    className="absolute top-4 right-3 inline-flex size-8 items-center justify-center rounded-sm text-muted-foreground outline-none hover:bg-muted hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50 lg:static lg:justify-self-end"
+                    className="absolute top-4 right-3 inline-flex size-8 items-center justify-center rounded-sm text-muted-foreground outline-hidden hover:bg-muted hover:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50 lg:static lg:justify-self-end"
                   >
                     <ChevronRightIcon className="size-5" />
                   </button>

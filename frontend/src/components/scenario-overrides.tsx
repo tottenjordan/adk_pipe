@@ -36,7 +36,7 @@ export function OverridesDisclosure({
   if (!lines.length) return null;
   return (
     <details open={defaultOpen} className="group mt-2 max-w-2xl">
-      <summary className="inline-flex cursor-pointer list-none items-center gap-1 rounded-sm text-sm text-foreground outline-none select-none focus-visible:ring-3 focus-visible:ring-ring/50 [&::-webkit-details-marker]:hidden">
+      <summary className="inline-flex cursor-pointer list-none items-center gap-1 rounded-sm text-sm text-foreground outline-hidden select-none focus-visible:ring-3 focus-visible:ring-ring/50 [&::-webkit-details-marker]:hidden">
         <ChevronRight aria-hidden className="size-3.5 text-muted-foreground transition-transform group-open:rotate-90 motion-reduce:transition-none" />
         Tuned reader settings
         <span className="text-muted-foreground tabular-nums">({lines.length})</span>

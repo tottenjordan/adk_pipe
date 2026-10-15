@@ -114,7 +114,7 @@ export function SegmentGridView({
                     <button
                       type="button"
                       onClick={() => onOpen(row.creativeId)}
-                      className="flex min-w-0 items-center gap-2 rounded-sm text-left text-foreground underline-offset-4 outline-none hover:underline focus-visible:ring-3 focus-visible:ring-ring/50"
+                      className="flex min-w-0 items-center gap-2 rounded-sm text-left text-foreground underline-offset-4 outline-hidden hover:underline focus-visible:ring-3 focus-visible:ring-ring/50"
                     >
                       <span aria-hidden className="size-2.5 shrink-0 rounded-full" style={{ backgroundColor: lane?.color }} />
                       <span className="truncate">{name}</span>

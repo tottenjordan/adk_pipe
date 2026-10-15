@@ -122,7 +122,7 @@ export function RunList({ rows, now, onDuplicate, compact = false }: RunListProp
           <Link
             href={row.href}
             prefetch={false}
-            className="truncate font-medium text-foreground after:absolute after:inset-0 after:content-[''] focus-visible:outline-none"
+            className="truncate font-medium text-foreground after:absolute after:inset-0 after:content-[''] focus-visible:outline-hidden"
           >
             {title}
           </Link>

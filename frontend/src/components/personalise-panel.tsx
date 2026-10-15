@@ -302,7 +302,7 @@ export function PersonalisePanel({
                 setError(null);
                 setPollStopped(false);
               }}
-              className="h-8 w-full rounded-sm border border-input bg-card px-2 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
+              className="h-8 w-full rounded-sm border border-input bg-card px-2 text-sm text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
             >
               {options.map((p) => (
                 <option key={p.consent_id} value={p.consent_id}>
