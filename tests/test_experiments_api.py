@@ -153,6 +153,26 @@ def test_snapshot_arms_without_evals_or_images():
     assert len(ex.snapshot_arms(state, "s", [0, 1])) == 2
 
 
+def test_arm_image_uses_the_records_deduplicated_artifact_key():
+    # "Game Day!" and "Game Day" share a derived key; generate_image uploads the
+    # second as Game_Day_2.png and records it (CV-3).
+    state = {
+        "gcs_bucket_name": "bkt",
+        "gcs_folder": "f",
+        "agent_output_dir": "d",
+        "_generated_artifact_keys": ["Game_Day.png", "Game_Day_2.png"],
+        "generated_images": {
+            "Game Day!": {"artifact_key": "Game_Day.png"},
+            "Game Day": {"artifact_key": "Game_Day_2.png"},
+        },
+    }
+    assert ex._image_uri(state, "Game Day!", None) == "gs://bkt/f/d/Game_Day.png"
+    assert ex._image_uri(state, "Game Day", None) == "gs://bkt/f/d/Game_Day_2.png"
+    # a malformed record key falls back to the derived key
+    state["generated_images"]["Game Day"]["artifact_key"] = "../x.png"
+    assert ex._image_uri(state, "Game Day", None) == "gs://bkt/f/d/Game_Day.png"
+
+
 @pytest.mark.parametrize(
     ("indices", "reason"),
     [

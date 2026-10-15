@@ -39,7 +39,7 @@ def _casts(concepts):
 
 
 def test_valid_cast_is_kept_unchanged():
-    concepts = [_concept(1), _concept(2, cast=False)]
+    concepts = [_concept(1), _concept(2, cast=False, prompt="A flat cartoon skate.")]
     out, warnings = _run(concepts)
     assert out == concepts and warnings == []
 
@@ -163,6 +163,28 @@ def test_non_bool_flags_normalise_to_false_and_inputs_are_not_mutated():
     out, _ = _run(concepts)
     assert _casts(out) == [False, True]
     assert concepts == snapshot
+
+
+def test_uncast_concepts_lose_the_reference_wording():
+    """CV-6: a concept that never set the cast flag can still name "the person in
+    the person reference image"; with no photo attached the image model could read
+    a product or style reference as the person, so the wording is neutralised on
+    every non-cast concept (False, missing or a non-bool flag)."""
+    unflagged = _concept(2)
+    del unflagged["casts_person_reference"]
+    concepts = [_concept(1, cast=False), unflagged, _concept(3, cast="yes")]
+    out, warns = _run(concepts)
+    assert [c.get("casts_person_reference") for c in out] == [False, None, False]
+    for c in out:
+        prompt = c["image_generation_prompt"]
+        assert PERSON_HERO_PHRASE not in prompt.lower()
+        assert "a person laughing" in prompt
+    assert len(warns) == 3
+    # an uncast prompt without the wording is left byte-identical, no warning
+    plain = _concept(4, cast=False, prompt="A flat cartoon skate.")
+    out, warns = _run([plain])
+    assert out[0]["image_generation_prompt"] == "A flat cartoon skate."
+    assert warns == []
 
 
 def test_callback_runs_the_casting_guard(monkeypatch):

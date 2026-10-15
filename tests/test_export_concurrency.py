@@ -177,3 +177,49 @@ def test_gallery_links_original_images_without_upscale(monkeypatch, tmp_path):
         )
         assert f'data-high-res-src="{url}"' in html
         assert f'src="{url}"' in html
+
+
+def test_gallery_uses_the_records_deduplicated_artifact_key(monkeypatch, tmp_path):
+    """CV-3: "Game Day!" and "Game Day" derive one key; generate_image uploads the
+    second as Game_Day_2.png, and the gallery links each concept's own image."""
+    monkeypatch.chdir(tmp_path)
+    written: list[str] = []
+
+    def _fake_upload(source_file_name, destination_blob_name):
+        with open(source_file_name) as f:
+            written.append(f.read())
+        return "ok"
+
+    monkeypatch.setattr(tools, "_upload_blob_to_gcs", _fake_upload)
+    concepts = [
+        {
+            "concept_name": name,
+            "visual_style": "flat",
+            "trend": "t",
+            "trend_reference": "r",
+            "concept_summary": "s",
+            "markets_product": "m",
+            "audience_appeal": "a",
+            "selection_rationale": "r",
+            "image_generation_prompt": "p",
+            "headline": name,
+            "social_caption": "c",
+        }
+        for name in ("Game Day!", "Game Day")
+    ]
+    ctx = _ctx("run_a")
+    ctx.state["final_visual_concepts"] = {"visual_concepts": concepts}
+    ctx.state["generated_images"] = {
+        "Game Day!": {"artifact_key": "Game_Day.png"},
+        "Game Day": {"artifact_key": "Game_Day_2.png"},
+    }
+
+    asyncio.run(tools.save_creative_gallery_html(ctx))
+
+    (html,) = written
+    base = (
+        "https://storage.mtls.cloud.google.com/"
+        f"{gcs_tools.config.GCS_BUCKET_NAME}/run_a/creative_output/"
+    )
+    assert f'src="{base}Game_Day.png?authuser=3"' in html
+    assert f'src="{base}Game_Day_2.png?authuser=3"' in html

@@ -25,6 +25,7 @@ from .gcs_tools import (  # noqa: F401
     _save_to_gcs,
     _upload_blob_to_gcs,
     artifact_key_for,
+    record_artifact_key,
     save_draft_report_artifact,
     save_eval_report_to_gcs,
 )
@@ -201,7 +202,9 @@ async def save_creative_gallery_html(tool_context: ToolContext) -> dict:
         )
         CONNECTED_GALLERY_STRING = ""
         for index, entry in enumerate(final_visual_concepts_list):
-            ARTIFACT_KEY = artifact_key_for(entry["concept_name"])
+            ARTIFACT_KEY = record_artifact_key(
+                generated_images.get(entry["concept_name"]), entry["concept_name"]
+            )
             # The render record's valid_until (timely concepts only), else the
             # run's moment (galleries of runs rendered before the record had it).
             timely_until = (generated_images.get(entry["concept_name"]) or {}).get(

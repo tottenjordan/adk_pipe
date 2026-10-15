@@ -905,7 +905,7 @@ def test_render_node_as_a_root_tool_runs_the_real_generate_image(monkeypatch):
     )
 
     assert len(models.calls) == 2
-    assert state["_images_generated"] is True
+    assert str(state["_images_generated"]).startswith("render-v1:")  # fingerprint
     assert set(state["generated_images"]) == {"One", "Two"}
     assert len(state["_generated_artifact_keys"]) == 2
     (response,) = _responses(events)

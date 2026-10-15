@@ -270,7 +270,8 @@ def _eval_scores(
 def _image_uri(
     state: Mapping, concept_name: str, default_bucket: str | None
 ) -> str | None:
-    from creative_agent.gcs_tools import artifact_key_for  # lazy: builds the agent
+    # lazy: builds the agent
+    from creative_agent.gcs_tools import record_artifact_key
 
     bucket = state.get("gcs_bucket_name") or (
         str(state.get("gcs_bucket") or "").removeprefix("gs://") or default_bucket
@@ -278,7 +279,9 @@ def _image_uri(
     folder, subdir = state.get("gcs_folder"), state.get("agent_output_dir")
     if not (bucket and folder and subdir):
         return None
-    key = artifact_key_for(concept_name)
+    images = _as_obj(state.get("generated_images"))
+    record = images.get(concept_name) if isinstance(images, Mapping) else None
+    key = record_artifact_key(record, concept_name)
     generated = state.get("_generated_artifact_keys")
     if isinstance(generated, list) and generated and key not in generated:
         return None  # never rendered (e.g. image generation failed)
