@@ -7,8 +7,6 @@ the names below are re-exported so ``creative_agent.agent.<name>`` (tests, the
 facade in ``__init__``) keeps working.
 """
 
-import logging
-
 from google.adk.agents import Agent
 from google.adk.apps import App
 from google.adk.workflow import FunctionNode, JoinNode, Workflow
@@ -96,12 +94,6 @@ from .visual_stage import (  # noqa: F401  (re-exported)
     visual_generator_resilient,
     visual_production_pipeline,
 )
-
-# --- config ---
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
-)
-
 
 # --- FINALIZE (evaluate -> persist -> summary) --- #
 # The post-render steps as one deterministic unit (logic in creative_agent/
