@@ -88,6 +88,39 @@ def test_public_figure_correction_shows_the_person_as_themselves():
     assert text.endswith(image_qa.NO_NEW_TEXT)
 
 
+_PUBLIC_FIGURE_DEFINITION = (
+    "presented as a specific real public figure: a full recreation of that "
+    "figure's look (outfit together with their pose, setting or styling) or a "
+    "pose, setting or caption implying the hero is that figure; a single "
+    "signature item worn as a tribute nod, and ordinary fan clothing in team "
+    "colours, are not"
+)
+
+
+def _flat(text: str) -> str:
+    return " ".join(text.split())
+
+
+def test_public_figure_instruction_allows_one_signature_item():
+    line = _flat(image_qa.PERSON_COMPARISON_LINE)
+    assert _PUBLIC_FIGURE_DEFINITION in line
+    assert "a single signature item worn as a tribute nod" in line
+
+
+def test_public_figure_field_description_allows_one_signature_item():
+    field = ImageQAResult.model_fields["person_as_public_figure"]
+    description = _flat(field.description or "")
+    assert _PUBLIC_FIGURE_DEFINITION in description
+    assert "a single signature item worn as a tribute nod" in description
+    assert "the cast person is " + _PUBLIC_FIGURE_DEFINITION in description.lower()
+
+
+def test_public_figure_correction_allows_one_tribute_item():
+    phrase = image_qa._PERSON_RULES["person shown as a public figure"]
+    assert "at most one signature item as a tribute nod" in phrase
+    assert "no full recreation of the real person's look" in phrase
+
+
 def test_public_figure_field_stored_only_for_cast_concepts():
     result = _result(person_cast=True, person_likeness=True)
     cast = image_tools._qa_record(result, _CAST, "skates")
