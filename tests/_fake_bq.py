@@ -33,22 +33,30 @@ class FakeQueryJob:
         errors: Any = None,
         job_id: str = "j1",
         num_dml_affected_rows: int | None = 1,
+        result_error: BaseException | None = None,
     ):
         self._rows = rows
         self.errors = errors
         self.job_id = job_id
         self.num_dml_affected_rows = num_dml_affected_rows
+        self.result_error = result_error
+        self.result_timeout: float | None = None
 
     def result(self, timeout: float | None = None) -> list[Any]:
         self.result_timeout = timeout
+        if self.result_error is not None:
+            # A real QueryJob.result() raises GoogleAPICallError on a failed job.
+            raise self.result_error
         return list(self._rows)
 
 
 class FakeBigQueryClient:
     """Records queries/streaming inserts; returns canned rows and insert errors.
 
-    ``job_errors`` / ``num_dml_affected_rows`` are copied onto every returned job
-    (both are plain attributes, so a test may change them between calls).
+    ``job_errors`` / ``num_dml_affected_rows`` / ``result_error`` (raised by the
+    job's ``result()``, like a failed real job) are copied onto every returned job
+    (plain attributes, so a test may change them between calls); ``jobs`` keeps
+    every returned job (e.g. to read its ``result_timeout``).
     """
 
     def __init__(
@@ -58,8 +66,11 @@ class FakeBigQueryClient:
         *,
         job_errors: Any = None,
         num_dml_affected_rows: int | None = 1,
+        result_error: BaseException | None = None,
     ):
         self.results = results
+        self.result_error = result_error
+        self.jobs: list[FakeQueryJob] = []
         self.insert_errors = insert_errors
         self.job_errors = job_errors
         self.num_dml_affected_rows = num_dml_affected_rows
@@ -75,11 +86,14 @@ class FakeBigQueryClient:
     def query(self, sql: str, job_config: Any = None) -> FakeQueryJob:
         self.queries.append((sql, job_config))
         rows = self.results(sql, job_config) if callable(self.results) else self.results
-        return FakeQueryJob(
+        job = FakeQueryJob(
             list(rows or []),
             errors=self.job_errors,
             num_dml_affected_rows=self.num_dml_affected_rows,
+            result_error=self.result_error,
         )
+        self.jobs.append(job)
+        return job
 
     def insert_rows_json(
         self,
