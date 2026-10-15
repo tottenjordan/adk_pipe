@@ -215,6 +215,12 @@ function sleep(ms: number, signal?: AbortSignal): Promise<boolean> {
   });
 }
 
+/** Wait between polls; an abort rejects with the signal's AbortError, so a
+ * caller never reads an aborted poll as a finished run. */
+async function pollWait(ms: number, signal?: AbortSignal): Promise<void> {
+  if (!(await sleep(ms, signal))) signal?.throwIfAborted();
+}
+
 /**
  * Thrown by `pollRun` once its retries are exhausted, and by `resumeRun` when a
  * resume's response was lost and the run doesn't show it applied. The run may
@@ -231,7 +237,9 @@ export class RunConnectionLostError extends Error {
  * Poll a detached run to completion, yielding each new event exactly once.
  * Loops on the `since` cursor until a terminal status ("done"), throwing on
  * "error". "not_found" is transient (the run may not be registered yet), so we
- * keep waiting — same as "running". Pass `opts.signal` to cancel on unmount.
+ * keep waiting — same as "running". Pass `opts.signal` to cancel on unmount:
+ * an abort rejects with the signal's AbortError (never a normal return), so
+ * returning always means the run reached a terminal status.
  */
 export async function* pollRun(
   appName: string,
@@ -259,8 +267,7 @@ export async function* pollRun(
     if (!res || isTransientStatus(res.status)) {
       if (failures >= POLL_MAX_RETRIES) throw new RunConnectionLostError();
       failures += 1;
-      const completed = await sleep(pollBackoffMs(failures), opts.signal);
-      if (!completed) return; // aborted (unmount): stop quietly
+      await pollWait(pollBackoffMs(failures), opts.signal);
       continue;
     }
     if (!res.ok) throw new Error(`Failed to poll run (${res.status})`);
@@ -271,7 +278,7 @@ export async function* pollRun(
     if (data.status === "error") throw new Error(data.error || "run failed");
     // "not_found" is transient (run not yet registered) — keep waiting.
     if (data.status !== "running" && data.status !== "not_found") return;
-    await new Promise((r) => setTimeout(r, intervalMs));
+    await pollWait(intervalMs, opts.signal);
   }
 }
 

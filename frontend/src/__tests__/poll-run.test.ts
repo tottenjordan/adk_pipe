@@ -310,17 +310,35 @@ describe("pollRun: transient failure retries", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it("stops quietly when aborted during a backoff wait", async () => {
+  it("rejects with an AbortError when aborted during a backoff wait", async () => {
     vi.useFakeTimers();
     const fetchMock = vi.fn(async () => unavailable());
     vi.stubGlobal("fetch", fetchMock);
     const controller = new AbortController();
-    const gen = pollRun("creative_agent", "u1", "s1", { intervalMs: 0, signal: controller.signal });
-    const next = gen.next();
+    const next = pollRun("creative_agent", "u1", "s1", { intervalMs: 0, signal: controller.signal }).next();
+    const settled = next.then(() => null, (e: unknown) => e);
     await vi.advanceTimersByTimeAsync(500); // inside the first 1 s backoff
     controller.abort();
-    await expect(next).resolves.toEqual({ done: true, value: undefined });
+    expect(await settled).toMatchObject({ name: "AbortError" });
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("stops between polls on abort, without another fetch", async () => {
+    vi.useFakeTimers();
+    // Like real fetch, reject once the signal is aborted.
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      init?.signal?.throwIfAborted();
+      return jsonResponse({ status: "running", events: [], nextCursor: 0 });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+    const controller = new AbortController();
+    const next = pollRun("creative_agent", "u1", "s1", { intervalMs: 1500, signal: controller.signal }).next();
+    const settled = next.then(() => null, (e: unknown) => e);
+    await vi.advanceTimersByTimeAsync(100); // first poll done, inside the 1.5 s wait
+    controller.abort();
+    await vi.advanceTimersByTimeAsync(5000);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(await settled).toMatchObject({ name: "AbortError" });
   });
 });
 
