@@ -43,3 +43,8 @@ experiments/temperature_ab/arms.json
 experiments/temperature_ab/results/
 experiments/temperature_ab/pilot/
 experiments/temperature_ab/run.log
+
+# Grader temperature harness: cached session state + images (may show consented people)
+# and per-call grader results
+experiments/grader_temperature/data/
+experiments/grader_temperature/results/
