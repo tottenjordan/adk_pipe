@@ -154,8 +154,7 @@ class TestFetch:
     def test_select_lists_only_the_columns_read(self):
         sql, _ = bh.build_history_query("p.d.creative_evals", "ACME", 5)
         columns = [
-            c.strip()
-            for c in sql.split("SELECT", 1)[1].split("FROM", 1)[0].split(",")
+            c.strip() for c in sql.split("SELECT", 1)[1].split("FROM", 1)[0].split(",")
         ]
         assert "target_trend" not in columns
         assert columns == [

@@ -136,9 +136,7 @@ def test_only_state_tokens_use_braces(name):
     leftover = _TOKEN.sub("", _TEXTS[name])
     if name in _JSON_SKELETON_PROMPTS:
         leftover = "\n".join(
-            line
-            for line in leftover.splitlines()
-            if not _SKELETON_LINE.fullmatch(line)
+            line for line in leftover.splitlines() if not _SKELETON_LINE.fullmatch(line)
         )
     assert "{" not in leftover and "}" not in leftover, (
         f"{name}: brace text other than {{identifier}} / {{identifier?}} tokens "
