@@ -4,8 +4,8 @@ Split out of ``tools.py``; the genai client is now created lazily so importing
 this module has no side effects.
 
 Post-render image QA (``image_qa``, on unless ``IMAGE_QA_ENABLED=false``): each
-render gets one vision check (pipelined: image N is inspected while image N+1
-renders; renders themselves stay sequential); a failing image is re-rendered at most
+render gets one vision check (pipelined: image N is inspected while other
+images render, at most ``IMAGE_RENDER_CONCURRENCY`` at once); a failing image is re-rendered at most
 ``IMAGE_QA_MAX_RERENDERS`` times (and at most ``IMAGE_QA_MAX_RERENDERS_PER_RUN``
 across the whole call) with a quote-free correction appended to the prompt,
 the better attempt is kept (critical failures — unsafe, third-party logo —
