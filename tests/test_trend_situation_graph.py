@@ -146,9 +146,9 @@ def test_situation_synthesizer_sees_only_its_searchers_sources(monkeypatch):
     """The trend researcher's grounding joins `sources` but never reaches the
     situation synthesizer; the validator still finds the cited ids in
     `sources`."""
-    import creative_agent.agent as ca
     from google.genai import types
 
+    import creative_agent.agent as ca
     from tests.test_creative_agent_graph import _URL
 
     own_url = "https://news.example.org/final"
