@@ -28,7 +28,7 @@ import hashlib
 import json
 import logging
 import random
-from collections.abc import Mapping, Sequence
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 
@@ -435,52 +435,6 @@ async def _store_image(
     return img_gcs_uri
 
 
-async def _inspect(
-    rendered: tuple[bytes, str],
-    entry: dict,
-    brand: str,
-    product: str,
-    has_logo_reference: bool = False,
-    strictness: Sequence[str] = (),
-    person_image: tuple[bytes, str] | None = None,
-    original_image: tuple[bytes, str] | None = None,
-    *,
-    safer_angle_active: bool = False,
-) -> image_qa.ImageQAResult | None:
-    """One QA call off the event loop → the verdict, or None (fail-open).
-    ``person_image`` (cast concepts only) adds the likeness comparison;
-    ``original_image`` (personalised variant edits only) the composition check;
-    ``safer_angle_active`` (a sensitive trend's safer angle) the public-figure
-    likeness check."""
-    image_bytes, mime = rendered
-    extra: dict[str, Any] = {}
-    if person_image is not None:
-        extra["person_image"] = person_image
-    if original_image is not None:
-        extra["original_image"] = original_image
-    if safer_angle_active:
-        extra["safer_angle_active"] = True
-    try:
-        return await asyncio.to_thread(
-            image_qa.inspect_image,
-            image_bytes,
-            mime,
-            entry,
-            brand=brand,
-            target_product=product,
-            client=image_qa._get_qa_client(),
-            model=config.image_qa_model,
-            has_logo_reference=has_logo_reference,
-            strictness=strictness,
-            **extra,
-        )
-    except Exception as exc:
-        logging.warning(
-            f"Image QA unavailable for '{entry.get('concept_name')}': {exc}"
-        )
-        return None
-
-
 def _qa_record(
     result: image_qa.ImageQAResult,
     entry: dict,
@@ -531,142 +485,6 @@ class _RerenderBudget:
     """QA re-renders left for the whole generate_image call (shared)."""
 
     remaining: int
-
-
-BUDGET_REACHED = "re-render budget reached"
-
-
-async def _inspect_and_rerender(
-    entry: dict,
-    rendered: tuple[bytes, str],
-    prompt_text: str,
-    aspect_ratio: str,
-    contents_for,
-    brand: str,
-    product: str,
-    budget: _RerenderBudget,
-    has_logo_reference: bool = False,
-    *,
-    render=None,
-    claim_after: asyncio.Event | None = None,
-    claims_done: asyncio.Event | None = None,
-    strictness: Sequence[str] = (),
-    person_image: tuple[bytes, str] | None = None,
-    original_image: tuple[bytes, str] | None = None,
-    safer_angle_active: bool = False,
-) -> tuple[tuple[bytes, str], int, dict | None, str | None]:
-    """Inspect a render; re-render (bounded) while it fails; keep the best.
-
-    Returns ``(kept_image, attempts, qa_record, issue)``. Each re-render
-    appends ``image_qa.correction_text`` (quote-free, "no new text") to the
-    prompt (same references / aspect ratio) and is inspected again;
-    ``_keep_retry`` decides which attempt is kept. Re-renders are bounded per
-    image (``config.image_qa_max_rerenders``) and per run (``budget``, spent
-    here). ``issue`` is the ``image_qa__issues`` entry: "<concept>:
-    <failures>" when the kept image still fails (suffixed "(re-render budget
-    reached)" when the run cap stopped a re-render), else None. ``qa_record``
-    is None when the first check errored (fail-open; the render is kept and
-    the caller records the concept as unavailable). A re-render or re-check
-    that errors stops the loop and keeps the best inspected image so far.
-
-    Pipelining (``generate_image``): ``render`` is the serialized render
-    callable (default :func:`_render_image`); the budget is claimed in concept
-    order — this concept decides only after the previous one set
-    ``claim_after`` — and ``claims_done`` is set once this concept will claim
-    no more (always set on exit, so a failure never blocks later concepts).
-    """
-    render = render or _render_image
-
-    async def my_turn() -> None:
-        # Wait until every earlier concept has made its budget claims, so the
-        # per-run cap goes to concepts in concept order (as when sequential).
-        if claim_after is not None:
-            await claim_after.wait()
-
-    try:
-        name = entry.get("concept_name", "")
-        result = await _inspect(
-            rendered,
-            entry,
-            brand,
-            product,
-            has_logo_reference,
-            strictness,
-            person_image,
-            original_image,
-            safer_angle_active=safer_angle_active,
-        )
-        if result is None:
-            await my_turn()
-            return rendered, 1, None, None
-        attempts = 1
-        kept, kept_result = rendered, result
-        kept_rules = image_qa.qa_failed_rules(result, entry, target_product=product)
-        budget_reached = False
-        max_rerenders = config.image_qa_max_rerenders
-        for round_ in range(max_rerenders):
-            if not kept_rules:
-                break
-            await my_turn()
-            if budget.remaining <= 0:
-                budget_reached = True
-                break
-            budget.remaining -= 1
-            if round_ == max_rerenders - 1 and claims_done is not None:
-                claims_done.set()  # last possible claim made: let the next decide
-            logging.warning(
-                f"Image QA failed for '{name}' ({kept_rules}); re-rendering"
-            )
-            attempts += 1
-            correction = image_qa.correction_text(
-                kept_result, entry, target_product=product
-            )
-            try:
-                retry = await render(
-                    contents_for(prompt_text + "\n\n" + correction), aspect_ratio
-                )
-            except Exception as exc:
-                logging.warning(
-                    f"Re-render failed for '{name}'; keeping previous: {exc}"
-                )
-                break
-            if retry is None:
-                break
-            retry_result = await _inspect(
-                retry,
-                entry,
-                brand,
-                product,
-                has_logo_reference,
-                strictness,
-                person_image,
-                original_image,
-                safer_angle_active=safer_angle_active,
-            )
-            if retry_result is None:
-                break
-            retry_rules = image_qa.qa_failed_rules(
-                retry_result, entry, target_product=product
-            )
-            if _keep_retry(kept_rules, retry_rules):
-                kept, kept_result, kept_rules = retry, retry_result, retry_rules
-        await my_turn()
-        record = _qa_record(
-            kept_result,
-            entry,
-            product,
-            compared_to_original=original_image is not None,
-            safer_angle_active=safer_angle_active,
-        )
-        issue = None
-        if record["failures"]:
-            issue = f"{name}: {'; '.join(record['failures'])}"
-            if budget_reached:
-                issue += f" ({BUDGET_REACHED})"
-        return kept, attempts, record, issue
-    finally:
-        if claims_done is not None:
-            claims_done.set()
 
 
 def timely_record_valid_until(state: Any) -> str:
