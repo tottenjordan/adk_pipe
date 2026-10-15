@@ -563,3 +563,18 @@ def test_brief_edit_clears_a_safer_angle_on_an_inactive_run():
     delta = merge_brief_edit({}, [{"field": BRIEF_EDIT_FIELD, "value": _safer_brief()}])
     assert delta["creative_brief"]["trend_bridge"]["safer_angle"] == ""
     assert "Safer angle" not in delta["creative_brief_md"]
+
+
+def test_visual_rules_allow_signature_objects_as_props():
+    visual = visual_rules(REASON)
+    assert (
+        "Signature objects or attire of the real person (e.g. a bandana) may "
+        "appear as props or styling cues" in visual
+    )
+    assert "an anonymous figure who does not resemble them; never a likeness." in visual
+    assert visual.index("Draw motifs from the safer angle") < visual.index(
+        "Signature objects or attire"
+    )
+    assert "never a likeness of the real person" in visual
+    assert "never estate-owned imagery" in visual
+    assert "{" not in visual and "}" not in visual
