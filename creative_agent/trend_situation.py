@@ -339,6 +339,34 @@ def current_moment_md(situation: Any, max_timely: int = 1) -> str:
     return f"{line} ({'; '.join(tail)})" if tail else line
 
 
+# trend_scout flagged the trend sensitive (``trend_sensitive_hint``, derived
+# from the seeded scout context's flag by ``safer_angle.derive_state``).
+SENSITIVE_HINT_REASON = "flagged sensitive by trend scout"
+
+
+def _flagged_sensitive(state: Any) -> bool:
+    return state.get("trend_sensitive_hint") == "yes"
+
+
+def floor_sensitive_hint(situation: TrendSituation, state: Any) -> TrendSituation:
+    """A trend trend_scout flagged sensitive is never timely (pure).
+
+    Only restricts: the phase is kept and only a would-be timely moment is
+    changed (``timely_ok=False``, ``abstain_reason``, no tone rule). Reads the
+    hint flag only, never the scout context's content, so a batch run
+    still re-derives the moment from its own search.
+    """
+    if not (situation.timely_ok and _flagged_sensitive(state)):
+        return situation
+    return situation.model_copy(
+        update={
+            "timely_ok": False,
+            "abstain_reason": SENSITIVE_HINT_REASON,
+            "tone_rule": "",
+        }
+    )
+
+
 def timely_allowed(state: Any, max_timely: int) -> bool:
     """True when the run's validated moment is timely and the slot is on.
 
@@ -346,11 +374,13 @@ def timely_allowed(state: Any, max_timely: int) -> bool:
 
     The guards' switch: the timely cap and the evergreen temporal-term checks
     apply only then, so runs without a timely moment are checked exactly as
-    before.
+    before. Never for a trend trend_scout flagged sensitive
+    (``trend_sensitive_hint == "yes"``), whatever the stored moment says.
     """
     situation = state.get("trend_situation")
     return (
         max_timely > 0
+        and not _flagged_sensitive(state)
         and isinstance(situation, Mapping)
         and situation.get("timely_ok") is True
     )
@@ -408,7 +438,9 @@ def trend_situation_state_delta(
     Reads the branch's ``trend_situation_draft`` and ``sources`` and writes
     ``trend_situation`` (the validated dict) + ``trend_situation_md``, plus
     ``timely_rules`` (the timely slot's rules for the creative agents, "" unless
-    the moment is timely and ``max_timely`` > 0).
+    the moment is timely and ``max_timely`` > 0). A trend trend_scout flagged
+    sensitive (``trend_sensitive_hint``) is floored to not timely
+    (``floor_sensitive_hint``).
     """
     from .prompts import build_timely_rules
 
@@ -421,6 +453,7 @@ def trend_situation_state_delta(
         valid_hours_after=valid_hours_after,
         enabled=enabled,
     )
+    situation = floor_sensitive_hint(situation, state)
     return {
         "trend_situation": situation.model_dump(),
         "trend_situation_md": current_moment_md(situation, max_timely),

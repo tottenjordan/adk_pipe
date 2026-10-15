@@ -49,6 +49,35 @@ def test_same_word_rejects_unrelated():
     assert not same_word("glass", "glas")
 
 
+# CA-3: "es" is a plural ending only after s, x, z, ch or sh.
+@pytest.mark.parametrize(
+    ("a", "b", "same"),
+    [
+        ("not", "notes", False),
+        ("tim", "times", False),
+        ("hom", "homes", False),
+        ("box", "boxes", True),
+        ("church", "churches", True),
+        ("dish", "dishes", True),
+        ("buzz", "buzzes", True),
+        ("bus", "buses", True),
+        ("note", "notes", True),
+    ],
+)
+def test_same_word_es_plurals(a, b, same):
+    assert same_word(a, b) is same
+    assert same_word(b, a) is same
+
+
+def test_trend_tie_does_not_stem_not_into_notes():
+    from creative_agent.trend_tie import has_trend_tie
+
+    assert not has_trend_tie(
+        "Not just a guitar. Play loud.", trend="apple notes update"
+    )
+    assert has_trend_tie("Your notes, now louder.", trend="apple notes update")
+
+
 def test_content_tokens_drop_sizes_units_and_packaging():
     assert content_tokens("Liquid Death Mountain Water 16oz can") == [
         "liquid",

@@ -148,11 +148,16 @@ def compact(text: str) -> str:
     return "".join(words(text))
 
 
+_ES_PLURAL_ENDINGS = ("ses", "xes", "zes", "ches", "shes")
+
+
 def _stems(word: str) -> set[str]:
     stems = {word}
     if word.endswith("ies") and len(word) > 4:
         stems.add(word[:-3] + "y")
-    if word.endswith("es") and len(word) > 4:
+    # "es" is a plural ending only after a sibilant ("boxes", "dishes"), never
+    # in "notes" / "times" ("not" / "tim" are other words).
+    if word.endswith(_ES_PLURAL_ENDINGS) and len(word) > 4:
         stems.add(word[:-2])
     if word.endswith("s") and not word.endswith("ss") and len(word) > 2:
         stems.add(word[:-1])

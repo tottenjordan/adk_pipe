@@ -803,9 +803,9 @@ def _copy_issues(state: Mapping[str, Any]) -> dict[str, list[CopyIssue]]:
         trend=str(state.get("target_search_trends") or ""),
         brand=str(state.get("brand") or ""),
         strictness=strictness_flags(state.get("rating_strictness")),
-        allowed_claims_text=claims_allowed_text(
-            _selling_points(state), brief_mandatories(brief)
-        ),
+        # Only the user's selling points license a claim (never the brief's
+        # mandatories, which the brief writer writes).
+        allowed_claims_text=claims_allowed_text(_selling_points(state)),
         timely_ok=timely_allowed(state, config.max_timely_concepts),
         max_timely=config.max_timely_concepts,
         trend_terms=str(state.get("target_search_trends") or ""),

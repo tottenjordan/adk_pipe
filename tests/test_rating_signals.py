@@ -140,6 +140,18 @@ class TestAggregate:
         s = rs.aggregate_ratings(rows, style_min=3, reason_min=3)
         assert s["strictness"] == ["unwanted_logo"]  # 10 of 25 fails
 
+    def test_exactly_the_dominant_share_activates_strictness(self):
+        fail = {"kind": "visual", "verdict": "fail"}
+        rows = [{**fail, "fail_reasons": ["text_problem"]}] * 3 + [
+            {**fail, "fail_reasons": ["cluttered"]}
+        ] * 7
+        s = rs.aggregate_ratings(rows, style_min=3, reason_min=3)
+        assert rs.DOMINANT_SHARE * 10 == 3  # 3 of 10 fails is exactly the share
+        assert s["strictness"] == ["text_problem"]
+        rows.append({**fail, "fail_reasons": ["cluttered"]})  # 3 of 11: below
+        s = rs.aggregate_ratings(rows, style_min=3, reason_min=3)
+        assert s["strictness"] == []
+
     def test_ignores_pass_rating_reasons(self):
         rows = [
             {"kind": "visual", "verdict": "pass", "fail_reasons": ["text_problem"]}

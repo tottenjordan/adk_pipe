@@ -4,7 +4,7 @@ Pure logic (no ADK imports). Absolute product claims ("guaranteed to stay in
 tune", "truly indestructible") are a legal and trust risk when nobody gave
 them: the brief writer and the copy agents must not invent them. A term counts
 only when it is NOT also in the allowed text (the user's key selling points
-plus the brief's mandatories), so "100% cotton" passes when the selling points
+only: the brief writer writes the mandatories, so they never license one), so "100% cotton" passes when the selling points
 say it. Terms in one family ("guarantee" / "guaranteed" / "guarantees",
 "100%" / "100 percent") allow each other.
 
@@ -70,7 +70,7 @@ def unsupported_claims(text: str, *, allowed_text: str = "") -> list[str]:
 def claims_allowed_text(*parts: str | Iterable[Any] | None) -> str:
     """The allowed text from strings and/or lists (non-strings skipped).
 
-    E.g. ``claims_allowed_text(state["key_selling_points"], mandatories)``.
+    E.g. ``claims_allowed_text(state["key_selling_points"])``.
     """
     lines: list[str] = []
     for part in parts:

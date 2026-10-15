@@ -2063,7 +2063,7 @@ def test_copy_gate_decision_reads_the_brief_avoid_list():
     assert copy_gate_decision(state, 1)[0] == "ok"
 
 
-def test_copy_gate_decision_allows_claims_from_selling_points_and_mandatories():
+def test_copy_gate_decision_allows_claims_only_from_selling_points():
     from creative_agent.agent import copy_gate_decision
 
     copy = _final_copy(1, body_text="Rocket Skates with a lifetime warranty.")
@@ -2073,8 +2073,11 @@ def test_copy_gate_decision_allows_claims_from_selling_points_and_mandatories():
     for points in ("Lifetime warranty", ["Fast", "Lifetime warranty"]):
         state = _copy_state(copy, key_selling_points=points)
         assert copy_gate_decision(state, 1)[0] == "ok"
+    # The brief writer writes the mandatories, so they never license a claim.
     brief = {**_clean_brief(), "mandatories": ["mention the lifetime warranty"]}
-    assert copy_gate_decision(_copy_state(copy, creative_brief=brief), 1)[0] == "ok"
+    route, delta = copy_gate_decision(_copy_state(copy, creative_brief=brief), 1)
+    assert route == "revise"
+    assert "unsupported absolute claim (lifetime)" in delta["ad_copy_issues"]
 
 
 def test_brief_gate_allows_claims_from_selling_points():
@@ -2230,6 +2233,26 @@ def test_ad_copy_reviser_failsoft_error_delta():
     (issue,) = delta["ad_copy_critique__issues"]
     assert "product not named" in issue
     assert delta["ad_copy_revision_rounds_used"] >= ca.config.copy_revision_rounds
+
+
+@pytest.mark.parametrize("used", [0, 1])
+def test_ad_copy_reviser_failure_spends_a_multi_round_budget(monkeypatch, used):
+    """With COPY_REVISION_ROUNDS=2 a failed reviser spends the whole budget, so
+    the gate it routes back to records the issues instead of revising again."""
+    from creative_agent import agent as ca
+
+    monkeypatch.setattr(ca.config, "copy_revision_rounds", 2)
+    before = {"ad_copies": list(_four(_final_copy(2, body_text="Go fast.")))}
+    state = _copy_state(
+        _final_copy(2, body_text="half-written"),
+        ad_copy_critique__before_revision=before,
+        ad_copy_revision_rounds_used=used,
+        ad_copy_issues="- x",
+    )
+    delta = ca._ad_copy_reviser_failed(state, ValueError())
+    assert delta["ad_copy_revision_rounds_used"] == 2
+    route, _ = ca.copy_gate_decision({**state, **delta}, 2)
+    assert route == "ok"
 
 
 @pytest.mark.parametrize(

@@ -139,10 +139,12 @@ def _text(value: Any) -> str:
 
 
 def _is_generic_motif(motif: str) -> bool:
-    tokens = re.findall(r"[a-z]+", motif.lower())
-    tokens = [w[:-1] if w.endswith("s") and len(w) > 3 else w for w in tokens]
-    tokens = [w for w in tokens if w not in _FILLER]
-    return not tokens or all(w in _GENERIC_TOKENS for w in tokens)
+    # Unicode words (``text_match.words``), so a motif in any script counts;
+    # ``same_word`` folds plurals ("phones" is generic).
+    tokens = [w for w in words(motif) if w not in _FILLER]
+    return not tokens or all(
+        any(same_word(w, g) for g in _GENERIC_TOKENS) for w in tokens
+    )
 
 
 def _without_abbreviations(text: str) -> str:
@@ -248,8 +250,9 @@ def check_brief(
     narrow it to a variant the user never gave. The proposition and the
     reasons-to-believe claims may not carry an absolute claim
     (``claims.ABSOLUTE_CLAIM_TERMS``: "guaranteed", "indestructible", ...)
-    unless ``key_selling_points`` (the user's, a string or list) or the
-    brief's mandatories state it. A non-empty ``trend_bridge.timely_angle``
+    unless ``key_selling_points`` (the user's, a string or list) states it;
+    nor may the mandatories (the brief writer writes them, so they never
+    license a claim). A non-empty ``trend_bridge.timely_angle``
     needs a timely ``trend_situation`` (the validated moment, ``timely_ok``)
     with the timely slot on (``max_timely`` > 0), and must not name a result
     the moment contradicts (a win word for a loss, a loss word for a win, any
@@ -402,13 +405,20 @@ def check_brief(
     product = target_product.strip()
     mandatories = [_text(m) for m in _as_list(data.get("mandatories")) if _text(m)]
     claim_text = "\n".join([proposition, *(_text(r.get("claim")) for r in rtbs)])
-    if claims := unsupported_claims(
-        claim_text,
-        allowed_text=claims_allowed_text(key_selling_points, mandatories),
-    ):
+    # Only the user's selling points license a claim: the brief writer writes
+    # the mandatories, so a claim there is checked like the proposition's.
+    allowed_claims = claims_allowed_text(key_selling_points)
+    if claims := unsupported_claims(claim_text, allowed_text=allowed_claims):
         issues.append(
             f"Remove unsupported absolute claims ({', '.join(claims)}) unless the "
             "user's selling points state them."
+        )
+    if claims := unsupported_claims(
+        "\n".join(mandatories), allowed_text=allowed_claims
+    ):
+        issues.append(
+            f"mandatories carry unsupported absolute claims ({', '.join(claims)}); "
+            "remove them unless the user's selling points state them."
         )
     if product and not any(
         contains_phrase(m, product) or mentions(m, product, brand=brand)
