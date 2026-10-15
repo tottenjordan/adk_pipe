@@ -6,8 +6,9 @@ implementation of the three signals that made the 2026-07-14 incident
 diagnosable:
 
 - `log_run_start` — a run-start correlation line (`before_agent_callback`) tying
-  a run to its session transcript. The frontend mints a throwaway user_id per
-  submission, so without this a UI failure can't be traced to a session.
+  a run to its session transcript, so a UI failure can be traced to a session.
+  The user is logged only as `stable_row_id(user_id)` (the user_id is the
+  caller's email since P3).
 - `log_empty_turn_finish_reason` — an `after_model_callback` that warns only when
   a model turn produced no usable output (the producer-empty landmine root
   cause), staying quiet on the happy path.
