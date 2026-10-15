@@ -10,6 +10,7 @@ untied copy is flagged. Inactive runs are unchanged.
 from __future__ import annotations
 
 from creative_agent.copy_gate import gate_copies, safer_angle_tie_words
+from creative_agent.run_policy import RunPolicy
 
 TREND = "tupac shakur"
 PRODUCT = "Fender Rhodes Stage Piano"
@@ -57,13 +58,13 @@ def _copy(original_id, fields):
 def _gate(*fields, **kwargs):
     kwargs.setdefault("target_product", PRODUCT)
     kwargs.setdefault("brand", BRAND)
-    kwargs.setdefault("trend_terms", TREND)
+    kwargs.setdefault("trend", TREND)
     kwargs.setdefault("risks", RISKS)
-    kwargs.setdefault("safer_angle", ANGLE)
+    kwargs.setdefault("safer_angle_text", ANGLE)
     kwargs.setdefault("safer_angle_active", True)
     kwargs.setdefault("trend_sensitive", True)
     copies = [_copy(i, f) for i, f in enumerate(fields, start=1)]
-    issues = gate_copies(copies, **kwargs)
+    issues = gate_copies(copies, RunPolicy(**kwargs))
     return {
         k: [str(i) for i in v if str(i).startswith(ISSUE_PREFIX)]
         for k, v in issues.items()
@@ -123,7 +124,9 @@ def test_product_and_brand_words_never_count():
         "headline": "Rhodes Stage Piano",
         "body_text": "The Fender Rhodes Stage Piano.",
     }
-    issues = _gate(product_only, product_only, product_only, NAMED, safer_angle=angle)
+    issues = _gate(
+        product_only, product_only, product_only, NAMED, safer_angle_text=angle
+    )
     assert sorted(issues) == ["1", "2", "3"]
 
 
@@ -147,7 +150,7 @@ def test_risk_and_avoid_words_never_count():
 
 
 def test_without_an_angle_only_naming_counts():
-    issues = _gate(NAMED, ANGLE_WORD, GENERIC_1, GENERIC_2, safer_angle="")
+    issues = _gate(NAMED, ANGLE_WORD, GENERIC_1, GENERIC_2, safer_angle_text="")
     assert sorted(issues) == ["2", "3", "4"]
 
 
@@ -159,7 +162,7 @@ def test_odd_count_needs_the_ceiling():
 def test_inactive_or_no_trend_is_unchanged():
     copies = (NAMED, GENERIC_1, GENERIC_2, GENERIC_3)
     assert _gate(*copies, safer_angle_active=False) == {}
-    assert _gate(*copies, trend_terms="") == {}
+    assert _gate(*copies, trend="") == {}
 
 
 def test_issue_is_deterministic_and_residual():
@@ -168,10 +171,12 @@ def test_issue_is_deterministic_and_residual():
     copies = [_copy(i, f) for i, f in enumerate((NAMED, GENERIC_1, GENERIC_2), start=1)]
     issues = gate_copies(
         copies,
-        target_product=PRODUCT,
-        trend_terms=TREND,
-        safer_angle=ANGLE,
-        safer_angle_active=True,
+        RunPolicy(
+            target_product=PRODUCT,
+            trend=TREND,
+            safer_angle_text=ANGLE,
+            safer_angle_active=True,
+        ),
     )
     residual = residual_issues(issues)
     assert any(str(i).startswith(ISSUE_PREFIX) for i in residual["2"])

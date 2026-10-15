@@ -17,6 +17,7 @@ from creative_agent.copy_gate import (
     restore_unflagged,
     structural_issues,
 )
+from creative_agent.run_policy import RunPolicy
 
 
 def _copy(original_id=1, **overrides):
@@ -37,7 +38,7 @@ def _copy(original_id=1, **overrides):
 
 def _gate(*copies, **kwargs):
     kwargs.setdefault("target_product", "Rocket Skates")
-    return gate_copies(list(copies), **kwargs)
+    return gate_copies(list(copies), RunPolicy(**kwargs))
 
 
 def _gate_texts(*copies, **kwargs):
@@ -69,12 +70,14 @@ def test_parse_copies_drops_malformed_entries():
 def test_gate_accepts_every_state_shape():
     bad = _copy(4, body_text="Go fast.")
     for value in ([bad], {"ad_copies": [bad]}, json.dumps({"ad_copies": [bad]})):
-        assert list(gate_copies(value, target_product="Rocket Skates")) == ["4"]
+        assert list(gate_copies(value, RunPolicy(target_product="Rocket Skates"))) == [
+            "4"
+        ]
 
 
 def test_clean_copies_have_no_issues():
     assert _gate(_copy(1), _copy(2)) == {}
-    assert gate_copies(None, target_product="Rocket Skates") == {}
+    assert gate_copies(None, RunPolicy(target_product="Rocket Skates")) == {}
 
 
 # --- product named --------------------------------------------------------------
@@ -113,7 +116,7 @@ def test_product_named_in_the_cta_counts():
 
 def _names(product, text):
     copy = _copy(body_text=text, call_to_action="Order today")
-    return gate_copies([copy], target_product=product) == {}
+    return gate_copies([copy], RunPolicy(target_product=product)) == {}
 
 
 @pytest.mark.parametrize(
@@ -161,13 +164,21 @@ def test_product_words_skip_stopwords_numbers_and_short_words():
     # Nothing matchable (no significant word, no brand form): never flagged,
     # since any copy would fail a check it cannot pass deterministically.
     assert (
-        gate_copies([_copy(call_to_action="Order today")], target_product="SE 24") == {}
+        gate_copies(
+            [_copy(call_to_action="Order today")], RunPolicy(target_product="SE 24")
+        )
+        == {}
     )
-    assert gate_copies([_copy(body_text="SE 24!")], target_product="SE 24") == {}
+    assert (
+        gate_copies([_copy(body_text="SE 24!")], RunPolicy(target_product="SE 24"))
+        == {}
+    )
 
 
 def test_blank_target_product_skips_the_product_check():
-    assert gate_copies([_copy(body_text="Go fast.")], target_product="") == {}
+    assert (
+        gate_copies([_copy(body_text="Go fast.")], RunPolicy(target_product="")) == {}
+    )
 
 
 # --- CTA, headline, caption -----------------------------------------------------
@@ -484,8 +495,14 @@ def test_product_named_audit_cases(product, text):
 
 def test_product_without_matchable_tokens_is_never_flagged():
     # "GE": no word of 3+ chars, no punctuated/alphanumeric brand form.
-    assert gate_copies([_copy(body_text="Light up.")], target_product="GE") == {}
-    assert gate_copies([_copy(body_text="Light up.")], target_product="The 24") == {}
+    assert (
+        gate_copies([_copy(body_text="Light up.")], RunPolicy(target_product="GE"))
+        == {}
+    )
+    assert (
+        gate_copies([_copy(body_text="Light up.")], RunPolicy(target_product="The 24"))
+        == {}
+    )
 
 
 def test_compact_brand_match_is_still_whole_word():
@@ -524,7 +541,9 @@ def test_avoid_terms_overlapping_product_mandatories_or_trend_are_dropped(
     avoid, text, kwargs
 ):
     kwargs.setdefault("target_product", "Rocket Skates")
-    assert gate_copies([_copy(body_text=text)], avoid=[avoid], **kwargs) == {}
+    assert (
+        gate_copies([_copy(body_text=text)], RunPolicy(avoid=[avoid], **kwargs)) == {}
+    )
 
 
 def test_unrelated_avoid_terms_still_flag_with_mandatories_and_trend():
@@ -659,7 +678,9 @@ def test_bracketed_avoid_terms_still_match():
             "brief_checks": [],
         }
     ]
-    issues = gate_copies(copies, target_product="SE CE24", avoid=brief_avoid(brief))
+    issues = gate_copies(
+        copies, RunPolicy(target_product="SE CE24", avoid=brief_avoid(brief))
+    )
     assert any("coil tap terminology" in i.text for i in issues.get("1", []))
 
 
@@ -748,7 +769,7 @@ def test_absolute_claim_checked_in_every_copy_field(field):
 def test_absolute_claim_allowed_by_the_claims_text():
     copy = _copy(body_text="Rocket Skates with a lifetime warranty.")
     assert _gate(copy) != {}
-    assert _gate(copy, allowed_claims_text="Lifetime warranty") == {}
+    assert _gate(copy, claims_allowed_text="Lifetime warranty") == {}
 
 
 def test_ordinary_never_phrasing_is_not_a_claim():
@@ -774,7 +795,7 @@ def test_failed_risks_self_check_gates_but_is_never_residual():
 def test_copy_without_a_trend_tie_gets_the_issue_last():
     issues = _gate(
         _copy(call_to_action=""),
-        trend_terms="roadrunner race",
+        trend="roadrunner race",
         motifs=["dust cloud", "desert highway"],
     )
     found = issues["1"]
@@ -787,11 +808,11 @@ def test_copy_without_a_trend_tie_gets_the_issue_last():
 
 
 def test_copy_naming_the_trend_or_a_motif_has_no_tie_issue():
-    assert _gate(_copy(headline="Roadrunner who?"), trend_terms="roadrunner race") == {}
+    assert _gate(_copy(headline="Roadrunner who?"), trend="roadrunner race") == {}
     assert (
         _gate(
             _copy(social_caption="Leave a dust cloud."),
-            trend_terms="roadrunner race",
+            trend="roadrunner race",
             motifs=["dust cloud"],
         )
         == {}
@@ -799,17 +820,17 @@ def test_copy_naming_the_trend_or_a_motif_has_no_tie_issue():
 
 
 def test_sensitive_moment_skips_the_trend_tie_check():
-    assert _gate(_copy(), trend_terms="roadrunner race", trend_sensitive=True) == {}
+    assert _gate(_copy(), trend="roadrunner race", trend_sensitive=True) == {}
 
 
 def test_empty_trend_skips_the_trend_tie_check():
-    assert _gate(_copy(), trend_terms="", motifs=["dust cloud"]) == {}
+    assert _gate(_copy(), trend="", motifs=["dust cloud"]) == {}
 
 
 def test_trend_tie_through_an_avoid_term_does_not_count():
     issues = _gate_texts(
         _copy(headline="Shooting past the bird"),
-        trend_terms="shooting",
+        trend="shooting",
         avoid=["shooting"],
     )
     assert issues["1"][0].startswith("contains the avoided term 'shooting'")
@@ -817,7 +838,7 @@ def test_trend_tie_through_an_avoid_term_does_not_count():
 
 
 def test_trend_tie_issue_is_residual():
-    issues = _gate(_copy(), trend_terms="roadrunner race")
+    issues = _gate(_copy(), trend="roadrunner race")
     assert {k: [str(i) for i in v] for k, v in residual_issues(issues).items()} == {
         "1": [
             "not clearly tied to the trend: name it or one of its motifs "

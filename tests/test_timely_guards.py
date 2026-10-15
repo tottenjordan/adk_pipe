@@ -6,6 +6,7 @@ import json
 
 from creative_agent.concept_guard import concept_issues, enforce_timely_cap
 from creative_agent.copy_gate import enforce_timely_copy_cap, gate_copies
+from creative_agent.run_policy import RunPolicy
 from creative_agent.trend_situation import timely_allowed
 
 
@@ -146,14 +147,12 @@ def test_without_a_timely_moment_concept_checks_are_unchanged():
 def test_evergreen_copy_with_temporal_terms_is_flagged():
     issues = gate_copies(
         [_copy(1, headline="We won tonight", uses_trend_state=True), _copy(2)],
-        target_product="Rocket Skates",
-        timely_ok=True,
+        RunPolicy(target_product="Rocket Skates", timely_ok=True),
     )
     assert issues == {}
     issues = gate_copies(
         [_copy(2, body_text="Rocket Skates, ready for tomorrow's kickoff.")],
-        target_product="Rocket Skates",
-        timely_ok=True,
+        RunPolicy(target_product="Rocket Skates", timely_ok=True),
     )
     (issue,) = issues["2"]
     assert issue.kind == "deterministic"
@@ -166,17 +165,20 @@ def test_copy_offers_the_timely_option_only_while_the_cap_has_room():
     dated = _copy(2, body_text="Rocket Skates, ready for tomorrow's kickoff.")
     timely = _copy(1, headline="Big game tomorrow", uses_trend_state=True)
     # No timely copy yet: making this one timely is viable.
-    (issue,) = gate_copies([dated], target_product="Rocket Skates", timely_ok=True)["2"]
+    (issue,) = gate_copies(
+        [dated], RunPolicy(target_product="Rocket Skates", timely_ok=True)
+    )["2"]
     assert issue.text.endswith("remove it or make this the timely copy.")
     # The cap (1 by default) is already full: only removing the term is.
     issues = gate_copies(
-        [timely, dated], target_product="Rocket Skates", timely_ok=True
+        [timely, dated], RunPolicy(target_product="Rocket Skates", timely_ok=True)
     )
     (issue,) = issues["2"]
     assert issue.text.endswith("remove it.")
     # A larger cap leaves room again.
     issues = gate_copies(
-        [timely, dated], target_product="Rocket Skates", timely_ok=True, max_timely=2
+        [timely, dated],
+        RunPolicy(target_product="Rocket Skates", timely_ok=True, max_timely=2),
     )
     assert issues["2"][0].text.endswith("make this the timely copy.")
 
@@ -185,15 +187,14 @@ def test_copy_idioms_and_no_moment_pass():
     assert (
         gate_copies(
             [_copy(2, body_text="Rocket Skates: never miss a beat.")],
-            target_product="Rocket Skates",
-            timely_ok=True,
+            RunPolicy(target_product="Rocket Skates", timely_ok=True),
         )
         == {}
     )
     assert (
         gate_copies(
             [_copy(2, body_text="Rocket Skates won tonight.")],
-            target_product="Rocket Skates",
+            RunPolicy(target_product="Rocket Skates"),
         )
         == {}
     )

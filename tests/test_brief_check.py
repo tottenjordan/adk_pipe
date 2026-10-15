@@ -6,6 +6,8 @@ import json
 import pytest
 
 from creative_agent.brief_check import GENERIC_MOTIFS, check_brief
+from creative_agent.claims import claims_allowed_text
+from creative_agent.run_policy import RunPolicy
 from tests.test_creative_agent_graph import _BRIEF
 
 
@@ -156,7 +158,7 @@ def test_generic_motif_constant_covers_the_basics():
 def test_distinctive_assets_required_when_brand_colors_given():
     brief = _brief(brand__distinctive_assets=[])
     assert check_brief(brief) == []
-    (issue,) = check_brief(brief, brand_colors="ACME red, desert tan")
+    (issue,) = check_brief(brief, RunPolicy(brand_colors="ACME red, desert tan"))
     assert "distinctive_assets" in issue and "ACME red" in issue
 
 
@@ -211,11 +213,11 @@ def test_brand_and_product_names_do_not_count_as_and():
     )
     (issue,) = check_brief(brief)
     assert "'and'" in issue
-    assert check_brief(brief, target_product="Mac and Cheese") == []
+    assert check_brief(brief, RunPolicy(target_product="Mac and Cheese")) == []
     assert (
         check_brief(
             _brief(single_minded_proposition="Johnson and Johnson soothes every fall."),
-            brand="johnson and johnson",
+            RunPolicy(brand="johnson and johnson"),
         )
         == []
     )
@@ -233,8 +235,10 @@ def test_rtb_source_id_must_be_src_n_or_brief():
 def test_rtb_src_id_must_exist_in_sources_when_given():
     # _BRIEF cites src-1; without sources the id is not cross-checked.
     assert check_brief(_BRIEF) == []
-    assert check_brief(_BRIEF, sources={"src-1": {"short_id": "src-1"}}) == []
-    (issue,) = check_brief(_BRIEF, sources={"src-2": {}})
+    assert (
+        check_brief(_BRIEF, RunPolicy(sources={"src-1": {"short_id": "src-1"}})) == []
+    )
+    (issue,) = check_brief(_BRIEF, RunPolicy(sources={"src-2": {}}))
     assert "unknown sources" in issue and "'src-1'" in issue
 
 
@@ -247,7 +251,7 @@ def _prop_issues(proposition, **kwargs):
         single_minded_proposition=proposition,
         mandatories=[f"name {kwargs.get('target_product', '')}"],
     )
-    return check_brief(brief, **kwargs)
+    return check_brief(brief, RunPolicy(**kwargs))
 
 
 @pytest.mark.parametrize(
@@ -380,7 +384,9 @@ _SOURCES = {f"src-{i}": {"short_id": f"src-{i}"} for i in range(1, 7)}
 )
 def test_source_id_variants_are_normalised(source_id):
     rtbs = [{"claim": "Fast", "source_id": source_id}]
-    assert check_brief(_brief(reasons_to_believe=rtbs), sources=_SOURCES) == []
+    assert (
+        check_brief(_brief(reasons_to_believe=rtbs), RunPolicy(sources=_SOURCES)) == []
+    )
 
 
 @pytest.mark.parametrize(
@@ -395,7 +401,7 @@ def test_source_id_variants_are_normalised(source_id):
 )
 def test_source_id_still_flagged(source_id, kind):
     rtbs = [{"claim": "Fast", "source_id": source_id}]
-    (issue,) = check_brief(_brief(reasons_to_believe=rtbs), sources=_SOURCES)
+    (issue,) = check_brief(_brief(reasons_to_believe=rtbs), RunPolicy(sources=_SOURCES))
     assert kind in issue
 
 
@@ -501,7 +507,7 @@ _PRS = {"brand": "PRS", "target_product": "SE CE24 Electric Guitar"}
 
 
 def _product_issues(mandatories, **kwargs):
-    issues = check_brief(_brief(mandatories=mandatories), **(_PRS | kwargs))
+    issues = check_brief(_brief(mandatories=mandatories), RunPolicy(**_PRS | kwargs))
     return [i for i in issues if "exactly as" in i]
 
 
@@ -532,7 +538,9 @@ def test_product_rule_skipped_without_target_product():
 
 
 def _claim_issues(brief, **kwargs):
-    return [i for i in check_brief(brief, **kwargs) if "absolute claims" in i]
+    return [
+        i for i in check_brief(brief, RunPolicy(**kwargs)) if "absolute claims" in i
+    ]
 
 
 def test_brief_flags_an_invented_rtb_claim():
@@ -556,8 +564,18 @@ def test_brief_flags_an_absolute_proposition():
 
 def test_brief_claim_allowed_by_selling_points():
     brief = _brief(single_minded_proposition="Rocket Skates carry a lifetime warranty.")
-    assert _claim_issues(brief, key_selling_points="Lifetime warranty") == []
-    assert _claim_issues(brief, key_selling_points=["Lifetime warranty"]) == []
+    assert (
+        _claim_issues(
+            brief, claims_allowed_text=claims_allowed_text("Lifetime warranty")
+        )
+        == []
+    )
+    assert (
+        _claim_issues(
+            brief, claims_allowed_text=claims_allowed_text(["Lifetime warranty"])
+        )
+        == []
+    )
 
 
 def test_brief_mandatories_do_not_allow_a_claim():
@@ -569,7 +587,7 @@ def test_brief_mandatories_do_not_allow_a_claim():
 
 
 def _mandatory_claim_issues(brief, **kwargs):
-    return [i for i in check_brief(brief, **kwargs) if "mandatories" in i]
+    return [i for i in check_brief(brief, RunPolicy(**kwargs)) if "mandatories" in i]
 
 
 def test_mandatory_with_an_invented_claim_is_flagged():
@@ -579,7 +597,9 @@ def test_mandatory_with_an_invented_claim_is_flagged():
             "say Rocket Skates are guaranteed to stay in tune",
         ]
     )
-    (issue,) = _mandatory_claim_issues(brief, key_selling_points="Great tone")
+    (issue,) = _mandatory_claim_issues(
+        brief, claims_allowed_text=claims_allowed_text("Great tone")
+    )
     assert "guaranteed" in issue
     assert "selling points" in issue
 
@@ -589,8 +609,18 @@ def test_mandatory_claim_in_the_selling_points_is_allowed():
         mandatories=["name Rocket Skates", "mention the lifetime warranty"],
         single_minded_proposition="Rocket Skates carry a lifetime warranty.",
     )
-    assert _mandatory_claim_issues(brief, key_selling_points="Lifetime warranty") == []
-    assert _claim_issues(brief, key_selling_points=["Lifetime warranty"]) == []
+    assert (
+        _mandatory_claim_issues(
+            brief, claims_allowed_text=claims_allowed_text("Lifetime warranty")
+        )
+        == []
+    )
+    assert (
+        _claim_issues(
+            brief, claims_allowed_text=claims_allowed_text(["Lifetime warranty"])
+        )
+        == []
+    )
 
 
 def test_clean_brief_has_no_claim_issues():
@@ -608,7 +638,7 @@ def _with_angle(angle):
 
 
 def _angle_issues(brief, **kwargs):
-    return [i for i in check_brief(brief, **kwargs) if "timely_angle" in i]
+    return [i for i in check_brief(brief, RunPolicy(**kwargs)) if "timely_angle" in i]
 
 
 def test_timely_angle_needs_a_validated_moment():
@@ -699,6 +729,6 @@ def test_safer_angle_rules_follow_the_activation_flag():
     stray = _brief(trend_bridge__safer_angle="A legacy of chasing music dreams.")
     (issue,) = check_brief(stray)
     assert issue.startswith("trend_bridge.safer_angle is set but")
-    assert check_brief(stray, safer_angle_active=True) == []
-    (issue,) = check_brief(_brief(), safer_angle_active=True)
+    assert check_brief(stray, RunPolicy(safer_angle_active=True)) == []
+    (issue,) = check_brief(_brief(), RunPolicy(safer_angle_active=True))
     assert issue.startswith("trend_bridge.safer_angle is empty")

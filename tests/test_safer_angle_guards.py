@@ -17,6 +17,7 @@ from creative_agent.copy_gate import (
     safer_angle_named_copies,
     safer_angle_tie_avoid,
 )
+from creative_agent.run_policy import RunPolicy
 
 TREND = "tupac shakur murder trial"
 PRODUCT = "Hohner Clavinet D7"
@@ -53,10 +54,10 @@ def _texts(issues):
 
 def _gate(*copies, **kwargs):
     kwargs.setdefault("target_product", PRODUCT)
-    kwargs.setdefault("trend_terms", TREND)
+    kwargs.setdefault("trend", TREND)
     kwargs.setdefault("risks", RISKS)
-    kwargs.setdefault("safer_angle", ANGLE)
-    return _texts(gate_copies(list(copies), **kwargs))
+    kwargs.setdefault("safer_angle_text", ANGLE)
+    return _texts(gate_copies(list(copies), RunPolicy(**kwargs)))
 
 
 # --- copy gate, active -------------------------------------------------------

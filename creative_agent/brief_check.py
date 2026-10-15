@@ -8,13 +8,15 @@ revision as ``creative_brief__issues`` (surfaced by
 ``agent_common.observability.collect_degradation_warnings``).
 """
 
+from __future__ import annotations
+
 import copy
 import json
 import re
 from collections.abc import Mapping, Sequence
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from .claims import claims_allowed_text, unsupported_claims
+from .claims import unsupported_claims
 from .endorsement import endorsement_terms
 from .temporal_terms import temporal_terms
 from .text_match import (
@@ -24,6 +26,9 @@ from .text_match import (
     same_word,
     words,
 )
+
+if TYPE_CHECKING:  # run_policy imports copy_gate, which imports this module
+    from .run_policy import RunPolicy
 
 MISSING_BRIEF_ISSUE = "brief missing or unparseable"
 
@@ -220,57 +225,59 @@ def _normalised(text: str) -> str:
 
 
 def check_brief(
-    brief: Mapping[str, Any] | str | None,
-    *,
-    brand_colors: str = "",
-    brand: str = "",
-    target_product: str = "",
-    trend: str = "",
-    sources: Mapping[str, Any] | None = None,
-    key_selling_points: str | Sequence[str] = "",
-    trend_situation: Mapping[str, Any] | None = None,
-    max_timely: int = 1,
-    safer_angle_active: bool = False,
+    brief: Mapping[str, Any] | str | None, policy: RunPolicy | None = None
 ) -> list[str]:
     """Return the brief's rule violations as actionable issue strings ([] = clean).
 
     ``brief`` is the ``creative_brief`` state value: a dict (ADK stores parsed
-    ``output_schema`` output) or its JSON string. ``brand_colors`` is the user's
-    optional palette; when given, the brief must name distinctive assets.
-    ``brand`` / ``target_product`` / ``trend`` (``target_search_trends``), and
-    any "X and Y" chunk of them, are removed from the proposition before the
-    "and" check (so "Mac and Cheese" is not two ideas); hyphenated compounds
-    ("rock-and-roll") never count and a spaced "&" counts as "and". Every
-    proposition issue (one sentence, "and") is reported, not just the first.
-    ``sources`` is the ``sources`` state mapping (keyed by "src-N"); when given
-    (even empty), every cited "src-N" must exist in it. Source ids are
-    normalised first (see ``_normalise_source_ids``). With a ``target_product``,
-    some mandatory must name it exactly (whole words) or mention it per
-    ``text_match.mentions`` (brand + model tokens count), so the writer cannot
-    narrow it to a variant the user never gave. The proposition and the
-    reasons-to-believe claims may not carry an absolute claim
-    (``claims.ABSOLUTE_CLAIM_TERMS``: "guaranteed", "indestructible", ...)
-    unless ``key_selling_points`` (the user's, a string or list) states it;
+    ``output_schema`` output) or its JSON string; ``policy`` is the run's
+    ``RunPolicy`` (None = ``RunPolicy()``, nothing configured). The brief's
+    own lists are read from ``brief``, never from the policy (the gate checks
+    the brief being written). ``policy.brand_colors`` is the user's optional
+    palette; when given, the brief must name distinctive assets.
+    ``policy.brand`` / ``target_product`` / ``trend``, and any "X and Y" chunk
+    of them, are removed from the proposition before the "and" check (so "Mac
+    and Cheese" is not two ideas); hyphenated compounds ("rock-and-roll")
+    never count and a spaced "&" counts as "and". Every proposition issue (one
+    sentence, "and") is reported, not just the first. ``policy.sources`` is
+    the ``sources`` state mapping (keyed by "src-N"); when given (even empty),
+    every cited "src-N" must exist in it. Source ids are normalised first (see
+    ``_normalise_source_ids``). With a ``target_product``, some mandatory must
+    name it exactly (whole words) or mention it per ``text_match.mentions``
+    (brand + model tokens count), so the writer cannot narrow it to a variant
+    the user never gave. The proposition and the reasons-to-believe claims
+    may not carry an absolute claim (``claims.ABSOLUTE_CLAIM_TERMS``:
+    "guaranteed", "indestructible", ...) unless
+    ``policy.claims_allowed_text`` (the user's key selling points) states it;
     nor may the mandatories (the brief writer writes them, so they never
-    license a claim). A non-empty ``trend_bridge.timely_angle``
-    needs a timely ``trend_situation`` (the validated moment, ``timely_ok``)
-    with the timely slot on (``max_timely`` > 0), and must not name a result
+    license a claim). A non-empty ``trend_bridge.timely_angle`` needs a timely
+    ``policy.trend_situation`` (the validated moment, ``timely_ok``) with the
+    timely slot on (``policy.max_timely`` > 0), and must not name a result
     the moment contradicts (a win word for a loss, a loss word for a win, any
     result for a moment without one; see ``_contradicting_terms``). Never
     raises: malformed fields are reported as issues.
 
-    With ``safer_angle_active`` (the run opted in on a trend flagged sensitive,
-    ``creative_agent.safer_angle``) ``trend_bridge.safer_angle`` must be set,
+    With ``policy.safer_angle_active`` (the run opted in on a trend flagged
+    sensitive, ``creative_agent.safer_angle``) ``trend_bridge.safer_angle``
+    must be set,
     ``trend_bridge.risks`` must list the event's harms, the safer angle may
     share no content word with the risks or ``avoid`` terms (the trend, brand
     and product words excepted) and may carry no endorsement term
     (``endorsement.endorsement_terms``); without it a non-empty
     ``safer_angle`` is stray (see ``_safer_angle_issues``).
     """
+    if policy is None:
+        # Deferred: run_policy imports copy_gate, which imports this module.
+        from .run_policy import RunPolicy
+
+        policy = RunPolicy()
     data = parse_brief(brief)
     if data is None:
         return [MISSING_BRIEF_ISSUE]
 
+    brand = policy.brand
+    target_product = policy.target_product
+    trend = policy.trend
     issues: list[str] = []
 
     proposition = _text(data.get("single_minded_proposition"))
@@ -329,7 +336,7 @@ def check_brief(
             f"reasons_to_believe with an invalid source_id: {listed}; use exactly "
             "'src-N' (a research source id) or 'brief'."
         )
-    if sources is not None:
+    if (sources := policy.sources) is not None:
         unknown = [
             (c, sid)
             for c, sid in cited
@@ -395,6 +402,7 @@ def check_brief(
         for a in _as_list(_as_mapping(data.get("brand")).get("distinctive_assets"))
         if _text(a)
     ]
+    brand_colors = policy.brand_colors
     if brand_colors.strip() and not assets:
         issues.append(
             f"brand.distinctive_assets is empty although brand colours were given "
@@ -407,7 +415,7 @@ def check_brief(
     claim_text = "\n".join([proposition, *(_text(r.get("claim")) for r in rtbs)])
     # Only the user's selling points license a claim: the brief writer writes
     # the mandatories, so a claim there is checked like the proposition's.
-    allowed_claims = claims_allowed_text(key_selling_points)
+    allowed_claims = policy.claims_allowed_text
     if claims := unsupported_claims(claim_text, allowed_text=allowed_claims):
         issues.append(
             f"Remove unsupported absolute claims ({', '.join(claims)}) unless the "
@@ -431,13 +439,15 @@ def check_brief(
 
     issues.extend(
         _timely_angle_issues(
-            _text(bridge.get("timely_angle")), trend_situation, max_timely
+            _text(bridge.get("timely_angle")),
+            policy.trend_situation,
+            policy.max_timely,
         )
     )
     issues.extend(
         _safer_angle_issues(
             data,
-            active=safer_angle_active,
+            active=policy.safer_angle_active,
             names=(trend, brand, target_product),
         )
     )

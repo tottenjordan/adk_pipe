@@ -10,6 +10,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
+from creative_agent.run_policy import RunPolicy
 from creative_agent.trend_situation import (
     current_moment_md,
     resolve_now,
@@ -424,7 +425,7 @@ def test_trend_scout_sensitive_hint_floors_the_moment_to_not_timely():
 
     brief = json.loads(json.dumps(_BRIEF))
     brief["trend_bridge"]["timely_angle"] = "Count down to the trial tomorrow"
-    issues = check_brief(brief, trend_situation=situation, max_timely=1)
+    issues = check_brief(brief, RunPolicy(trend_situation=situation, max_timely=1))
     assert any("timely_angle" in i for i in issues)
 
 

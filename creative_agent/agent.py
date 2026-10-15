@@ -27,10 +27,17 @@ from agent_common import (
 )
 from agent_common.sampling import temperature as sampled_temperature
 
-from . import brand_history, callbacks, gcs_tools, image_tools, prompts, tools
+from . import (
+    brand_history,
+    callbacks,
+    gcs_tools,
+    image_tools,
+    prompts,
+    safer_angle,
+    tools,
+)
 from .brief_check import check_brief, normalize_brief_terms, parse_brief
 from .brief_render import render_brief_markdown
-from .claims import claims_allowed_text
 from .concept_guard import (
     concept_issues,
     flatten_concept_issues,
@@ -39,11 +46,6 @@ from .concept_guard import (
 from .config import INFRA_RETRY, SCHEMA_RETRY, config
 from .copy_gate import (
     CopyIssue,
-    brief_avoid,
-    brief_mandatories,
-    brief_motifs,
-    brief_risks,
-    brief_safer_angle,
     enforce_timely_copy_cap,
     flatten_copy_issues,
     format_copy_issues,
@@ -59,9 +61,8 @@ from .finalize import (
     issue_message,
     persist_node,
 )
-from .rating_signals import strictness_flags
+from .run_policy import RunPolicy
 from .safer_angle import clear_stray_safer_angle
-from .safer_angle import is_active as is_safer_angle_active
 from .schemas import (  # noqa: F401
     AdCopy,
     AdCopyList,
@@ -85,7 +86,6 @@ from .schemas import (  # noqa: F401
 from .sub_agents.campaign_researcher.agent import ca_sequential_planner
 from .sub_agents.trend_researcher.agent import gs_sequential_planner
 from .sub_agents.trend_situation.agent import trend_situation_pipeline
-from .trend_situation import timely_allowed
 
 # --- config ---
 logging.basicConfig(
@@ -346,29 +346,8 @@ brief_reviser_failsoft = FailSoftNode(
 # A missing brief (writer exhausted its retries or failed) routes "ok" without a
 # revision: there is nothing to revise, and creative_brief__retry_exhausted
 # already reports it; the creative agents then fall back to the report.
-def _selling_points(state: Mapping[str, Any]) -> str | list[str]:
-    """The user's ``key_selling_points`` (a string or a list of strings)."""
-    points = state.get("key_selling_points")
-    if isinstance(points, list):
-        return [p for p in points if isinstance(p, str)]
-    return str(points or "")
-
-
 def _brief_issues(state: Mapping[str, Any]) -> list[str]:
-    sources = state.get("sources")
-    situation = state.get("trend_situation")
-    return check_brief(
-        state.get("creative_brief"),
-        brand_colors=str(state.get("brand_colors") or ""),
-        brand=str(state.get("brand") or ""),
-        target_product=str(state.get("target_product") or ""),
-        trend=str(state.get("target_search_trends") or ""),
-        sources=sources if isinstance(sources, Mapping) else None,
-        key_selling_points=_selling_points(state),
-        trend_situation=situation if isinstance(situation, Mapping) else None,
-        max_timely=config.max_timely_concepts,
-        safer_angle_active=is_safer_angle_active(state),
-    )
+    return check_brief(state.get("creative_brief"), RunPolicy.from_state(state, config))
 
 
 def brief_gate_decision(
@@ -390,7 +369,7 @@ def brief_gate_decision(
         base["creative_brief"] = cleaned
     # Without an active safer angle the creative prompts must never see one:
     # a stray trend_bridge.safer_angle is cleared here (no revision round).
-    if not is_safer_angle_active(snapshot) and (
+    if not safer_angle.is_active(snapshot) and (
         stray := clear_stray_safer_angle(dict(parse_brief(brief) or {}))
     ):
         brief = stray
@@ -794,59 +773,25 @@ _COPY_REVISION_CLEARED: dict[str, Any] = {
 
 
 def _copy_issues(state: Mapping[str, Any]) -> dict[str, list[CopyIssue]]:
-    brief = state.get("creative_brief")
     return gate_copies(
-        state.get("ad_copy_critique"),
-        target_product=str(state.get("target_product") or ""),
-        avoid=brief_avoid(brief),
-        mandatories=brief_mandatories(brief),
-        trend=str(state.get("target_search_trends") or ""),
-        brand=str(state.get("brand") or ""),
-        strictness=strictness_flags(state.get("rating_strictness")),
-        # Only the user's selling points license a claim (never the brief's
-        # mandatories, which the brief writer writes).
-        allowed_claims_text=claims_allowed_text(_selling_points(state)),
-        timely_ok=timely_allowed(state, config.max_timely_concepts),
-        max_timely=config.max_timely_concepts,
-        trend_terms=str(state.get("target_search_trends") or ""),
-        motifs=brief_motifs(brief),
-        trend_sensitive=_trend_sensitive(state),
-        safer_angle_active=safer_angle_active(state),
-        risks=brief_risks(brief),
-        safer_angle=brief_safer_angle(brief),
+        state.get("ad_copy_critique"), RunPolicy.from_state(state, config)
     )
-
-
-def _trend_sensitive(state: Mapping[str, Any]) -> bool:
-    """The trend must not be referenced: the validated current moment is
-    sensitive, or trend_scout flagged the trend (``trend_sensitive_hint``),
-    which covers a creative run whose own situation search missed it."""
-    situation = state.get("trend_situation")
-    return (
-        isinstance(situation, Mapping) and situation.get("phase") == "sensitive"
-    ) or state.get("trend_sensitive_hint") == "yes"
-
-
-def safer_angle_active(state: Mapping[str, Any]) -> bool:
-    """The run takes a safer angle on a sensitive trend (``"yes"``; missing or
-    anything else = off)."""
-    return state.get("safer_angle_active") == "yes"
 
 
 def _safer_angle_delta(state: Mapping[str, Any], critique: Any) -> dict[str, Any]:
     """``safer_angle_named_copies`` (the copies naming the trend's subject)
     when the safer angle is active; {} otherwise, so other runs' deltas are
-    unchanged."""
-    if not safer_angle_active(state):
+    unchanged. The brief's raw avoid list (not the gate's filtered terms)."""
+    policy = RunPolicy.from_state(state, config)
+    if not policy.safer_angle_active:
         return {}
-    brief = state.get("creative_brief")
     return {
         "safer_angle_named_copies": safer_angle_named_copies(
             critique,
-            trend_terms=str(state.get("target_search_trends") or ""),
-            avoid=brief_avoid(brief),
-            risks=brief_risks(brief),
-            safer_angle=brief_safer_angle(brief),
+            trend_terms=policy.trend,
+            avoid=policy.avoid,
+            risks=policy.risks,
+            safer_angle=policy.safer_angle_text,
         )
     }
 
@@ -888,11 +833,12 @@ def cap_and_residual_copies(state: Mapping[str, Any]) -> dict[str, Any]:
     """
     delta: dict[str, Any] = {}
     critique = state.get("ad_copy_critique")
+    policy = RunPolicy.from_state(state, config)
     if is_populated(critique):
         capped, warns = enforce_timely_copy_cap(
             critique,
-            timely_ok=timely_allowed(state, config.max_timely_concepts),
-            max_timely=config.max_timely_concepts,
+            timely_ok=policy.timely_ok,
+            max_timely=policy.max_timely,
         )
         for warning in warns:
             logging.warning(f"timely copy cap: {warning}")
@@ -915,11 +861,12 @@ def copy_gate_decision(
     """
     critique = state.get("ad_copy_critique")
     base: dict[str, Any] = {}
+    policy = RunPolicy.from_state(state, config)
     if is_populated(critique):
         capped, warns = enforce_timely_copy_cap(
             critique,
-            timely_ok=timely_allowed(state, config.max_timely_concepts),
-            max_timely=config.max_timely_concepts,
+            timely_ok=policy.timely_ok,
+            max_timely=policy.max_timely,
         )
         for warning in warns:
             logging.warning(f"timely copy cap: {warning}")
@@ -1200,13 +1147,14 @@ _CONCEPT_REVISION_CLEARED: dict[str, Any] = {
 
 
 def _concept_issues(state: Mapping[str, Any]) -> dict[str, list[CopyIssue]]:
+    policy = RunPolicy.from_state(state, config)
     return concept_issues(
         state.get("final_visual_concepts"),
         state.get("ad_copy_critique"),
-        brand=str(state.get("brand") or ""),
-        target_product=str(state.get("target_product") or ""),
-        strictness=strictness_flags(state.get("rating_strictness")),
-        timely_ok=timely_allowed(state, config.max_timely_concepts),
+        brand=policy.brand,
+        target_product=policy.target_product,
+        strictness=policy.strictness,
+        timely_ok=policy.timely_ok,
     )
 
 
