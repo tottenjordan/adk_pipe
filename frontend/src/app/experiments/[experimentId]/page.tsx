@@ -87,11 +87,7 @@ const LEARNING_OPTIONS: readonly { value: LearningMode; label: string }[] = [
   { value: "continuous", label: "Keep learning" },
 ];
 
-export default function ExperimentPage({
-  params,
-}: {
-  params: Promise<{ experimentId: string }>;
-}) {
+export default function ExperimentPage({ params }: PageProps<"/experiments/[experimentId]">) {
   const { experimentId } = use(params);
   const [exp, setExp] = useState<ExperimentSummary | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);

@@ -1,3 +1,4 @@
+import "server-only";
 import { execFile } from "node:child_process";
 
 const METADATA_BASE =

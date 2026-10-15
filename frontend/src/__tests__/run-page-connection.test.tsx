@@ -66,7 +66,7 @@ function renderPage() {
   });
   return render(
     <Suspense fallback={null}>
-      <RunPage params={params} />
+      <RunPage params={params} searchParams={Promise.resolve({})} />
     </Suspense>
   );
 }

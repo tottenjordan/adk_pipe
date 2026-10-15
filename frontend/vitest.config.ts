@@ -14,6 +14,9 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
+      // The `server-only` guard throws outside the react-server condition (Next aliases
+      // it per bundle); tests import the server modules directly, so give them the no-op.
+      "server-only": path.resolve(__dirname, "./node_modules/server-only/empty.js"),
     },
   },
 });
