@@ -157,6 +157,20 @@ def ucb1(c: float = 0.25) -> Policy:
     return Policy(f"ucb1:c={c:g}", _counts_init, select, _counts_update)
 
 
+def _argmax_random_inf_ties(scores: Array, tie: Array) -> Array:
+    """Row-wise argmax of ``scores`` (m, K); rows with +inf scores (engaged-mode
+    arms without a click) pick among those arms by the largest ``tie`` (m, K)
+    uniform draw, i.e. uniformly at random (the ``ucb1`` unseen-arm pattern).
+    Adding a small tie to a huge finite stand-in would round away in float32."""
+    inf_mask = jnp.isinf(scores) & (scores > 0)
+    has_inf = jnp.any(inf_mask, axis=-1)
+    return jnp.where(
+        has_inf,
+        jnp.argmax(jnp.where(inf_mask, tie, -jnp.inf), -1),
+        jnp.argmax(scores, -1),
+    ).astype(jnp.int32)
+
+
 def beta_bernoulli_ts(engaged: bool = False, propensity_samples: int = 1000) -> Policy:
     def _sample_scores(key, state, shape):
         k_beta, k_gamma = jax.random.split(key)
@@ -174,17 +188,14 @@ def beta_bernoulli_ts(engaged: bool = False, propensity_samples: int = 1000) -> 
         k_sel, k_prop = jax.random.split(key)
         k = eligible.shape[0]
         scores = jnp.where(eligible, _sample_scores(k_sel, state, (n, k)), -jnp.inf)
-        # random tie-break among +inf (unclicked arms in engaged mode)
-        tie = jax.random.uniform(jax.random.fold_in(k_sel, 1), (n, k)) * 1e-6
-        arms = jnp.argmax(
-            jnp.where(jnp.isinf(scores) & (scores > 0), 1e30 + tie, scores), -1
-        )
+        tie = jax.random.uniform(jax.random.fold_in(k_sel, 1), (n, k))
+        arms = _argmax_random_inf_ties(scores, tie)
         # non-contextual: one MC propensity table per batch
         mc = jnp.where(
             eligible, _sample_scores(k_prop, state, (propensity_samples, k)), -jnp.inf
         )
-        mc_tie = jax.random.uniform(jax.random.fold_in(k_prop, 1), mc.shape) * 1e-6
-        wins = jnp.argmax(jnp.where(jnp.isinf(mc) & (mc > 0), 1e30 + mc_tie, mc), -1)
+        mc_tie = jax.random.uniform(jax.random.fold_in(k_prop, 1), mc.shape)
+        wins = _argmax_random_inf_ties(mc, mc_tie)
         freq = jnp.zeros((k,)).at[wins].add(1.0) / propensity_samples
         return arms.astype(jnp.int32), freq[arms]
 
