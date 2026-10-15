@@ -143,6 +143,13 @@ total_clicks INT64, cumulative_regret FLOAT64, pct_optimal FLOAT64, steps_to_con
 curve STRING (JSON), arm_share STRING (JSON), per_segment STRING (JSON), arm_stats STRING (JSON),
 created_at TIMESTAMP, traffic_run INT64, shift_response STRING (JSON), regimes STRING (JSON)
 
+`steps_to_converge` (`bandit.metrics.steps_to_converge`) is the first 1-based round t ≥ w from which the
+trailing w-round mean of the chosen arms' **expected** reward stays within 2% (relative) of the trailing
+mean expected optimum for the rest of the episode (w = clamp(T // 10, 10, 2000)), else NULL. Rows written
+before 2026-10-15 used realized 0/1 rewards, which crossed the optimum by chance (a uniform policy
+"converged"), so they are not comparable. Summaries report it as a mean over converged episodes next to
+`converged_episodes` / `episodes` (`bandit.aggregate.summarize_totals`).
+
 `traffic_run` (events and metrics, added 2026-10-05 by `ALTER TABLE … ADD COLUMN IF NOT EXISTS`, see
 deployment/README.md) is the 1-based traffic run (§10) that wrote the row; rows written before it
 have NULL, which readers count as run 1. `shift_response` and `regimes` (metrics only, same
