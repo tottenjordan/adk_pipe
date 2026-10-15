@@ -35,6 +35,10 @@ const NOT_SENT: Record<string, readonly string[]> = {};
 function fullBrief(): Record<string, unknown> {
   const raw = structuredClone(SAMPLE_CREATIVE_BRIEF);
   raw.trend_bridge.timely_angle = "Texas vs Oklahoma is tomorrow: anticipation only.";
+  // Sent only when set; filled here once the Python schema has the field.
+  if (pythonFields("TrendBridge").includes("safer_angle")) {
+    (raw.trend_bridge as Record<string, unknown>).safer_angle = "Chasing your music dreams.";
+  }
   return raw;
 }
 
