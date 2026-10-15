@@ -31,7 +31,7 @@ from typing import NamedTuple
 import jax
 import jax.numpy as jnp
 from jax import Array
-from jax.scipy.linalg import cho_factor, cho_solve, solve_triangular
+from jax.scipy.linalg import cho_factor, cho_solve
 
 from bandit.config import LinTSParams
 
@@ -84,27 +84,6 @@ def _mask(scores: Array, eligible: Array | None) -> Array:
     if eligible is None:
         return scores
     return jnp.where(eligible, scores, -jnp.inf)
-
-
-def sample_thetas(
-    key: Array, state: LinTSState, scale: float, num_samples: int | None = None
-) -> Array:
-    """Draw θ̃_k ~ N(μ_k, scale² Λ_k⁻¹): shape (K, d), or (M, K, d) if ``num_samples``.
-
-    With Λ = L Lᵀ, θ̃ = μ + scale · L⁻ᵀ z, z ~ N(0, I).
-    """
-    chol = _chol(state.precision)
-    mu = jax.vmap(lambda c, b: cho_solve((c, True), b))(chol, state.b)
-    shape = (num_samples or 1, *mu.shape)
-    z = jax.random.normal(key, shape, mu.dtype)
-    # solve Lᵀ y = z per arm -> y ~ N(0, Λ⁻¹)
-    y = jax.vmap(
-        lambda c, zk: solve_triangular(c.T, zk.T, lower=False).T,
-        in_axes=(0, 1),
-        out_axes=1,
-    )(chol, z)
-    thetas = mu[None] + scale * y
-    return thetas if num_samples is not None else thetas[0]
 
 
 def select(
