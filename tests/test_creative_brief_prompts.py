@@ -219,6 +219,15 @@ def test_copy_agents_avoid_unsupported_absolute_claims(name):
     assert prompts.COPY_CLAIMS_RULE in getattr(prompts, name), name
 
 
+def test_copy_claims_come_only_from_the_users_selling_points():
+    # The copy gate allows an absolute claim only when the user's selling
+    # points state it, never from the brief's mandatories (claims.py).
+    rule = prompts.COPY_CLAIMS_RULE
+    assert "only when the user's key selling points state them" in rule
+    assert "mandatories or reasons to believe never counts" in rule
+    assert "or the brief's mandatories state them" not in rule
+
+
 # --- trend situation (the validated current moment) -------------------------
 
 

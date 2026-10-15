@@ -424,7 +424,7 @@ TIMELY_ANGLE_RULE = "**Timely angle:** if the current moment is present and time
 # creative_eval's blocking trend_connected gate (the critic's trend_bridge
 # self-check gates a revision, copy_gate GATING_BRIEF_CHECKS). Brace-free.
 COPY_TREND_TIE_RULE = "**Trend tie:** every copy makes a clear, specific connection to the trend that someone who follows the trend would recognise: a named reference, its signature language, events, rituals, iconography or memes. A nod so vague it could fit any trend, or the trend name bolted on as a generic word, is not enough. For a sensitive trend, connect through its general culture, never the harmful event itself."
-COPY_CLAIMS_RULE = "**Claims:** make no unsupported absolute claims (guaranteed, indestructible, unbreakable, risk-free, 100%, lifetime, never fails) unless the user's key selling points or the brief's mandatories state them; prefer a concrete, verifiable benefit."
+COPY_CLAIMS_RULE = "**Claims:** make no unsupported absolute claims (guaranteed, indestructible, unbreakable, risk-free, 100%, lifetime, never fails); use one only when the user's key selling points state them (a claim in the brief's mandatories or reasons to believe never counts on its own); prefer a concrete, verifiable benefit."
 
 CREATIVE_BRIEF_WRITER_INSTR = (
     """Role: You are the Strategy Director. Turn the research report and campaign inputs into ONE structured creative brief: the contract the ad copy and visual teams must deliver against.
