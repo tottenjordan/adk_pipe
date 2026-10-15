@@ -274,6 +274,37 @@ def test_copy_gate_without_a_moment_only_clears_stray_flags():
     assert "ad_copy_critique" not in clean
 
 
+def test_flagged_sensitive_trend_is_never_timely_at_the_gates():
+    """CA-1 floor through RunPolicy: trend_scout's sensitivity hint beats a
+    timely moment, so the copy gate clears the flag ("no validated current
+    moment") and checks no evergreen terms, and the concept gate raises no
+    timely pairing issue."""
+    from creative_agent.agent import concept_gate_decision, copy_gate_decision
+
+    flagged = {**_TIMELY_STATE, "trend_sensitive_hint": "yes"}
+    critique = {
+        "ad_copies": [
+            _copy(1, uses_trend_state=True),
+            _copy(2, body_text="Rocket Skates, ready for tomorrow's kickoff."),
+        ]
+    }
+    route, delta = copy_gate_decision({**flagged, "ad_copy_critique": critique}, 1)
+    assert route == "ok"
+    (first, _) = delta["ad_copy_critique"]["ad_copies"]
+    assert first["uses_trend_state"] is False
+    assert "no validated current moment" in first["timely_reason"]
+    # The same copies with the moment honoured: copy 2's "tomorrow" is flagged.
+    route, _ = copy_gate_decision({**_TIMELY_STATE, "ad_copy_critique": critique}, 1)
+    assert route == "revise"
+
+    dated = "Rocket Skates in a roadrunner dust cloud before tomorrow's kickoff."
+    concepts = {"visual_concepts": [_concept(2, prompt=dated)]}
+    state = {**flagged, "final_visual_concepts": concepts, "ad_copy_critique": None}
+    assert concept_gate_decision(state, 1)[0] == "ok"
+    timely = {**state, "trend_sensitive_hint": ""}
+    assert concept_gate_decision(timely, 1)[0] == "revise"
+
+
 def test_concept_guard_callback_applies_the_timely_cap():
     from types import SimpleNamespace
 
