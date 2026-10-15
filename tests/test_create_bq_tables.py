@@ -28,6 +28,8 @@ BANDIT_EVENTS = (
     "p_chosen:FLOAT,p_optimal:FLOAT,optimal_arm:STRING,regret:FLOAT,"
     "model_version:STRING,latency_ms:FLOAT,traffic_run:INTEGER"
 )
+# bandit_events retention (review C8): day partitions on ts expire after 90 days.
+BANDIT_EVENTS_EXPIRATION_S = 90 * 24 * 3600
 BANDIT_METRICS = (
     "experiment_id:STRING,episode:INTEGER,policy:STRING,horizon:INTEGER,"
     "total_reward:FLOAT,total_clicks:INTEGER,cumulative_regret:FLOAT,"
@@ -94,9 +96,12 @@ def test_creates_bandit_tables_per_contract(tmp_path):
     assert events.endswith(BANDIT_EVENTS)
     assert (
         "--time_partitioning_field ts --time_partitioning_type DAY "
+        f"--time_partitioning_expiration {BANDIT_EVENTS_EXPIRATION_S} "
         "--clustering_fields experiment_id" in events
     )
     assert by_table["p:d.my_metrics"].endswith(BANDIT_METRICS)
+    # the per-episode summaries the metrics API reads stay forever (small)
+    assert "--time_partitioning_expiration" not in by_table["p:d.my_metrics"]
     assert len(calls) == 10
 
 

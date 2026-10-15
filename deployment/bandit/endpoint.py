@@ -150,7 +150,11 @@ def deploy_model(
     service_account: str | None = None,
 ) -> str:
     """Deploy ``model`` onto ``endpoint`` with exactly one replica (one posterior);
-    returns the deployed model id."""
+    returns the deployed model id, or "" when the endpoint doesn't list it.
+
+    The id is the list entry whose ``model`` is this model's resource name:
+    ``list_models()`` order is not deploy order, so the last entry may be
+    another model."""
     model.deploy(
         endpoint=endpoint,
         deployed_model_display_name=getattr(model, "display_name", None),
@@ -160,8 +164,12 @@ def deploy_model(
         traffic_percentage=100,
         service_account=service_account,
     )
-    deployed = endpoint.list_models()
-    return str(deployed[-1].id) if deployed else ""
+    for dm in endpoint.list_models():
+        # DeployedModel.model may carry a "@<version>" suffix; the id part matches.
+        if str(getattr(dm, "model", "")).split("@")[0] == model.resource_name:
+            return str(dm.id)
+    log.warning("deployed model for %s not listed on the endpoint", model.resource_name)
+    return ""
 
 
 def _is_not_found(exc: Exception) -> bool:

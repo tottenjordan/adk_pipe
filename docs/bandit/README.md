@@ -538,8 +538,9 @@ gcloud builds log <BUILD_ID> --region us-central1 | grep -aoE 'BANDIT_IMAGE=[^ ]
 docker pull <BANDIT_IMAGE digest>
 uv run python deployment/bandit/build_image.py --image <BANDIT_IMAGE digest> --local-test
 
-# Traffic job (uses the :$SHORT_SHA tag pushed by the build, with the command override)
-IMAGE_TAG=$SHORT_SHA BQ_DATASET_ID=trend_trawler deployment/bandit/deploy_traffic_job.sh
+# Traffic job: the same digest, so it runs the endpoint's build (command override set
+# by the script; IMAGE_TAG=$SHORT_SHA still works as a fallback but warns)
+BQ_DATASET_ID=trend_trawler deployment/bandit/deploy_traffic_job.sh <BANDIT_IMAGE digest>
 ```
 
 Set the **digest** as the api's endpoint image: `BANDIT_SERVING_IMAGE=<BANDIT_IMAGE digest>`

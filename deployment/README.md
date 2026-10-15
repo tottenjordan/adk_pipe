@@ -1822,17 +1822,42 @@ JSON payloads as `STRING`):
 | Table (env var, default) | Written by | Contents |
 |---|---|---|
 | `bandit_experiments` (`BQ_TABLE_BANDIT_EXPERIMENTS`) | the api (MERGE on `experiment_id`); the traffic job updates `progress` | One row per experiment: owner, session, status, arms JSON, config URI, model/endpoint/deployed-model ids, TTL, traffic execution, error, scenario overrides JSON |
-| `bandit_events` (`BQ_TABLE_BANDIT_EVENTS`) | the traffic job (`insertId = request_id`) | One row per endpoint-policy round; partitioned by `DATE(ts)`, clustered on `experiment_id` |
+| `bandit_events` (`BQ_TABLE_BANDIT_EVENTS`) | the traffic job (`insertId = request_id`) | One row per endpoint-policy round; partitioned by `DATE(ts)` with a 90-day partition expiration, clustered on `experiment_id` |
 | `bandit_episode_metrics` (`BQ_TABLE_BANDIT_METRICS`) | the traffic job | One row per (episode, policy): totals, regret, % optimal, and the `curve` / `arm_share` / `per_segment` / `arm_stats` JSON |
 
 ```bash
 bq mk -t --time_partitioning_field ts --time_partitioning_type DAY \
-  --clustering_fields experiment_id \
+  --time_partitioning_expiration 7776000 --clustering_fields experiment_id \
   $BQ_PROJECT_ID:$BQ_DATASET_ID.bandit_events \
-  experiment_id:STRING,episode:INTEGER,round:INTEGER,batch:INTEGER,request_id:STRING,ts:TIMESTAMP,policy:STRING,segment:STRING,context:STRING,arm:STRING,propensity:FLOAT,reward:FLOAT,clicked:INTEGER,dwell_s:FLOAT,p_chosen:FLOAT,p_optimal:FLOAT,optimal_arm:STRING,regret:FLOAT,model_version:STRING,latency_ms:FLOAT
+  experiment_id:STRING,episode:INTEGER,round:INTEGER,batch:INTEGER,request_id:STRING,ts:TIMESTAMP,policy:STRING,segment:STRING,context:STRING,arm:STRING,propensity:FLOAT,reward:FLOAT,clicked:INTEGER,dwell_s:FLOAT,p_chosen:FLOAT,p_optimal:FLOAT,optimal_arm:STRING,regret:FLOAT,model_version:STRING,latency_ms:FLOAT,traffic_run:INTEGER
 ```
 
 (The other two tables are plain `bq mk -t`; see the script for their column lists.)
+
+**Retention: `bandit_events` (2026-10-15).** A traffic run streams up to ~1.5M rows into
+`bandit_events` (the live table held 7.8M rows / 3.4 GB after two weeks), and nothing deleted
+them. New tables get a 90-day partition expiration (`--time_partitioning_expiration 7776000`);
+existing ones need it set once. Both live tables are day-partitioned on `ts` (checked
+2026-10-15 with `bq show --format=prettyjson`: `timePartitioning {field: ts, type: DAY}`), so
+the expiration applies directly, with no table recreate or scheduled `DELETE`:
+
+```sql
+ALTER TABLE `$PROJECT.trend_trawler.bandit_events`
+  SET OPTIONS (partition_expiration_days = 90);
+ALTER TABLE `$PROJECT.trend_trawler_eval.bandit_events`
+  SET OPTIONS (partition_expiration_days = 90);
+```
+
+It is a metadata change: no job slots and no api or traffic-job redeploy. BigQuery drops every
+partition whose `ts` day is more than 90 days old, including ones that already exist, so check
+the oldest day first (`SELECT MIN(DATE(ts)) FROM …bandit_events`; it was 2026-10-02 at the time
+of writing, so nothing is dropped yet). Verify with `bq show --format=prettyjson
+$PROJECT:trend_trawler.bandit_events | grep expirationMs` (`"7776000000"`). Undo it with
+`SET OPTIONS (partition_expiration_days = NULL)`. The only reader of `bandit_events` is the
+creative drawer's per-creative series (`GET …/creatives`), so an experiment older than 90 days
+shows empty series there. Its Overview and charts still load, because `/metrics` reads
+`bandit_episode_metrics`, which has no expiration. Endpoints are torn down after their TTL,
+but stopped experiments stay listed, so this affects only the drawer of old experiments.
 
 **Migration: `scenario_overrides` (contracts §9, 2026-10-04).** `bandit_experiments` gained a
 `scenario_overrides STRING` column (the snake_case JSON of a request's `scenarioOverrides`).
@@ -2057,8 +2082,10 @@ gcloud builds log <BUILD_ID> --region us-central1 | grep -aoE 'BANDIT_IMAGE=[^ ]
 docker pull <BANDIT_IMAGE digest>
 uv run python deployment/bandit/build_image.py --image <BANDIT_IMAGE digest> --local-test
 # api: BANDIT_SERVING_IMAGE=<BANDIT_IMAGE digest> (…/trend-trawler-bandit@sha256:…)
-# Job: same image by tag, tt-bandit-traffic-sa, 2 CPU / 2Gi, task timeout 3600 s, no retries
-IMAGE_TAG=$SHORT_SHA BQ_DATASET_ID=trend_trawler deployment/bandit/deploy_traffic_job.sh
+# Job: the same digest (so it provably runs the endpoint's build), tt-bandit-traffic-sa,
+# 2 CPU / 2Gi, task timeout 3600 s, no retries. The digest can also come from IMAGE=…;
+# IMAGE_TAG=$SHORT_SHA is only a fallback and warns (a tag can be moved after the build).
+BQ_DATASET_ID=trend_trawler deployment/bandit/deploy_traffic_job.sh <BANDIT_IMAGE digest>
 ```
 
 Local build + docker round-trip with no GCP: `uv run python deployment/bandit/build_image.py

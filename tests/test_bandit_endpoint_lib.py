@@ -205,3 +205,39 @@ def test_find_models_and_endpoints_by_label_oldest_first(fake_sdk):
     want = 'labels.app="trend-trawler" AND labels.experiment="2a7685cf9c8d4d3e"'
     assert calls[0]["filter"] == want and calls[1]["filter"] == want
     assert fake_sdk.inits[0]["location"] == "europe-west4"
+
+
+def test_deploy_model_returns_the_id_of_this_model_not_the_last_listed(fake_sdk):
+    """list_models() order is not deploy order: pick the entry whose ``model`` is
+    the one just deployed, even when another model is listed after it."""
+    model = ep.upload_model("img", "gs://a", "m", {})
+    endpoint = ep.create_endpoint("e", {})
+    stale = SimpleNamespace(
+        id="dm-stale", model="projects/p/locations/us-central1/models/99"
+    )
+    real_deploy = model.deploy
+
+    def deploy_then_stale(**kwargs):
+        real_deploy(**kwargs)
+        endpoint.deployed.append(stale)  # listed after ours
+
+    model.deploy = deploy_then_stale
+    assert ep.deploy_model(model, endpoint) == "dm-1"
+
+
+def test_deploy_model_without_a_matching_entry_returns_empty(fake_sdk):
+    model = ep.upload_model("img", "gs://a", "m", {})
+    endpoint = ep.create_endpoint("e", {})
+    model.deploy = lambda **kw: endpoint.deployed.append(
+        SimpleNamespace(id="dm-other", model="projects/p/locations/x/models/7")
+    )
+    assert ep.deploy_model(model, endpoint) == ""
+
+
+def test_deploy_model_matches_a_versioned_model_name(fake_sdk):
+    model = ep.upload_model("img", "gs://a", "m", {})
+    endpoint = ep.create_endpoint("e", {})
+    model.deploy = lambda **kw: endpoint.deployed.append(
+        SimpleNamespace(id="dm-v", model=f"{model.resource_name}@1")
+    )
+    assert ep.deploy_model(model, endpoint) == "dm-v"

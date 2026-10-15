@@ -116,7 +116,9 @@ def test_traffic_job_runs_the_bandit_image_with_a_command_override():
     deploy = DEPLOY_JOB.read_text()
     assert "cpr/trend-trawler-bandit:${IMAGE_TAG}" in deploy
     assert "trend-trawler-bandit-traffic:" not in deploy  # the retired image
-    assert 'IMAGE="${IMAGE:-' in deploy  # an explicit IMAGE still wins
+    # deploy by digest (argument or IMAGE); the tag above is only a warned
+    # fallback (behaviour: tests/test_bandit_deploy_traffic_job.py)
+    assert 'IMAGE="${1:-${IMAGE:-}}"' in deploy
     assert "--command python" in deploy
     assert "--args=-m,bandit_traffic.main" in deploy
     # the job name is unchanged (the api launches it by name)
