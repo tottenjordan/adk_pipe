@@ -57,7 +57,7 @@ tests/
 │   └── evalsets/
 │       ├── trend_scout_evalset.json
 │       └── creative_agent_evalset.json
-├── test_agent_common_clients.py     # shared lazy GCS/BigQuery client getters
+├── test_agent_common_clients.py     # shared lazy GCS/BigQuery client getters (per-thread BigQuery reuse, nothing built at import)
 ├── test_agent_common_idempotency.py # stable_row_id deterministic BigQuery row keys
 ├── test_agent_common_models.py      # shared model location + build_gemini() factory
 ├── test_agent_common_state.py       # shared memorize tool + seed_initial_state()
