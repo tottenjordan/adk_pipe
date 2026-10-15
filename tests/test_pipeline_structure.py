@@ -139,7 +139,10 @@ def test_trend_situation_branch_graph():
     synthesizer = by_name["trend_situation_synthesizer"]
     assert google_search in searcher.tools
     assert searcher.output_key == "trend_situation_raw"
-    assert searcher.after_agent_callback is callbacks.collect_research_sources_callback
+    assert (
+        searcher.after_agent_callback
+        is callbacks.collect_trend_situation_sources_callback
+    )
     assert not synthesizer.tools
     assert synthesizer.output_schema is TrendSituationDraft
     assert synthesizer.output_key == "trend_situation_draft"

@@ -10,8 +10,9 @@ research planners and load_brand_history), so research_join waits for it too:
   model call) and clears any stale draft on both routes.
 - ``trend_situation_failsoft`` = FailSoftNode(RetryUntilKeyNode(Workflow(
   searcher → synthesizer))): a google_search searcher (its grounding sources
-  join ``state["sources"]`` with ``src-N`` ids via
-  collect_research_sources_callback) and a structured synthesizer writing
+  join ``state["sources"]`` with ``src-N`` ids and, scoped to its own turns,
+  ``trend_situation_sources`` via collect_trend_situation_sources_callback)
+  and a structured synthesizer (reading only ``trend_situation_sources``) writing
   ``trend_situation_draft`` (TrendSituationDraft). An empty turn retries the
   pair once; an exception leaves the draft None and the run continues.
 - ``validate_trend_situation`` (no LLM) turns the draft into the validated
@@ -43,8 +44,9 @@ from ...trend_situation import trend_situation_state_delta
 logger = logging.getLogger(__name__)
 
 # Searcher half: google_search + raw dated findings. Grounding metadata lives on
-# this turn, so collect_research_sources_callback stays here (the validator
-# checks the synthesizer's cited ids against `sources`).
+# this turn, so the source collector stays here: every source joins `sources`
+# (the validator checks the synthesizer's cited ids there), and only this
+# searcher's own sources go to `trend_situation_sources` for the synthesizer.
 trend_situation_searcher = Agent(
     model=build_gemini(config.worker_model),
     name="trend_situation_searcher",
@@ -57,7 +59,7 @@ trend_situation_searcher = Agent(
     instruction=prompts.TREND_SITUATION_SEARCHER_INSTR,
     tools=[google_search],
     output_key="trend_situation_raw",
-    after_agent_callback=callbacks.collect_research_sources_callback,
+    after_agent_callback=callbacks.collect_trend_situation_sources_callback,
     after_model_callback=callbacks.log_empty_turn_finish_reason,
 )
 

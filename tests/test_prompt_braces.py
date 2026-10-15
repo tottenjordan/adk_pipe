@@ -31,6 +31,7 @@ _PROMPT_MODULES = tuple(f"{pkg}.prompts" for pkg in _PACKAGES)
 _RUNTIME_KEYS = {
     # creative_agent
     "sources": "collect_research_sources_callback (research searchers)",
+    "trend_situation_sources": "collect_trend_situation_sources_callback",
     "creative_brief_md": "brief gate / brief reviser (brief_render)",
     "brief_issues": "brief gate (brief_check)",
     "ad_copy_issues": "copy gate (copy_gate)",

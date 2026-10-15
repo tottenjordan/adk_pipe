@@ -256,7 +256,7 @@ TREND_SITUATION_SYNTHESIZER_INSTR = (
     2.  **Phase:** "upcoming" = a dated event is still to come; "live" = it is happening right now; "just_happened" = a dated event ended recently with a known outcome; "ongoing" = a continuing story without one dated event; "evergreen" = nothing time-bound; "sensitive" = a tragedy, injury, death, scandal or disaster (choose it whenever one is involved, whatever else is true).
     3.  **Dates:** `event_start` (and `event_end` when it differs) as an ISO date (YYYY-MM-DD) or datetime with its UTC offset, exactly as the sources state them.
     4.  **Outcome:** for "just_happened" only, `outcome` from the side the target audience supports (win, loss, draw; "other" for a non-sports outcome; when the audience is neutral or its side is unclear, from the first-named subject's side) and `outcome_summary` as ONE factual sentence. Otherwise set `outcome` to "none" and leave `outcome_summary` empty.
-    5.  **Sources:** `source_ids` lists the "src-N" ids from <sources> that state the date and outcome. Cite only ids present in <sources>; never invent one.
+    5.  **Sources:** `source_ids` lists the "src-N" ids from <sources> (the sources the findings came from) that state the date and outcome. Cite only ids present in <sources>; never invent one.
     6.  **Confidence:** "high" only when sources agree on the date and outcome; "low" when they conflict or are old.
     </INSTRUCTIONS>
 
@@ -269,7 +269,7 @@ TREND_SITUATION_SYNTHESIZER_INSTR = (
         </trend_situation_raw>
 
         <sources>
-        {sources?}
+        {trend_situation_sources?}
         </sources>
     </CONTEXT>
 
