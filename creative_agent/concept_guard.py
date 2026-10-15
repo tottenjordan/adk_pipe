@@ -385,6 +385,8 @@ def enforce_person_casting(
     on its ``person_casting_reason`` and its prompt's reference wording becomes
     "a person" (no photo is attached to it). A kept cast whose prompt doesn't
     point at the reference image gets ``PERSON_HERO_LINE`` appended (idempotent).
+    An uncast concept (never flagged) whose prompt still names the reference
+    image has that wording turned into "a person" too.
     """
     from .style_shortlist import canonical_style
 
@@ -398,6 +400,16 @@ def enforce_person_casting(
         if flag is not True:
             if flag not in (None, False):
                 c["casts_person_reference"] = False
+            # No photo is attached to an uncast concept, so its prompt must not
+            # point at a person reference image (the image model could read a
+            # product or style reference as the person).
+            prompt = str(c.get("image_generation_prompt") or "")
+            if _PERSON_HERO_RE.search(prompt):
+                c["image_generation_prompt"] = neutralise_person_prompt(prompt)
+                warns.append(
+                    f"{c.get('concept_name', '?')}: person reference wording "
+                    "removed (not cast)"
+                )
             out.append(c)
             continue
         name = c.get("concept_name", "?")
