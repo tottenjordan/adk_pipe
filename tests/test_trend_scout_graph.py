@@ -79,9 +79,10 @@ def test_understand_trends_graph_recovers_after_empty_synthesis(monkeypatch):
 
     assert (search_llm.calls, synth_llm.calls) == (3, 3)  # whole pair re-ran
     assert state["info_gtrends_raw"] == "RAW 2"
-    assert state["info_gtrends"] == '{"analyzed_trends": []}'
+    assert state["info_gtrends"] == {"analyzed_trends": []}
     assert "info_gtrends__retry_exhausted" not in state
-    assert responses == [{"result": '{"analyzed_trends": []}'}]
+    # TS-6: the validated briefing dict is the NodeTool's function response.
+    assert responses == [{"analyzed_trends": []}]
     assert root_llm.calls == 2
     # The synthesizer reads the searcher's findings through its state token.
     assert "RAW 2" in str(synth_llm.requests[-1].config.system_instruction)

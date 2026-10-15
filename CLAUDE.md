@@ -134,7 +134,7 @@ as its import path (`tarfile.add(path)` → arcname), so nesting would break eve
 ```
 trend_scout (root Agent `trend_scout`; App + ResumabilityConfig(is_resumable=True); sub-agents via AgentTool; root history trimmed by drop_other_agent_context)
 ├── gather_trends_agent (get_daily_gtrends tool)
-├── trend_digest (Workflow, trend_scout/digest.py, input_schema=PipelineRequest; bare node → NodeTool; right after gathering, in both modes)
+├── trend_digest (Workflow, trend_scout/digest.py — agents + graph; cache key, normalisation, coverage rules + BigQuery I/O in trend_scout/digest_store.py; input_schema=PipelineRequest; bare node → NodeTool; right after gathering, in both modes)
 │   START → digest_lookup (no LLM: key = gtrends_refresh_date + terms_hash = stable_row_id(date, sorted normalised terms, length=16); parameterised
 │   SELECT in a worker thread, 10 s bound; any error/missing table/date → "miss" with a warning) ─ "hit" → digest_ready (restores trend_summaries
 │   (source "cache") + trend_flags; no model call; a row without a verdict for every term is a miss)
@@ -151,7 +151,7 @@ trend_scout (root Agent `trend_scout`; App + ResumabilityConfig(is_resumable=Tru
 │   The auto pick (PICK_TRENDS_INSTR) and save_search_trends_to_session_state refuse flagged terms unless interactive_trend_pick (exactly True);
 │   in auto mode the save tool also refuses a term not among the gathered raw_gtrends (normalised match, saved as gathered) and skips duplicates.
 │   write_trends_to_bq stamps refresh_date from state gtrends_refresh_date (MAX(refresh_date) only as a fallback); gather queries are time-bounded.
-├── understand_trends_agent_resilient (RetryUntilKeyNode over a searcher → synthesizer Workflow → info_gtrends; bare node → NodeTool)
+├── understand_trends_agent_resilient (RetryUntilKeyNode over a searcher → synthesizer Workflow → info_gtrends; the synthesizer has output_schema=AnalyzedTrends ({analyzed_trends:[{term, category, context, cultural_angle, as_of, event_hint}]}, state holds the validated dict) + the surrogate scrub + SCHEMA_RETRY at its tuned temperature 1.5; bare node → NodeTool)
 ├── pick_trends_agent (strategic filtering → selected_gtrends)
 ├── review_trends (LongRunningFunctionTool — opt-in interactive trend pick)
 └── Persistence tools (BigQuery, GCS, record_research_gaps, memorize)

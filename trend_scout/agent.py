@@ -14,13 +14,15 @@ from agent_common import (
     build_gemini_with_fallback,
     build_safety_plugins,
     drop_other_agent_context,
+    scrub_surrogates_in_response,
 )
 from agent_common.sampling import temperature as sampled_temperature
 
 from . import callbacks, prompts
-from .config import INFRA_RETRY, config
+from .config import INFRA_RETRY, SCHEMA_RETRY, config
 from .digest import classify_trends_agent, trend_digest  # noqa: F401 (re-export)
 from .review_tools import review_trends_tool
+from .schemas import AnalyzedTrends
 from .tools import (
     get_daily_gtrends,
     memorize,
@@ -104,6 +106,10 @@ understand_trends_searcher = Agent(
 # (optional `{...?}` so an empty searcher turn degrades to empty synthesis and the
 # wrapper retries the whole pair rather than raising KeyError inside it) and shapes
 # them into the existing JSON `analyzed_trends` structure pick_trends_agent consumes.
+# TS-6: the structure is enforced by `output_schema=AnalyzedTrends` (state holds
+# the validated dict, which trend_context, the picker and the frontend all read),
+# so a malformed reply at the tuned temperature is re-drawn (SCHEMA_RETRY) instead
+# of silently turning `trend_context` into "". Lone surrogates are scrubbed first.
 understand_trends_synthesizer = Agent(
     # Tool-free synthesis into structured JSON; its own global flash-lite bucket.
     model=build_gemini(config.lite_planner_model),
@@ -120,9 +126,14 @@ understand_trends_synthesizer = Agent(
             "subagent": "understand_trends_synthesizer",
         },
     ),
+    output_schema=AnalyzedTrends,
     output_key="info_gtrends",
+    retry_config=SCHEMA_RETRY,
     before_model_callback=callbacks.rate_limit_callback,
-    after_model_callback=callbacks.log_empty_turn_finish_reason,
+    after_model_callback=[
+        scrub_surrogates_in_response,
+        callbacks.log_empty_turn_finish_reason,
+    ],
 )
 
 # NOTE: the Workflow graph holds its own copies of the two agents, so mutating
