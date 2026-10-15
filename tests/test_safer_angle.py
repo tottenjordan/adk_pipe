@@ -190,6 +190,31 @@ def test_rule_specifics():
     assert "era, genre, instruments" in visual_rules(REASON)
 
 
+def test_person_subject_branch():
+    """A real person is named with what they are celebrated for and may get a
+    cultural fit; an event-only subject keeps a light touch (live run
+    2026-10-15: the Tupac angle never named him)."""
+    research = research_rules(REASON)
+    assert "values and legacy they are celebrated for" in research
+    assert "what fans admire them for" in research
+    brief = brief_rules(REASON)
+    assert "subject is a real person" in brief
+    assert "names them and the positive thing they are celebrated for" in brief
+    assert "chasing your music dreams" in brief
+    assert 'fit_mode may be "cultural" (score 3)' in brief
+    assert "light_touch applies to the sensitive event only" in brief
+    assert "never to the person's legacy" in brief
+    assert "no person to honour (a disaster, a crime), keep a light touch" in brief
+    assert "the event is never referenced" in brief
+    copy = copy_rules(REASON)
+    assert "1-2 of the copies name them once" in copy
+    assert "respectful tribute or inspiration framing" in copy
+    assert "in your own words" in copy
+    visual = visual_rules(REASON)
+    assert "evoked through their era, genre, instruments and settings" in visual
+    assert "never a likeness of the real person" in visual
+
+
 # --- state init (both creative apps share creative_agent's init) --- #
 def test_state_init_seeds_the_contract_keys():
     from creative_agent.callbacks import _set_initial_states

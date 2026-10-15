@@ -112,6 +112,8 @@ def research_rules(reason: str) -> str:
         "\n    *   Research the trend subject's positive legacy, cultural "
         "contributions and the values audiences admire (e.g. an artist's music, "
         "message and influence), not the sensitive event."
+        "\n    *   When the subject is a real person, name the values and legacy "
+        "they are celebrated for: what fans admire them for and why."
         "\n    *   Never research or describe the event's details beyond naming "
         "it as a risk."
         '\n    *   The trend report ends with a "## Safer Angle Candidates" '
@@ -130,10 +132,16 @@ def brief_rules(reason: str) -> str:
         "\n    *   For this run this replaces rule 13's \"a current moment marked "
         "sensitive is never referenced\" for the trend's subject, never for the "
         "event: set trend_bridge.safer_angle to ONE positive association from the "
-        "research (at most 25 words, e.g. an artist's legacy of chasing your "
-        "music dreams) and build the angles on it."
+        "research (at most 25 words) and build the angles on it."
+        "\n    *   When the trend's subject is a real person (e.g. an artist), the "
+        "safer angle names them and the positive thing they are celebrated for "
+        "(e.g. an artist's legacy of chasing your music dreams), and fit_mode may "
+        'be "cultural" (score 3): for this run rule 13\'s light_touch applies to '
+        "the sensitive event only, never to the person's legacy. When the subject "
+        "is an event with no person to honour (a disaster, a crime), keep a light "
+        "touch."
         "\n    *   The subject may be named only as a respectful tribute or "
-        "inspiration."
+        "inspiration; the event is never referenced."
         "\n    *   List the event's harms in trend_bridge.risks and short terms for "
         "them in avoid; the safer angle shares no word with them."
         + _floor(likeness=True)
@@ -151,7 +159,11 @@ def copy_rules(reason: str) -> str:
         "build on."
         "\n    *   Use the safer angle to tie at least half of the copies clearly "
         "to the trend; name the subject only in a respectful tribute or "
-        "inspiration framing." + _floor(likeness=False)
+        "inspiration framing."
+        "\n    *   When the subject is a real person, 1-2 of the copies name them "
+        "once in a respectful tribute or inspiration framing (their drive, their "
+        "legacy, what they inspire), in your own words; the rest stay tied to the "
+        "safer angle." + _floor(likeness=False)
     )
 
 
@@ -163,8 +175,9 @@ def visual_rules(reason: str) -> str:
         + "); the brief's Safer angle is the respectful, positive association to "
         "build on."
         "\n    *   Draw motifs from the safer angle (era, genre, instruments, "
-        "settings), never a likeness of the real person and never estate-owned "
-        "imagery." + _floor(likeness=True)
+        "settings); a real person may be evoked through their era, genre, "
+        "instruments and settings, never a likeness of the real person and never "
+        "estate-owned imagery." + _floor(likeness=True)
     )
 
 
