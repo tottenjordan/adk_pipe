@@ -732,6 +732,7 @@ def inspect_image(
     person_image: tuple[bytes, str] | None = None,
     original_image: tuple[bytes, str] | None = None,
     safer_angle_active: bool = False,
+    temperature: float = 0.0,
 ) -> ImageQAResult:
     """One structured vision call → the image's ``ImageQAResult``.
 
@@ -744,6 +745,8 @@ def inspect_image(
     public-figure likeness question and the field to the response schema;
     without it both are left out (the request is unchanged) and the field is
     always False.
+    ``temperature`` is the sampling temperature (0 in production; only the
+    offline grader-temperature experiment passes another value).
     Synchronous (the genai sync client); call it via ``asyncio.to_thread``.
     Raises on any API/parse error — the caller fails open.
     """
@@ -777,7 +780,7 @@ def inspect_image(
         config=types.GenerateContentConfig(
             response_mime_type="application/json",
             response_schema=ImageQAResult if safer_angle_active else _ImageQAVerdict,
-            temperature=0,
+            temperature=temperature,
         ),
     )
     parsed = getattr(response, "parsed", None)

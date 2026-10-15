@@ -191,6 +191,25 @@ def test_inspect_image_sends_image_and_schema():
     assert "allowed: the campaign brand (prs)" in text.lower()
 
 
+@pytest.mark.parametrize("temperature", [0.5, 1.0])
+def test_inspect_image_sends_the_given_temperature(temperature):
+    client = _QAClient(_result().model_dump())
+
+    image_qa.inspect_image(
+        b"x",
+        "image/png",
+        _CONCEPT,
+        brand="PRS",
+        target_product="PRS SE guitar",
+        client=client,
+        model="qa-model",
+        temperature=temperature,
+    )
+
+    (call,) = client.models.calls
+    assert call["config"].temperature == temperature
+
+
 def test_inspect_image_without_expected_text_says_none():
     client = _QAClient(_result(text_expected=False).model_dump())
     concept = {**_CONCEPT, "image_generation_prompt": "a guitar", "brand_cue": ""}

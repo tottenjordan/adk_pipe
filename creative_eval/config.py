@@ -44,6 +44,12 @@ class EvalConfig:
         default_factory=lambda: int(os.getenv("EVAL_MAX_VISUAL_WAVE_WORKERS", "4"))
     )
 
+    # Judge sampling temperature, sent on both judge calls (ad copy and visual).
+    # Set in code only (no env knob): the offline grader-temperature experiment
+    # (docs/plans/2026-10-15-grader-temperature-phase2.md) injects other values.
+    # Not part of ad_copy_eval_fingerprint: production always uses the default.
+    judge_temperature: float = 0.3
+
     def workers_for(self, n_ad_copies: int, n_visuals: int) -> int:
         """Thread-pool size for a judge batch (at least 1, never above its size)."""
         total = n_ad_copies + n_visuals
