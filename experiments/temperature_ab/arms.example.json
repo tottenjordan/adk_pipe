@@ -1,0 +1,14 @@
+{
+  "tuned": {
+    "base_url": "https://temp-tuned---trend-trawler-api-<hash>-uc.a.run.app",
+    "audience": "https://trend-trawler-api-<hash>-uc.a.run.app",
+    "revision": "trend-trawler-api-<nnnnn>-<tuned>",
+    "tag": "temp-tuned"
+  },
+  "default": {
+    "base_url": "https://temp-default---trend-trawler-api-<hash>-uc.a.run.app",
+    "audience": "https://trend-trawler-api-<hash>-uc.a.run.app",
+    "revision": "trend-trawler-api-<nnnnn>-<default>",
+    "tag": "temp-default"
+  }
+}
