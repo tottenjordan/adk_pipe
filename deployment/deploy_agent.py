@@ -61,7 +61,7 @@ ENV_VAR_DICT = {
     "COPY_REVISION_ROUNDS": os.getenv("COPY_REVISION_ROUNDS", "1"),
     # creative_agent concept_gate fix budget (0..2, default 1; same contract).
     "CONCEPT_REVISION_ROUNDS": os.getenv("CONCEPT_REVISION_ROUNDS", "1"),
-    # creative_agent post-render image QA (agent_common/config.py): kill switch
+    # creative_agent post-render image QA (creative_agent/config.py): kill switch
     # (default on), per-image re-render budget (0..2, default 1), per-run
     # re-render cap (0..8, default 2) and the vision model.
     "IMAGE_QA_ENABLED": os.getenv("IMAGE_QA_ENABLED", "true"),
@@ -134,7 +134,7 @@ ENV_VAR_DICT = {
     # Serving location pinned for gemini-3.x (agent_common/locations.py; default
     # `global`); also the judge's default location (creative_eval/config.py).
     "MODEL_LOCATION": os.getenv("MODEL_LOCATION", "global"),
-    # Image-gen ImageConfig defaults (agent_common/config.py class attributes,
+    # Image-gen ImageConfig defaults (creative_agent/config.py class attributes,
     # read by creative_agent/image_tools.py at render time).
     "IMAGE_SIZE": os.getenv("IMAGE_SIZE", "2K"),
     "IMAGE_ASPECT_RATIO_DEFAULT": os.getenv("IMAGE_ASPECT_RATIO_DEFAULT", "9:16"),

@@ -1,4 +1,3 @@
-
 from google.adk.agents import Agent
 from google.adk.apps import App, ResumabilityConfig
 from google.adk.planners import BuiltInPlanner

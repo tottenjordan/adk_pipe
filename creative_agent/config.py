@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from google.genai import errors as genai_errors
 from pydantic import ValidationError
 
-from agent_common.config import BaseAgentConfiguration
+from agent_common.config import BaseAgentConfiguration, parse_on_flag
 from agent_common.retry import build_infra_retry
 
 logger = logging.getLogger(__name__)
@@ -35,6 +35,14 @@ SCHEMA_RETRY = build_infra_retry(
 ALT_GLOBAL_MODEL = "gemini-3.5-flash"
 
 DEFAULT_CAMPAIGN_ARM = "global_altbucket"
+
+# Post-render image QA + rendering (creative_agent/image_qa.py, image_tools.py).
+DEFAULT_IMAGE_QA_MAX_RERENDERS = 1
+MAX_IMAGE_QA_MAX_RERENDERS = 2
+DEFAULT_IMAGE_QA_MAX_RERENDERS_PER_RUN = 2
+MAX_IMAGE_QA_MAX_RERENDERS_PER_RUN = 8
+DEFAULT_IMAGE_RENDER_CONCURRENCY = 2
+IMAGE_RENDER_CONCURRENCY_RANGE = (1, 4)
 
 # Creative-brief revision budget (brief_gate → brief_reviser rounds).
 DEFAULT_BRIEF_REVISION_ROUNDS = 1
@@ -144,11 +152,6 @@ def parse_concept_revision_rounds(raw: str | None) -> int:
     )
 
 
-def parse_brand_history_enabled(raw: str | None) -> bool:
-    """``BRAND_HISTORY_ENABLED`` → bool; ON unless explicitly 0/false/no/off."""
-    return (raw or "").strip().lower() not in {"0", "false", "no", "off"}
-
-
 def parse_brand_history_runs(raw: str | None) -> int:
     """``BRAND_HISTORY_RUNS`` → int clamped to 0..20; unset/blank/invalid → 5.
 
@@ -169,9 +172,25 @@ def _parse_range(raw: str | None, default: int, bounds: tuple[int, int]) -> int:
     return max(lo, _parse_rounds(raw, default, hi))
 
 
-def parse_trend_state_enabled(raw: str | None) -> bool:
-    """``TREND_STATE_ENABLED`` → bool; ON unless explicitly 0/false/no/off."""
-    return parse_brand_history_enabled(raw)
+def parse_image_qa_max_rerenders(raw: str | None) -> int:
+    """``IMAGE_QA_MAX_RERENDERS`` → int clamped to 0..2; unset/blank/invalid → 1."""
+    return _parse_rounds(
+        raw, DEFAULT_IMAGE_QA_MAX_RERENDERS, MAX_IMAGE_QA_MAX_RERENDERS
+    )
+
+
+def parse_image_qa_max_rerenders_per_run(raw: str | None) -> int:
+    """``IMAGE_QA_MAX_RERENDERS_PER_RUN`` → int clamped to 0..8; unset/blank/invalid → 2."""
+    return _parse_rounds(
+        raw, DEFAULT_IMAGE_QA_MAX_RERENDERS_PER_RUN, MAX_IMAGE_QA_MAX_RERENDERS_PER_RUN
+    )
+
+
+def parse_image_render_concurrency(raw: str | None) -> int:
+    """``IMAGE_RENDER_CONCURRENCY`` → int clamped to 1..4; unset/blank/invalid → 2."""
+    return _parse_range(
+        raw, DEFAULT_IMAGE_RENDER_CONCURRENCY, IMAGE_RENDER_CONCURRENCY_RANGE
+    )
 
 
 def parse_trend_event_window_days(raw: str | None) -> int:
@@ -225,15 +244,6 @@ def parse_max_cast_concepts(raw: str | None) -> int:
     """``MAX_CAST_CONCEPTS`` → int clamped to 0..4; unset/blank/invalid → 2.
     0 turns casting off (the guard clears every cast)."""
     return _parse_rounds(raw, DEFAULT_MAX_CAST_CONCEPTS, MAX_MAX_CAST_CONCEPTS)
-
-
-def parse_rating_learning_enabled(raw: str | None) -> bool:
-    """``RATING_LEARNING_ENABLED`` → bool; ON (opt-in allowed) unless 0/false/no/off.
-
-    The global kill switch: when off, no run reads ratings, even with the
-    per-run ``learn_from_ratings`` toggle on.
-    """
-    return parse_brand_history_enabled(raw)
 
 
 def parse_rating_learning_effects(raw: str | None) -> frozenset[str]:
@@ -314,6 +324,51 @@ class ResearchConfiguration(BaseAgentConfiguration):
         "CAMPAIGN_RESEARCH_PLACEMENT", DEFAULT_CAMPAIGN_ARM
     )
 
+    # Post-render image QA (creative_agent/image_qa.py): one vision call per
+    # rendered image and at most image_qa_max_rerenders targeted re-renders
+    # (IMAGE_QA_ENABLED default on; IMAGE_QA_MAX_RERENDERS 0..2;
+    # IMAGE_QA_MAX_RERENDERS_PER_RUN 0..8 across one generate_image call, each
+    # re-render spends image quota; IMAGE_RENDER_CONCURRENCY 1..4 image-model
+    # calls in flight, re-renders included, 1 = sequential; IMAGE_QA_MODEL
+    # defaults to the worker model, whose literal it mirrors).
+    # default_factory: read per instance, so tests can monkeypatch the env.
+    image_qa_enabled: bool = field(
+        default_factory=lambda: parse_on_flag(os.getenv("IMAGE_QA_ENABLED"))
+    )
+    image_qa_max_rerenders: int = field(
+        default_factory=lambda: parse_image_qa_max_rerenders(
+            os.getenv("IMAGE_QA_MAX_RERENDERS")
+        )
+    )
+    image_qa_max_rerenders_per_run: int = field(
+        default_factory=lambda: parse_image_qa_max_rerenders_per_run(
+            os.getenv("IMAGE_QA_MAX_RERENDERS_PER_RUN")
+        )
+    )
+    image_render_concurrency: int = field(
+        default_factory=lambda: parse_image_render_concurrency(
+            os.getenv("IMAGE_RENDER_CONCURRENCY")
+        )
+    )
+    image_qa_model: str = field(
+        default_factory=lambda: os.getenv("IMAGE_QA_MODEL") or "gemini-3.8-flash"
+    )
+
+    # Image generation ImageConfig knobs (env-overridable, read at import). The
+    # default 9:16 is the vertical social-reel framing (the model otherwise
+    # defaults to 1:1); the allowed set is the base's image_aspect_ratios_allowed.
+    image_size: str = os.environ.get("IMAGE_SIZE", "2K")
+    image_aspect_ratio_default: str = os.environ.get(
+        "IMAGE_ASPECT_RATIO_DEFAULT", "9:16"
+    )
+
+    # Human creative ratings (written by the api, runserver/ratings_store.py);
+    # read by the opt-in rating learning (rating_signals.py). default_factory:
+    # read per instance (the api's default table name).
+    BQ_TABLE_RATINGS: str = field(
+        default_factory=lambda: os.getenv("BQ_TABLE_RATINGS") or "creative_ratings"
+    )
+
     # brief_gate routes a brief that fails creative_agent.brief_check to
     # brief_reviser while fewer than this many revision rounds were used.
     # default_factory: read per instance, so tests can monkeypatch the env.
@@ -343,9 +398,7 @@ class ResearchConfiguration(BaseAgentConfiguration):
     # Brand history: the brand's latest runs (creative_evals + eval reports)
     # condensed into `brand_history` for the brief writer / art director.
     brand_history_enabled: bool = field(
-        default_factory=lambda: parse_brand_history_enabled(
-            os.getenv("BRAND_HISTORY_ENABLED")
-        )
+        default_factory=lambda: parse_on_flag(os.getenv("BRAND_HISTORY_ENABLED"))
     )
     brand_history_runs: int = field(
         default_factory=lambda: parse_brand_history_runs(
@@ -356,9 +409,7 @@ class ResearchConfiguration(BaseAgentConfiguration):
     # Rating learning (opt-in per run via state `learn_from_ratings`): global
     # kill switch, enabled effects, and the sample-size / window thresholds.
     rating_learning_enabled: bool = field(
-        default_factory=lambda: parse_rating_learning_enabled(
-            os.getenv("RATING_LEARNING_ENABLED")
-        )
+        default_factory=lambda: parse_on_flag(os.getenv("RATING_LEARNING_ENABLED"))
     )
     rating_learning_effects: frozenset[str] = field(
         default_factory=lambda: parse_rating_learning_effects(
@@ -395,9 +446,7 @@ class ResearchConfiguration(BaseAgentConfiguration):
 
     # Trend situation (the grounded "current moment" branch + its validator).
     trend_state_enabled: bool = field(
-        default_factory=lambda: parse_trend_state_enabled(
-            os.getenv("TREND_STATE_ENABLED")
-        )
+        default_factory=lambda: parse_on_flag(os.getenv("TREND_STATE_ENABLED"))
     )
     trend_event_window_days: int = field(
         default_factory=lambda: parse_trend_event_window_days(

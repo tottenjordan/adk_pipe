@@ -99,6 +99,37 @@ class TestBaseAgentConfiguration:
         for name in _SHARED_CONFIG_FIELDS:
             assert hasattr(base, name), f"BaseAgentConfiguration missing {name}"
 
+    def test_per_agent_knobs_live_on_their_agent_config(self):
+        """AC-2: a knob one agent reads sits on that agent's config only."""
+        import creative_agent.config as ca
+        import trend_scout.config as tt
+        from agent_common.config import BaseAgentConfiguration
+
+        creative_only = (
+            "image_qa_enabled",
+            "image_qa_max_rerenders",
+            "image_qa_max_rerenders_per_run",
+            "image_render_concurrency",
+            "image_qa_model",
+            "image_size",
+            "image_aspect_ratio_default",
+            "BQ_TABLE_RATINGS",
+        )
+        scout_only = ("trend_digest_enabled", "BQ_TABLE_TREND_DIGEST")
+        base = BaseAgentConfiguration()
+        for name in creative_only:
+            assert hasattr(ca.config, name), name
+            assert not hasattr(tt.config, name), name
+            assert not hasattr(base, name), name
+        for name in scout_only:
+            assert hasattr(tt.config, name), name
+            assert not hasattr(ca.config, name), name
+            assert not hasattr(base, name), name
+        # The fixed aspect-ratio set stays readable off the base (runserver).
+        assert ca.config.image_aspect_ratios_allowed == (
+            BaseAgentConfiguration.image_aspect_ratios_allowed
+        )
+
     def test_both_agent_configs_subclass_the_base(self):
         import creative_agent.config as ca
         import trend_scout.config as tt
@@ -319,15 +350,13 @@ def test_critic_fallback_never_uses_campaign_bucket():
 
 class TestBrandHistoryKnobs:
     def test_parsers(self):
-        from creative_agent.config import (
-            parse_brand_history_enabled,
-            parse_brand_history_runs,
-        )
+        from agent_common.config import parse_on_flag
+        from creative_agent.config import parse_brand_history_runs
 
-        assert parse_brand_history_enabled(None) is True
-        assert parse_brand_history_enabled("") is True
-        assert parse_brand_history_enabled(" FALSE ") is False
-        assert parse_brand_history_enabled("0") is False
+        assert parse_on_flag(None) is True
+        assert parse_on_flag("") is True
+        assert parse_on_flag(" FALSE ") is False
+        assert parse_on_flag("0") is False
         assert parse_brand_history_runs(None) == 5
         assert parse_brand_history_runs("junk") == 5
         assert parse_brand_history_runs("-3") == 0
@@ -415,12 +444,12 @@ class TestRatingLearningKnobs:
         assert ResearchConfiguration().rating_learning_min_ratings == 200
 
     def test_ratings_table_default(self, monkeypatch):
-        from agent_common.config import BaseAgentConfiguration
+        from creative_agent.config import ResearchConfiguration
 
         monkeypatch.delenv("BQ_TABLE_RATINGS", raising=False)
-        assert BaseAgentConfiguration().BQ_TABLE_RATINGS == "creative_ratings"
+        assert ResearchConfiguration().BQ_TABLE_RATINGS == "creative_ratings"
         monkeypatch.setenv("BQ_TABLE_RATINGS", "r2")
-        assert BaseAgentConfiguration().BQ_TABLE_RATINGS == "r2"
+        assert ResearchConfiguration().BQ_TABLE_RATINGS == "r2"
 
     def test_shipped_to_agent_engine_and_documented(self):
         from pathlib import Path
@@ -438,26 +467,26 @@ class TestTrendStateKnobs:
     TIMELY_VALID_HOURS_AFTER) and their deploy wiring."""
 
     def test_defaults(self):
+        from agent_common.config import parse_on_flag
         from creative_agent.config import (
             parse_timely_valid_hours_after,
             parse_trend_event_window_days,
-            parse_trend_state_enabled,
         )
 
-        assert parse_trend_state_enabled(None) is True
+        assert parse_on_flag(None) is True
         assert parse_trend_event_window_days(None) == 7
         assert parse_timely_valid_hours_after(None) == 48
 
     def test_parsing_and_clamping(self):
+        from agent_common.config import parse_on_flag
         from creative_agent.config import (
             parse_timely_valid_hours_after,
             parse_trend_event_window_days,
-            parse_trend_state_enabled,
         )
 
-        assert parse_trend_state_enabled("off") is False
-        assert parse_trend_state_enabled("false") is False
-        assert parse_trend_state_enabled("yes") is True
+        assert parse_on_flag("off") is False
+        assert parse_on_flag("false") is False
+        assert parse_on_flag("yes") is True
         assert parse_trend_event_window_days("0") == 1
         assert parse_trend_event_window_days("99") == 30
         assert parse_trend_event_window_days("junk") == 7
@@ -498,25 +527,25 @@ class TestTrendDigestKnobs:
     BQ_TABLE_TREND_DIGEST) and their deploy wiring."""
 
     def test_enabled_parser(self):
-        from agent_common.config import parse_trend_digest_enabled
+        from agent_common.config import parse_on_flag
 
-        assert parse_trend_digest_enabled(None) is True
-        assert parse_trend_digest_enabled("") is True
-        assert parse_trend_digest_enabled("true") is True
+        assert parse_on_flag(None) is True
+        assert parse_on_flag("") is True
+        assert parse_on_flag("true") is True
         for off in ("false", "0", "no", "off", " OFF "):
-            assert parse_trend_digest_enabled(off) is False, off
+            assert parse_on_flag(off) is False, off
 
     def test_config_reads_env_per_instance(self, monkeypatch):
-        from agent_common.config import BaseAgentConfiguration
+        from trend_scout.config import ResearchConfiguration
 
         monkeypatch.delenv("TREND_DIGEST_ENABLED", raising=False)
         monkeypatch.delenv("BQ_TABLE_TREND_DIGEST", raising=False)
-        cfg = BaseAgentConfiguration()
+        cfg = ResearchConfiguration()
         assert cfg.trend_digest_enabled is True
         assert cfg.BQ_TABLE_TREND_DIGEST == "trend_digest"
         monkeypatch.setenv("TREND_DIGEST_ENABLED", "false")
         monkeypatch.setenv("BQ_TABLE_TREND_DIGEST", "td2")
-        cfg = BaseAgentConfiguration()
+        cfg = ResearchConfiguration()
         assert cfg.trend_digest_enabled is False
         assert cfg.BQ_TABLE_TREND_DIGEST == "td2"
 
