@@ -64,6 +64,82 @@ STOPWORDS = frozenset(
     }
 )
 
+# Shortest word that can identify a product (``copy_gate.product_words``):
+# "PRS SE Custom 24" yields "prs" and "custom", never "se".
+MIN_TOKEN_CHARS = 3
+
+# Words that never identify a product on their own ("The New Rocket Skates",
+# ``copy_gate.product_words``). Deliberately NOT ``STOPWORDS``: it adds
+# marketing filler ("all", "new", "our", "your") and leaves out "into",
+# "their" and "this", which can be part of a product name ("This Works"),
+# plus "as" / "is" (under ``MIN_TOKEN_CHARS`` anyway).
+PRODUCT_STOPWORDS = frozenset(
+    {
+        "a",
+        "all",
+        "an",
+        "and",
+        "at",
+        "by",
+        "for",
+        "from",
+        "in",
+        "its",
+        "new",
+        "of",
+        "on",
+        "or",
+        "our",
+        "the",
+        "to",
+        "with",
+        "your",
+    }
+)
+
+# Joining words inside a motif ("dust cloud on the highway"), skipped when
+# deciding whether a motif is all generic imagery (``brief_check``). A small,
+# deliberate subset of ``STOPWORDS``: a motif like "phone for fans" keeps
+# "for" as a non-generic word, as it always has.
+FILLER = frozenset({"a", "an", "the", "of", "on", "with", "and"})
+
+# Pronouns and auxiliary / function words too common to carry meaning when a
+# safer angle is compared with other text ("his music" vs "his murder"):
+# ``brief_check`` ignores them in the angle-vs-risks overlap and
+# ``safer_angle.GENERIC_SAFER_ANGLE_WORDS`` includes them. ``STOPWORDS`` are
+# removed before either check (``content_tokens``).
+PRONOUNS = frozenset(
+    {
+        "he",
+        "she",
+        "him",
+        "his",
+        "her",
+        "hers",
+        "they",
+        "them",
+        "you",
+        "your",
+        "we",
+        "our",
+        "it",
+        "was",
+        "were",
+        "be",
+        "been",
+        "has",
+        "have",
+        "had",
+        "not",
+        "no",
+        "all",
+        "who",
+        "that",
+        "after",
+        "before",
+    }
+)
+
 # Standalone unit / size words ("16 oz", "12-pack" → "12", "pack").
 _UNIT_WORDS = frozenset(
     {

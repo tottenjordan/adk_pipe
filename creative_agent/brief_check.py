@@ -20,6 +20,8 @@ from .claims import unsupported_claims
 from .endorsement import endorsement_terms
 from .temporal_terms import temporal_terms
 from .text_match import (
+    FILLER,
+    PRONOUNS,
     contains_phrase,
     content_tokens,
     mentions,
@@ -53,7 +55,6 @@ _GENERIC_TOKENS = frozenset(w for term in GENERIC_MOTIFS for w in term.split()) 
     "post",
     "glowing",
 }
-_FILLER = frozenset({"a", "an", "the", "of", "on", "with", "and"})
 
 # Insight tension: a contrast word, or a ";" followed by one ("Fans want in;
 # still, tickets are gone"). A bare ";", a dash or a bare "still" ("fans still
@@ -146,7 +147,7 @@ def _text(value: Any) -> str:
 def _is_generic_motif(motif: str) -> bool:
     # Unicode words (``text_match.words``), so a motif in any script counts;
     # ``same_word`` folds plurals ("phones" is generic).
-    tokens = [w for w in words(motif) if w not in _FILLER]
+    tokens = [w for w in words(motif) if w not in FILLER]
     return not tokens or all(
         any(same_word(w, g) for g in _GENERIC_TOKENS) for w in tokens
     )
@@ -454,41 +455,6 @@ def check_brief(
     return issues
 
 
-# Words too common to signal an event leak when a safer angle shares them with
-# the risks ("his music" vs "his murder"); text_match.STOPWORDS are already out.
-_OVERLAP_IGNORED = frozenset(
-    {
-        "he",
-        "she",
-        "him",
-        "his",
-        "her",
-        "hers",
-        "they",
-        "them",
-        "you",
-        "your",
-        "we",
-        "our",
-        "it",
-        "was",
-        "were",
-        "be",
-        "been",
-        "has",
-        "have",
-        "had",
-        "not",
-        "no",
-        "all",
-        "who",
-        "that",
-        "after",
-        "before",
-    }
-)
-
-
 def _overlap(angle: str, terms: Sequence[str], names: Sequence[str]) -> list[str]:
     """Content words of ``angle`` also in ``terms`` (folded, singular/plural
     alike), minus the ``names`` words (trend, brand, product) and pronouns."""
@@ -497,7 +463,7 @@ def _overlap(angle: str, terms: Sequence[str], names: Sequence[str]) -> list[str
     shared: list[str] = []
     for word in content_tokens(angle):
         if (
-            word in _OVERLAP_IGNORED
+            word in PRONOUNS
             or word in shared
             or any(same_word(word, other) for other in excluded)
         ):

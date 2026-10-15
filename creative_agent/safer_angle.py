@@ -30,7 +30,7 @@ import re
 from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING, Any
 
-from .text_match import contains_phrase, content_tokens, same_word, words
+from .text_match import PRONOUNS, contains_phrase, content_tokens, same_word, words
 from .trend_tie import distinctive_trend_tokens, has_trend_tie, tie_terms
 
 if TYPE_CHECKING:  # run_policy imports this module
@@ -245,9 +245,9 @@ def clear_stray_safer_angle(brief: Mapping[str, Any]) -> dict[str, Any] | None:
 # Words a safer angle shares with any music / craft / feel-good tribute: they
 # never make a copy's tie specific ("Own the Spark of Golden-Era Soul" is not
 # tied to "Tupac Shakur's ... soulful, analog groove"), so only the angle's
-# other content words (plus the subject's name) count. Pronouns and filler
-# are here too (text_match.STOPWORDS are already out).
-GENERIC_SAFER_ANGLE_WORDS = frozenset(
+# other content words (plus the subject's name) count, and neither do
+# text_match.PRONOUNS (text_match.STOPWORDS are already out).
+_TRIBUTE_WORDS = frozenset(
     {
         "legacy", "enduring", "lasting", "artistic", "art", "artist", "artistry",
         "soul", "soulful", "heart", "heartfelt", "spirit", "passion",
@@ -262,11 +262,9 @@ GENERIC_SAFER_ANGLE_WORDS = frozenset(
         "voice", "love", "life", "dream", "dreams", "chasing", "community",
         "positive", "influence", "influential", "impact", "work", "works",
         "known", "famous", "beloved", "generation", "generations",
-        "he", "she", "him", "his", "her", "hers", "they", "them", "you",
-        "your", "we", "our", "who", "that", "was", "were", "be", "been",
-        "has", "have", "had", "not", "no", "all", "after", "before",
     }
 )  # fmt: skip
+GENERIC_SAFER_ANGLE_WORDS = _TRIBUTE_WORDS | PRONOUNS
 SAFER_ANGLE_MIN_WORD_CHARS = 4
 _SHORT_ANGLE_WORDS = 8
 _MAX_SAFER_EXAMPLES = 3

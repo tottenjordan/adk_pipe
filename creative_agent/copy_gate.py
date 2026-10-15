@@ -88,7 +88,9 @@ from .safer_angle import (
 )
 from .temporal_terms import temporal_terms
 from .text_match import (
+    MIN_TOKEN_CHARS,
     PACKAGING_WORDS,
+    PRODUCT_STOPWORDS,
     contains_phrase,
     fold,
     same_word,
@@ -112,31 +114,6 @@ MAX_AVOID_TERM_WORDS = 4
 
 # Final copies the critic must select (CREATIVE prompts: "exactly 4").
 EXPECTED_COPIES = 4
-# Words that never identify a product on their own ("The New Rocket Skates").
-_STOPWORDS = frozenset(
-    {
-        "a",
-        "all",
-        "an",
-        "and",
-        "at",
-        "by",
-        "for",
-        "from",
-        "in",
-        "its",
-        "new",
-        "of",
-        "on",
-        "or",
-        "our",
-        "the",
-        "to",
-        "with",
-        "your",
-    }
-)
-_MIN_TOKEN_CHARS = 3
 # Self-reported brief_checks items that gate a revision: the brief's hard
 # contract, its trend risks (never joking about a real disaster) and the trend
 # tie (a clear, specific connection a trend follower would recognise: the
@@ -329,8 +306,8 @@ def product_words(target_product: str) -> list[str]:
     return [
         word
         for word in words(target_product)
-        if len(word) >= _MIN_TOKEN_CHARS
-        and word not in _STOPWORDS
+        if len(word) >= MIN_TOKEN_CHARS
+        and word not in PRODUCT_STOPWORDS
         and word not in PACKAGING_WORDS
         and not word.isdigit()
     ]

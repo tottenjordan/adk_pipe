@@ -241,3 +241,56 @@ def test_distinctive_rule_keeps_packaging_and_size_teeth():
     # Sizes and bare numbers are never distinctive ("12" in "Coke 12-pack").
     assert not mentions("12 apples on a table", "Coke 12-pack")
     assert not mentions("a 3D model of a car", "Model 3")
+
+
+# --- shared word sets (CA-6): the sets the gates used privately before -------
+# Literal copies of the pre-refactor private sets, so a change to a shared set
+# is a visible, deliberate test edit.
+_OLD_COPY_GATE_STOPWORDS = frozenset(
+    "a all an and at by for from in its new of on or our the to with your".split()
+)
+_OLD_BRIEF_FILLER = frozenset({"a", "an", "the", "of", "on", "with", "and"})
+_OLD_OVERLAP_IGNORED = frozenset(
+    "he she him his her hers they them you your we our it was were be been has "
+    "have had not no all who that after before".split()
+)
+_OLD_GENERIC_SAFER_ANGLE_PRONOUNS = frozenset(
+    "he she him his her hers they them you your we our who that was were be "
+    "been has have had not no all after before".split()
+)
+
+
+def test_shared_word_sets_equal_the_former_private_sets():
+    from creative_agent.text_match import (
+        FILLER,
+        MIN_TOKEN_CHARS,
+        PRODUCT_STOPWORDS,
+        PRONOUNS,
+        STOPWORDS,
+    )
+
+    assert PRODUCT_STOPWORDS == _OLD_COPY_GATE_STOPWORDS
+    assert FILLER == _OLD_BRIEF_FILLER
+    assert PRONOUNS == _OLD_OVERLAP_IGNORED
+    assert MIN_TOKEN_CHARS == 3
+    # FILLER is a deliberate subset of STOPWORDS (motif filler only).
+    assert FILLER < STOPWORDS
+    # PRODUCT_STOPWORDS differs from STOPWORDS on purpose (documented there).
+    assert PRODUCT_STOPWORDS - STOPWORDS == {"all", "new", "our", "your"}
+    assert STOPWORDS - PRODUCT_STOPWORDS == {"as", "into", "is", "their", "this"}
+
+
+def test_generic_safer_angle_words_gain_only_unmatchable_short_words():
+    """The safer-angle generic set now takes text_match.PRONOUNS; the only
+    word it gains ("it") is under SAFER_ANGLE_MIN_WORD_CHARS, which the tie
+    words filter anyway, so the tie words are unchanged."""
+    from creative_agent.safer_angle import (
+        GENERIC_SAFER_ANGLE_WORDS,
+        SAFER_ANGLE_MIN_WORD_CHARS,
+    )
+    from creative_agent.text_match import PRONOUNS
+
+    assert PRONOUNS <= GENERIC_SAFER_ANGLE_WORDS
+    gained = PRONOUNS - _OLD_GENERIC_SAFER_ANGLE_PRONOUNS
+    assert gained == {"it"}
+    assert all(len(w) < SAFER_ANGLE_MIN_WORD_CHARS for w in gained)
