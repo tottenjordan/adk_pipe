@@ -8,11 +8,12 @@ guard and the copy gate flag an evergreen creative whose text contains one of
 these terms ("won", "tonight", "Oct 12", "Saturday", …) for a fix round.
 
 Matching (the shared ``lexicon.Lexicon``) is whole-word, case- and
-accent-insensitive (``text_match.fold``); spaces and hyphens inside a term are interchangeable ("game day" ==
-"game-day"). Explicit dates (month + day either way round, numeric
-``10/12``) and weekday names count too. Common idioms ("win-win", "lose
-weight", "lost and found", "never miss a beat", "skin in the game", "24/7")
-are removed before matching; extend the ``_LEXICON`` idioms as false positives appear.
+accent-insensitive (``text_match.fold``); spaces and hyphens inside a term are
+interchangeable ("game day" == "game-day"). Explicit dates (month + day either
+way round, numeric ``10/12``) and weekday names count too. Common idioms
+("win win", "lose weight", "weight loss", "lost and found", "never miss a
+beat") are removed before matching; extend the ``_LEXICON`` idioms as false
+positives appear.
 """
 
 import re
@@ -50,14 +51,16 @@ TEMPORAL_TERMS = (
 
 _LEXICON = Lexicon(
     TEMPORAL_TERMS,
+    # Each idiom guards its spaced form ("a win win deal", "lose weight"); the
+    # hyphenated one ("win-win") is already excluded by the boundary. Only
+    # idioms that can hide a term belong here ("skin in the game" and "24/7"
+    # never could, so they were dropped; tests/test_lexicon_table.py).
     idioms=(
         "win win",
         "lose weight",
         "weight loss",
         "lost and found",
         "miss(?:es|ed)? a beat",
-        "skin in the game",
-        "24/7",
     ),
     boundary=r"\w-",  # "win" never inside "win-win", "post-win" or "win-wins"
     # the hyphen form only ("kick off your day" is fine)

@@ -71,7 +71,7 @@ TEMPORAL_CASES = [
     ("missed a beat", []),
     ("miss-a-beat", []),
     ("skin in the game", []),
-    ("skin in the game day", []),
+    ("skin in the game day", ["game day"]),  # CA-9: idiom dropped, "game day" is real
     ("open 24/7", []),
     ("kick off your day", []),
     ("Kick-Off party", ["kick-off"]),

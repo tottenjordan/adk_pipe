@@ -9,9 +9,10 @@ say it. Terms in one family ("guarantee" / "guaranteed" / "guarantees",
 "100%" / "100 percent") allow each other.
 
 Matching (the shared ``lexicon.Lexicon``) is whole-word, case- and
-accent-insensitive (``text_match.fold``); spaces and hyphens inside a term are interchangeable ("risk free" ==
-"risk-free"), and "100%" never matches a bare "100". The idioms "of a
-lifetime" / "once in a lifetime" are not lifetime claims.
+accent-insensitive (``text_match.fold``); spaces and hyphens inside a term are
+interchangeable ("risk free" == "risk-free"), and "100%" never matches a bare
+"100". The idioms "of a lifetime" / "once in a lifetime" are not lifetime
+claims.
 """
 
 from collections.abc import Iterable
