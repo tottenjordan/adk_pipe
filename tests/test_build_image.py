@@ -41,8 +41,12 @@ def test_staged_tree_contents(tmp_path):
         "bandit/scenarios/segment_winners.yaml",
         "bandit/simulate.py",
         "bandit_serving/__init__.py",
+        "bandit_serving/checkpoint.py",
+        "bandit_serving/instances.py",
+        "bandit_serving/kernels.py",
         "bandit_serving/predictor.py",
         "bandit_serving/requirements.txt",
+        "bandit_serving/storage.py",
         "bandit_traffic/__init__.py",
         "bandit_traffic/bq.py",
         "bandit_traffic/endpoint_client.py",
@@ -56,7 +60,10 @@ def test_staged_tree_contents(tmp_path):
 
 def test_staged_traffic_files_mirror_the_package():
     """One image serves the endpoint AND runs the traffic job: every
-    ``bandit_traffic`` module ships, and every ``bandit/`` module except the CLI."""
+    ``bandit_serving`` and ``bandit_traffic`` module ships, and every ``bandit/``
+    module except the CLI."""
+    serving = sorted(p.name for p in (bi.REPO_ROOT / "bandit_serving").glob("*.py"))
+    assert list(bi.SERVING_FILES) == serving
     pkg = sorted(p.name for p in (bi.REPO_ROOT / "bandit_traffic").glob("*.py"))
     assert list(bi.TRAFFIC_FILES) == pkg
     core = sorted(p.name for p in (bi.REPO_ROOT / "bandit").glob("*.py"))

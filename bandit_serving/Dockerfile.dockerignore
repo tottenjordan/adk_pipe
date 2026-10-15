@@ -16,7 +16,11 @@
 !bandit/scenarios/*.yaml
 !bandit/simulate.py
 !bandit_serving/__init__.py
+!bandit_serving/checkpoint.py
+!bandit_serving/instances.py
+!bandit_serving/kernels.py
 !bandit_serving/predictor.py
+!bandit_serving/storage.py
 !bandit_serving/requirements.txt
 !bandit_traffic/__init__.py
 !bandit_traffic/bq.py
