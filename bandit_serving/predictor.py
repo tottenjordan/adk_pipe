@@ -10,13 +10,16 @@ response body, so ``postprocess`` returns the full ``{"predictions": [...]}``):
 
 - ``preprocess`` validates every instance on its own; a bad instance becomes a
   per-instance ``{"type": "error", ...}`` and never fails the batch. Only a
-  malformed request envelope is a 400.
+  malformed request envelope is a 400. Instance content (incl. the reward bounds
+  per reward mode) is validated here, before any state change, so ``predict``
+  can't raise on it (only ``row < batch_size`` waits for the reset in force).
 - ``predict`` walks the instances in order, batching each maximal run of
   consecutive ``decision`` (or ``reward``) instances: decisions are encoded with
   ``bandit.features``, Thompson-sampled with ``linear_ts.select`` and given Monte
   Carlo ``propensities``; rewards are de-duplicated against the bounded
   ``pending`` map (request_id -> (arm, x)) / seen-id set and applied as one
-  batched ``linear_ts.update``, which bumps ``model_version``.
+  batched ``linear_ts.update``, which bumps ``model_version``. An update that
+  would leave the posterior non-finite is refused and the old state kept.
 - ``reset`` starts a fresh posterior; its optional ``discount`` (the traffic
   run's forgetting γ, contracts §10) replaces ``policy.discount`` for every
   update until the next reset, and a reset without one restores the config value.
