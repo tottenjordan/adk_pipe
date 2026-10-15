@@ -227,9 +227,9 @@ def test_outcomes_unchanged_for_mixed_pass_fail_rerender(monkeypatch):
     assert str(p.state["_images_generated"]).startswith("render-v1:")
 
 
-def test_render_failure_raises_and_cancels_pending_qa(monkeypatch):
-    """A failed render still propagates (ADK RetryConfig) while QA 1 is pending;
-    nothing is marked generated."""
+def test_render_failure_skips_that_concept_while_pending_qa_finishes(monkeypatch):
+    """CV-4: render 2 fails while QA 1 is pending; QA 1 still finishes, C1 is
+    uploaded and C2 is recorded as a failed render (not a batch failure)."""
     p = _Pipeline(monkeypatch, 2, {"C1": [_result()], "C2": [_result()]})
     p.qa_delays[("C1", 1)] = 0.3
 
@@ -238,12 +238,11 @@ def test_render_failure_raises_and_cancels_pending_qa(monkeypatch):
 
     p.render_gates[2] = render_2_fails
 
-    with pytest.raises(ValueError, match="bad request"):
-        p.run()
+    p.run()
 
-    assert "_images_generated" not in p.state
-    assert "generated_images" not in p.state
-    assert p.flow.uploads == []
+    assert list(p.state["generated_images"]) == ["C1"]
+    assert p.state["image_qa__issues"] == ["C2: render failed: ValueError: bad request"]
+    assert p.qa_calls == {"C1": 1}
 
 
 def test_pipelining_is_inert_with_qa_disabled(monkeypatch):

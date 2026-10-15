@@ -388,8 +388,7 @@ async def render_concept(
                 rejected, cast = reason or NO_IMAGE, False
         if wants_person and not cast:
             if not fallback_without_person:
-                if pacing.rendered is not None:
-                    pacing.rendered.set()
+                # No render follows; the `finally` sets `pacing.rendered`.
                 return RenderResult(
                     None, "", 1, None, None, False, rejected, concept=entry
                 )
@@ -445,6 +444,10 @@ async def render_concept(
         )
         return _result(kept, attempts, record, issue, cast, rejected, entry, True)
     finally:
+        # Always released, so a concept that returns early or whose render
+        # raises never blocks a later concept's first render or budget claim.
+        if pacing.rendered is not None:
+            pacing.rendered.set()
         if pacing.claims_done is not None:
             pacing.claims_done.set()
 

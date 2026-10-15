@@ -218,7 +218,10 @@ def test_rerenders_count_toward_the_cap(monkeypatch):
 
 
 @pytest.mark.parametrize("failing", [0, 1])
-def test_first_render_failure_aborts_with_nothing_uploaded(monkeypatch, failing):
+def test_one_failed_render_skips_only_that_concept(monkeypatch, failing):
+    """CV-4: a render that raises (after its own retries) is recorded in
+    ``image_qa__issues`` and skipped; the other concepts still render (the
+    failed concept's slot and stagger turn are released) and upload."""
     run = _Run(monkeypatch, 4, concurrency=2, fail={failing})
     r = run.renders
 
@@ -226,6 +229,39 @@ def test_first_render_failure_aborts_with_nothing_uploaded(monkeypatch, failing)
         task = run.start()
         await _until(lambda: len(r.starts) == 2, "two first renders")
         r.release(failing)
+        await _until(lambda: len(r.starts) == 3, "the next first render")
+        for index in range(4):
+            if index != failing:
+                await _until(lambda i=index: len(r.starts) > i, f"render {index}")
+                r.release(index)
+        return await asyncio.wait_for(task, _WAIT)
+
+    result = asyncio.run(scenario())
+
+    failed = f"C{failing + 1}"
+    rendered = [f"C{i}" for i in range(1, 5) if f"C{i}" != failed]
+    assert result["status"] == "success"
+    assert [key for key, _ in run.uploads] == [
+        image_tools.artifact_key_for(name) for name in rendered
+    ]
+    state = run.ctx.state
+    assert list(state["generated_images"]) == rendered
+    assert state["image_qa__issues"] == [
+        f"{failed}: render failed: ValueError: bad request"
+    ]
+    assert state["_images_generated"]  # the rest is done; no retry re-renders all
+
+
+def test_every_render_failing_still_raises_for_the_node_retry(monkeypatch):
+    """With nothing rendered at all the error propagates (INFRA_RETRY)."""
+    run = _Run(monkeypatch, 2, concurrency=2, fail={0, 1})
+    r = run.renders
+
+    async def scenario():
+        task = run.start()
+        await _until(lambda: len(r.starts) == 2, "two first renders")
+        r.release(0)
+        r.release(1)
         with pytest.raises(ValueError, match="bad request"):
             await asyncio.wait_for(task, _WAIT)
 

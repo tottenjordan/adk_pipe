@@ -321,28 +321,40 @@ def _name(kwargs) -> str:
     return (contents if isinstance(contents, str) else contents[0]).split(":", 1)[0]
 
 
-def test_batch_render_error_aborts_before_any_upload(monkeypatch):
-    """Deliberate change from the pre-refactor loop: a first-render exception
-    aborts the whole batch before ANY upload (earlier, finished concepts are not
-    uploaded either) and later concepts never render; the error propagates so the
-    node's RetryConfig can retry."""
+def test_batch_render_error_skips_only_that_concept(monkeypatch):
+    """CV-4: a first-render exception (after the backoff's retries) is recorded
+    as "render failed" in image_qa__issues and only that concept is skipped; the
+    others render, are checked and upload (earlier, the whole batch raised and a
+    node retry re-rendered all of them)."""
 
     def respond(kwargs, n):
         if _name(kwargs) == "C2":
             raise ValueError("bad request")
         return _response(f"img{n}".encode())
 
-    ctx, calls, _qa, uploads = _batch(monkeypatch, respond)
-    try:
-        asyncio.run(image_tools.generate_image(ctx))
-    except ValueError:
-        pass
-    else:
-        raise AssertionError("expected the render error to propagate")
-    assert [_name(c) for c in calls] == ["C1", "C2"]  # C3 never rendered
-    assert uploads == []
-    assert "generated_images" not in ctx.state
-    assert not ctx.state.get("_images_generated")
+    ctx, calls, qa_calls, uploads = _batch(monkeypatch, respond)
+    asyncio.run(image_tools.generate_image(ctx))
+    assert [_name(c) for c in calls] == ["C1", "C2", "C3"]
+    assert uploads == ["C1.png", "C3.png"]
+    assert list(ctx.state["generated_images"]) == ["C1", "C3"]
+    assert sorted(q["concept"]["concept_name"] for q in qa_calls) == ["C1", "C3"]
+    assert ctx.state["image_qa__issues"] == [
+        "C2: render failed: ValueError: bad request"
+    ]
+    assert ctx.state["_images_generated"]
+
+
+def test_batch_render_error_message_is_capped(monkeypatch):
+    def respond(kwargs, n):
+        if _name(kwargs) == "C2":
+            raise ValueError("x" * 1000)
+        return _response(f"img{n}".encode())
+
+    ctx, _calls, _qa, _uploads = _batch(monkeypatch, respond)
+    asyncio.run(image_tools.generate_image(ctx))
+    (issue,) = ctx.state["image_qa__issues"]
+    assert issue.startswith("C2: render failed: ValueError: xxx")
+    assert len(issue) <= 240
 
 
 def test_batch_render_without_an_image_skips_only_that_concept(monkeypatch):

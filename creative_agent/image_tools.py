@@ -28,7 +28,7 @@ import hashlib
 import json
 import logging
 import random
-from collections.abc import Mapping
+from collections.abc import Awaitable, Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -688,6 +688,27 @@ async def _plan_renders(state: Any, *, fingerprint: str) -> RenderPlan:
     )
 
 
+# Longest exception text kept in a "render failed" issue.
+_RENDER_FAILURE_MAX_CHARS = 200
+
+
+async def _contained(
+    entry: dict, render: Awaitable["RenderResult"]
+) -> tuple["RenderResult", Exception | None]:
+    """``(result, None)``, or for a render that raised ``(a no-image result
+    whose qa_issue is "<concept>: render failed: <Type>: <message>", exc)``."""
+    from .render_concept import RenderResult
+
+    try:
+        return await render, None
+    except Exception as exc:
+        name = str(entry.get("concept_name") or "")
+        logging.warning(f"Render failed for '{name}'; skipping it: {exc!r}")
+        detail = f"{type(exc).__name__}: {exc}"[:_RENDER_FAILURE_MAX_CHARS]
+        issue = f"{name}: render failed: {detail}"
+        return RenderResult(None, "", 1, None, issue, False, None, entry), exc
+
+
 async def _run_pipelined(plan: RenderPlan) -> list["RenderResult"]:
     """One ``render_concept`` task per concept → their results, in concept order.
 
@@ -699,10 +720,14 @@ async def _run_pipelined(plan: RenderPlan) -> list["RenderResult"]:
     renders. asyncio.Semaphore wakes waiters FIFO, so a re-render queued while
     all slots are busy runs as soon as one frees, ahead of later first renders.
     n=1 is the old strictly sequential pipeline (concept i waits for concept
-    i-1). The per-run re-render budget is claimed in concept order. A
-    first-render failure aborts the batch at once (later concepts are still
-    waiting for their turn) and propagates; on failure or cancellation the
-    in-flight tasks are stopped and every task's outcome retrieved.
+    i-1). The per-run re-render budget is claimed in concept order.
+
+    A concept whose render raises (after ``_generate_image_with_backoff``'s
+    retries) becomes a no-image result with a "render failed" issue, so the
+    other concepts still render and upload; only when every concept raised does
+    the first error propagate (the node's INFRA_RETRY then retries the call).
+    On cancellation the in-flight tasks are stopped and every task's outcome
+    retrieved.
     """
     from .render_concept import RenderPacing, render_concept
 
@@ -726,31 +751,31 @@ async def _run_pipelined(plan: RenderPlan) -> list["RenderResult"]:
             )
             tasks.append(
                 asyncio.create_task(
-                    render_concept(
+                    _contained(
                         entry,
-                        aspect_ratio=aspect_ratio,
-                        references=plan.references,
-                        person=plan.person_part,
-                        strictness=plan.strictness,
-                        safer_angle_active=plan.safer_angle_active,
-                        qa=config.image_qa_enabled,
-                        brand=plan.brand,
-                        target_product=plan.product,
-                        budget=budget,
-                        pacing=pacing,
+                        render_concept(
+                            entry,
+                            aspect_ratio=aspect_ratio,
+                            references=plan.references,
+                            person=plan.person_part,
+                            strictness=plan.strictness,
+                            safer_angle_active=plan.safer_angle_active,
+                            qa=config.image_qa_enabled,
+                            brand=plan.brand,
+                            target_product=plan.product,
+                            budget=budget,
+                            pacing=pacing,
+                        ),
                     )
                 )
             )
             rendered.append(rendered_event)
             previous_done = done
-        if tasks:
-            await asyncio.wait(tasks, return_when=asyncio.FIRST_EXCEPTION)
-        for task in tasks:
-            if task.done() and not task.cancelled():
-                failure = task.exception()
-                if failure is not None:
-                    raise failure
-        return [await task for task in tasks]
+        outcomes = await asyncio.gather(*tasks)
+        failures = [exc for _, exc in outcomes if exc is not None]
+        if failures and len(failures) == len(outcomes):
+            raise failures[0]
+        return [result for result, _ in outcomes]
     finally:
         for task in tasks:
             if not task.done():
