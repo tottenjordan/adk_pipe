@@ -4,7 +4,7 @@ import {
   buildShareCsp,
   decideRoute,
   isShareModeEnabled,
-  SHARE_PAGE_HEADERS,
+  shareHeaders,
 } from "@/lib/share-mode";
 
 /**
@@ -46,6 +46,8 @@ export function proxy(request: NextRequest) {
   requestHeaders.set("Content-Security-Policy", csp);
   const res = NextResponse.next({ request: { headers: requestHeaders } });
   res.headers.set("Content-Security-Policy", csp);
-  for (const [k, v] of Object.entries(SHARE_PAGE_HEADERS)) res.headers.set(k, v);
+  for (const [k, v] of Object.entries(shareHeaders(request.nextUrl.pathname))) {
+    res.headers.set(k, v);
+  }
   return res;
 }
