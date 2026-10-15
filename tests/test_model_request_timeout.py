@@ -369,7 +369,7 @@ def test_image_qa_client_has_flash_timeout(genai_retry, monkeypatch):
 
 
 def test_judge_client_has_timeout(genai_retry, monkeypatch):
-    from creative_eval import evaluate as ev
+    from creative_eval import judge as ev
     from creative_eval.config import EvalConfig
 
     captured = {}

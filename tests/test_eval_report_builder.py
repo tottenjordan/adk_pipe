@@ -13,7 +13,8 @@ from agent_common import collect_degradation_warnings
 from creative_eval.agent import evaluate_all_creatives
 from creative_eval.config import EvalConfig
 from creative_eval.dimensions import JUDGE_VERSION
-from creative_eval.evaluate import NOT_REPORTED_NOTE, evaluate_creatives
+from creative_eval.evaluate import evaluate_creatives
+from creative_eval.gates import NOT_REPORTED_NOTE
 from creative_eval.schemas import (
     AdCopyEvaluation,
     CreativeScore,

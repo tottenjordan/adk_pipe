@@ -97,7 +97,7 @@ class EvalConfig:
         return max(1, min(cap, total))
 
     # Scoring dimensions for ad copy: the judge's verdicts are reduced to
-    # exactly these (evaluate.normalize_verdicts); a missing one makes the
+    # exactly these (gates.normalize_verdicts); a missing one makes the
     # creative's score unverified (not passed).
     ad_copy_dimensions: list[str] = field(
         default_factory=lambda: [

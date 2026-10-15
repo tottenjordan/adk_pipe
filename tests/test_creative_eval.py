@@ -248,7 +248,7 @@ class TestCreativeEvaluationReport:
 
 class TestScoreFromVerdicts:
     def test_computes_average(self):
-        from creative_eval.evaluate import _score_from_verdicts
+        from creative_eval.gates import _score_from_verdicts
         from creative_eval.schemas import EvalVerdict
 
         verdicts = [
@@ -262,14 +262,14 @@ class TestScoreFromVerdicts:
         assert result.passed
 
     def test_empty_verdicts(self):
-        from creative_eval.evaluate import _score_from_verdicts
+        from creative_eval.gates import _score_from_verdicts
 
         result = _score_from_verdicts([], threshold=0.7)
         assert result.overall_score == 0.0
         assert not result.passed
 
     def test_below_threshold(self):
-        from creative_eval.evaluate import _score_from_verdicts
+        from creative_eval.gates import _score_from_verdicts
         from creative_eval.schemas import EvalVerdict
 
         verdicts = [
@@ -284,7 +284,7 @@ class TestScoreFromVerdicts:
     def test_leaves_strengths_and_improvements_to_the_judge(self):
         """score_from_judge fills them with the judge's own text, so the
         aggregate never derives them from the verdicts."""
-        from creative_eval.evaluate import _score_from_verdicts
+        from creative_eval.gates import _score_from_verdicts
         from creative_eval.schemas import EvalVerdict
 
         verdicts = [
@@ -468,7 +468,7 @@ class TestEvaluateAllCreativesInputs:
         with (
             patch("creative_eval.evaluate.evaluate_ad_copy", mock_ad_eval),
             patch("creative_eval.evaluate.evaluate_visual_concept", mock_vis_eval),
-            patch("creative_eval.evaluate._build_summary") as mock_summary,
+            patch("creative_eval.report._build_summary") as mock_summary,
         ):
             # Setup return values
             from creative_eval.schemas import (
@@ -551,7 +551,7 @@ class TestEvaluateAllCreativesInputs:
             patch(
                 "creative_eval.evaluate.evaluate_ad_copy", side_effect=capture_ad_eval
             ),
-            patch("creative_eval.evaluate._build_summary") as mock_summary,
+            patch("creative_eval.report._build_summary") as mock_summary,
         ):
             from creative_eval.schemas import EvaluationSummary
 

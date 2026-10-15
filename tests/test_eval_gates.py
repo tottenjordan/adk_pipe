@@ -125,7 +125,7 @@ class TestSchema:
 
 class TestPassedRule:
     def test_high_score_with_failed_gate_does_not_pass(self):
-        from creative_eval.evaluate import _score_from_verdicts
+        from creative_eval.gates import _score_from_verdicts
 
         gates = [
             GateResult(gate="product_named", passed=True),
@@ -138,7 +138,7 @@ class TestPassedRule:
         assert result.gates == gates
 
     def test_failed_advisory_gate_does_not_block(self):
-        from creative_eval.evaluate import _score_from_verdicts
+        from creative_eval.gates import _score_from_verdicts
 
         gates = [
             GateResult(gate="product_visible", passed=True),
@@ -149,7 +149,7 @@ class TestPassedRule:
         assert result.passed is True
 
     def test_gates_pass_but_low_score_fails(self):
-        from creative_eval.evaluate import _score_from_verdicts
+        from creative_eval.gates import _score_from_verdicts
 
         gates = [GateResult(gate="product_named", passed=True)]
         result = _score_from_verdicts(_verdicts(5), threshold=0.7, gates=gates)
@@ -157,7 +157,7 @@ class TestPassedRule:
         assert result.passed is False
 
     def test_no_gates_keeps_score_only_rule(self):
-        from creative_eval.evaluate import _score_from_verdicts
+        from creative_eval.gates import _score_from_verdicts
 
         result = _score_from_verdicts(_verdicts(8), threshold=0.7)
         assert result.gates == [] and result.gates_passed is True
@@ -183,7 +183,7 @@ def _ad_eval(passed: bool, gates_passed: bool) -> AdCopyEvaluation:
 
 class TestSummaryGatesPassRate:
     def test_gates_pass_rate_counts_creatives_with_all_gates_passed(self):
-        from creative_eval.evaluate import _build_summary
+        from creative_eval.report import _build_summary
 
         summary = _build_summary(
             [_ad_eval(True, True), _ad_eval(False, False), _ad_eval(True, True)],
@@ -192,12 +192,12 @@ class TestSummaryGatesPassRate:
         assert summary.gates_pass_rate == round(2 / 3, 3)
 
     def test_gates_pass_rate_none_without_creatives(self):
-        from creative_eval.evaluate import _build_summary
+        from creative_eval.report import _build_summary
 
         assert _build_summary([], []).gates_pass_rate is None
 
     def test_gates_pass_rate_excludes_failed_judge_calls(self):
-        from creative_eval.evaluate import _build_summary, _failed_score
+        from creative_eval.report import _build_summary, _failed_score
 
         failed = _ad_eval(False, False)
         failed.score = _failed_score()
@@ -344,7 +344,7 @@ class TestPromptsListGates:
 class TestNormalizeGates:
     def test_orders_drops_unknown_and_fails_missing(self):
         """An omitted gate the judge had to decide fails as 'not checked'."""
-        from creative_eval.evaluate import NOT_CHECKED_NOTE, normalize_gates
+        from creative_eval.gates import NOT_CHECKED_NOTE, normalize_gates
 
         raw = [
             GateResult(gate="avoid_respected", passed=True, note="  clean  "),
@@ -363,11 +363,7 @@ class TestNormalizeGates:
     @pytest.mark.parametrize("brief_used", [True, False])
     def test_judge_returning_no_gates_fails_the_creative(self, brief_used):
         """Zero expected gates reported = the judge skipped the checks: unverified."""
-        from creative_eval.evaluate import (
-            NO_GATES_NOTE,
-            gates_passed,
-            normalize_gates,
-        )
+        from creative_eval.gates import NO_GATES_NOTE, gates_passed, normalize_gates
 
         for raw in ([], [GateResult(gate="made_up", passed=True)]):
             gates = normalize_gates(raw, VISUAL_GATES, brief_used=brief_used)
@@ -380,14 +376,14 @@ class TestNormalizeGates:
         "spelling", ["Product Named", "product-named", "PRODUCT_NAMED"]
     )
     def test_lenient_name_matching(self, spelling):
-        from creative_eval.evaluate import normalize_gates
+        from creative_eval.gates import normalize_gates
 
         raw = [GateResult(gate=spelling, passed=False, note="missing")]
         by = {g.gate: g for g in normalize_gates(raw, AD_COPY_GATES, brief_used=True)}
         assert by["product_named"].passed is False
 
     def test_no_brief_passes_brief_gates_with_note(self):
-        from creative_eval.evaluate import normalize_gates
+        from creative_eval.gates import normalize_gates
 
         raw = [GateResult(gate=g, passed=False) for g in AD_COPY_GATES]
         by = {g.gate: g for g in normalize_gates(raw, AD_COPY_GATES, brief_used=False)}
@@ -396,7 +392,7 @@ class TestNormalizeGates:
         assert not by["product_named"].passed  # not brief-dependent
 
     def test_advisory_is_set_by_code(self):
-        from creative_eval.evaluate import normalize_gates
+        from creative_eval.gates import normalize_gates
 
         raw = [GateResult(gate=g, passed=False, advisory=True) for g in VISUAL_GATES]
         gates = normalize_gates(raw, VISUAL_GATES, brief_used=True)
@@ -637,7 +633,7 @@ class TestJudgeThePixels:
         ],
     )
     def test_image_mime_from_extension(self, uri, mime):
-        from creative_eval.evaluate import image_mime_type
+        from creative_eval.judge import image_mime_type
 
         assert image_mime_type(uri) == mime
 
@@ -671,7 +667,7 @@ class TestJudgeThePixels:
         assert "not ground truth" in text
 
     def test_qa_hint_text(self):
-        from creative_eval.evaluate import image_qa_hint
+        from creative_eval.judge import image_qa_hint
 
         assert image_qa_hint({"passed": True, "failures": []}) == (
             "Automated image check: passed"
@@ -862,10 +858,7 @@ class TestImageFailSoft:
         assert result.score.improvements == ["evaluation_failed"]
 
     def test_fallback_is_a_report_warning(self):
-        from creative_eval.evaluate import (
-            image_fallback_concepts,
-            image_fallback_warning,
-        )
+        from creative_eval.report import image_fallback_concepts, image_fallback_warning
 
         def ev(name, judged, failed=False):
             return VisualConceptEvaluation(
@@ -971,7 +964,8 @@ class TestJudgeSchemas:
         assert result.score.passed is False and result.score.gates_passed is False
 
     def test_judge_reporting_only_unknown_gates_does_not_pass(self):
-        from creative_eval.evaluate import NO_GATES_NOTE, evaluate_visual_concept
+        from creative_eval.evaluate import evaluate_visual_concept
+        from creative_eval.gates import NO_GATES_NOTE
 
         client = _client(_judge_json("visual", {"looks_great": True}))
         result = evaluate_visual_concept(
@@ -1007,7 +1001,7 @@ def _eval_with_gates(notes: list[str]) -> AdCopyEvaluation:
 
 class TestUnreportedGatesWarning:
     def test_partial_omission_fails_as_not_checked(self):
-        from creative_eval.evaluate import (
+        from creative_eval.gates import (
             NOT_CHECKED_NOTE,
             NOT_REPORTED_NOTE,
             normalize_gates,
@@ -1026,7 +1020,7 @@ class TestUnreportedGatesWarning:
         assert len(failed) == len(VISUAL_GATES) - 5
 
     def test_warning_counts_not_checked_gates(self):
-        from creative_eval.evaluate import NOT_REPORTED_NOTE, unreported_gates_warning
+        from creative_eval.gates import NOT_REPORTED_NOTE, unreported_gates_warning
 
         evals = [
             _eval_with_gates([NOT_REPORTED_NOTE, "ok"]),
@@ -1042,9 +1036,10 @@ class TestUnreportedGatesWarning:
 
     def test_report_carries_the_warning(self, monkeypatch):
         import creative_eval.evaluate as ev
+        from creative_eval.gates import NOT_REPORTED_NOTE
 
         monkeypatch.setattr(ev, "_get_client", lambda cfg: MagicMock())
-        evals = [_eval_with_gates([ev.NOT_REPORTED_NOTE])]
+        evals = [_eval_with_gates([NOT_REPORTED_NOTE])]
         monkeypatch.setattr(
             ev, "evaluate_all_concurrently", lambda *a, **k: (evals, [])
         )
@@ -1053,7 +1048,7 @@ class TestUnreportedGatesWarning:
 
     def test_agent_tool_report_carries_the_warning(self, monkeypatch):
         import creative_eval.agent as ev_agent
-        from creative_eval.evaluate import NOT_REPORTED_NOTE
+        from creative_eval.gates import NOT_REPORTED_NOTE
 
         evals = [_eval_with_gates([NOT_REPORTED_NOTE])]
         monkeypatch.setattr(
@@ -1161,7 +1156,7 @@ class TestImageFallbackLimited:
         assert result.score.passed is False
 
     def test_is_image_fallback_error_pure(self):
-        from creative_eval.evaluate import is_image_fallback_error
+        from creative_eval.judge import is_image_fallback_error
 
         assert is_image_fallback_error(_client_error_msg(404, ""))
         assert is_image_fallback_error(_client_error_msg(400, "bad IMAGE"))
@@ -1440,7 +1435,7 @@ class TestTrendRisksGate:
         assert "Trend risks: real hurricane victims" in _prompt_text(client)
 
     def test_no_brief_passes_with_note(self):
-        from creative_eval.evaluate import normalize_gates
+        from creative_eval.gates import normalize_gates
 
         raw = [
             GateResult(gate="trend_risks_respected", passed=False),
@@ -1454,7 +1449,7 @@ class TestTrendRisksGate:
 
     def test_unreported_is_not_checked(self):
         """A blocking gate the judge had to decide fails when left out."""
-        from creative_eval.evaluate import NOT_CHECKED_NOTE, normalize_gates
+        from creative_eval.gates import NOT_CHECKED_NOTE, normalize_gates
 
         raw = [GateResult(gate="product_named", passed=True)]
         by = {g.gate: g for g in normalize_gates(raw, AD_COPY_GATES, brief_used=True)}
@@ -1519,7 +1514,7 @@ class TestTrendConnectedGate:
         assert "trend_connected" in presence
 
     def test_no_brief_still_judges_it(self):
-        from creative_eval.evaluate import normalize_gates
+        from creative_eval.gates import normalize_gates
 
         raw = [GateResult(gate="trend_connected", passed=False, note="generic")]
         by = {g.gate: g for g in normalize_gates(raw, AD_COPY_GATES, brief_used=False)}
@@ -1527,7 +1522,7 @@ class TestTrendConnectedGate:
         assert gate.passed is False and gate.note == "generic"
 
     def test_empty_trend_passes_with_note(self):
-        from creative_eval.evaluate import NO_TREND_NOTE, normalize_gates
+        from creative_eval.gates import NO_TREND_NOTE, normalize_gates
 
         raw = [
             GateResult(gate="trend_connected", passed=False),
@@ -1602,7 +1597,7 @@ class TestTrendMotifNoTrend:
         assert not vis.score.gates_passed and not vis.score.passed
 
     def test_omitted_without_a_trend_is_not_unverified(self):
-        from creative_eval.evaluate import normalize_gates
+        from creative_eval.gates import normalize_gates
 
         raw = [GateResult(gate="product_visible", passed=True)]
         by = {

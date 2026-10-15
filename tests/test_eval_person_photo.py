@@ -12,11 +12,8 @@ from google.genai import errors as genai_errors
 from creative_eval import prompts as eval_prompts
 from creative_eval.config import EvalConfig
 from creative_eval.dimensions import VISUAL_GATES
-from creative_eval.evaluate import (
-    evaluate_all_concurrently,
-    evaluate_visual_concept,
-    person_photo_uri,
-)
+from creative_eval.evaluate import evaluate_all_concurrently, evaluate_visual_concept
+from creative_eval.judge import person_photo_uri
 from tests._eval_fakes import verdict_dicts
 
 BUCKET = "tt-bucket"

@@ -32,11 +32,13 @@ from creative_eval.dimensions import (
     VISUAL_GATES,
 )
 from creative_eval.evaluate import (
-    NO_SAFER_ANGLE_NOTE,
-    NOT_CHECKED_NOTE,
     evaluate_ad_copy,
     evaluate_all_concurrently,
     evaluate_visual_concept,
+)
+from creative_eval.gates import (
+    NO_SAFER_ANGLE_NOTE,
+    NOT_CHECKED_NOTE,
     normalize_gates,
     safer_angle_active,
     unreported_gates_warning,
