@@ -1,5 +1,3 @@
-import logging
-
 from google.adk.agents import Agent
 from google.adk.planners import BuiltInPlanner
 from google.adk.tools import google_search
@@ -14,11 +12,6 @@ from ... import callbacks
 from ...config import SCHEMA_RETRY, config
 from ...prompts import TREND_SCOUT_HINT_BLOCK
 from ...schemas import SearchQuery
-
-# --- config ---
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
-)
 
 
 # --- SCHEMA DEFINITIONS ---

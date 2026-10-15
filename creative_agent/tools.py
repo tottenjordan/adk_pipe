@@ -43,10 +43,7 @@ from .image_tools import (  # noqa: F401
     generate_image,
 )
 
-# --- config ---
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
-)
+logger = logging.getLogger(__name__)
 
 
 def _build_research_warning_banner(warnings: list[str]) -> str:
@@ -327,5 +324,5 @@ async def save_creative_gallery_html(tool_context: ToolContext) -> dict:
 
     except Exception as e:
         # Propagate so ADK 2.0 RetryConfig can retry transient infra failures.
-        logging.exception(f"Error saving artifact: {e}")
+        logger.exception(f"Error saving artifact: {e}")
         raise

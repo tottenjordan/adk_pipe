@@ -30,12 +30,6 @@ from .safer_angle import derive_state as derive_safer_angle_state
 from .style_shortlist import format_shortlist, pick_style_shortlist
 from .trend_situation import timely_allowed
 
-# --- config ---
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
-)
-
-
 # Shared debugging-observability callbacks (agent_common, WS3). Re-exported here
 # so creative_agent/agent.py references `callbacks.<name>`, matching trend_scout.
 log_empty_turn_finish_reason = observability.log_empty_turn_finish_reason
@@ -50,6 +44,8 @@ log_final_state_summary = observability.make_final_state_summary(
         "creative_evaluation_report",
     ),
 )
+
+logger = logging.getLogger(__name__)
 
 
 def _apply_safer_angle(target: State | dict[str, Any]) -> None:
@@ -261,7 +257,7 @@ def restore_unflagged_copies_callback(callback_context: CallbackContext) -> None
     flagged = state.get("ad_copy_flagged_ids") or []
     restored, notes = restore_unflagged(before, state.get("ad_copy_critique"), flagged)
     if notes:
-        logging.warning("ad_copy_reviser output repaired: %s", "; ".join(notes))
+        logger.warning("ad_copy_reviser output repaired: %s", "; ".join(notes))
         state["ad_copy_critique"] = restored
     return None
 
@@ -306,7 +302,7 @@ def _restore_unflagged_concepts(
         before, state.get("final_visual_concepts"), flagged
     )
     if notes:
-        logging.warning("%s output repaired: %s", producer, "; ".join(notes))
+        logger.warning("%s output repaired: %s", producer, "; ".join(notes))
         state["final_visual_concepts"] = restored
 
 
@@ -362,7 +358,7 @@ def restore_revision_unflagged_concepts(callback_context: CallbackContext) -> No
             for o, n in zip(old, new, strict=True)
         ]
         if renamed != new:
-            logging.warning("visual_concept_reviser output repaired: kept names")
+            logger.warning("visual_concept_reviser output repaired: kept names")
             state["final_visual_concepts"] = {"visual_concepts": renamed}
     return None
 
@@ -407,7 +403,7 @@ def ensure_trend_and_product_callback(callback_context: CallbackContext) -> None
         safe_styles=config.person_safe_styles,
     )
     for warning in cast_warnings:
-        logging.warning(f"casting guard: {warning}")
+        logger.warning(f"casting guard: {warning}")
     # Then the timely cap (first MAX_TIMELY_CONCEPTS flags kept; none without
     # a validated timely moment).
     timely_checked, timely_warnings = enforce_timely_cap(
@@ -416,7 +412,7 @@ def ensure_trend_and_product_callback(callback_context: CallbackContext) -> None
         max_timely=config.max_timely_concepts,
     )
     for warning in timely_warnings:
-        logging.warning(f"timely guard: {warning}")
+        logger.warning(f"timely guard: {warning}")
     repaired, warnings = ensure_trend_and_product(
         timely_checked,
         str(state.get("target_product") or ""),
@@ -424,7 +420,7 @@ def ensure_trend_and_product_callback(callback_context: CallbackContext) -> None
         strictness=strictness_flags(state.get("rating_strictness")),
     )
     for warning in warnings:
-        logging.warning(f"concept guard: {warning}")
+        logger.warning(f"concept guard: {warning}")
     if repaired == concepts:
         return None
     new_value = {**value, "visual_concepts": repaired}
@@ -457,7 +453,7 @@ def recheck_concept_issues_callback(callback_context: CallbackContext) -> None:
     )
     residual = flatten_concept_issues(concepts, issues) or None
     if residual:
-        logging.warning("visual concept issues after revision: %s", residual)
+        logger.warning("visual concept issues after revision: %s", residual)
     state["final_visual_concepts__issues"] = residual
     return None
 

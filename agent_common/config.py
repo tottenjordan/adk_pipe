@@ -24,7 +24,6 @@ This module has NO ADK/genai imports so it stays lightweight; the ADK
 
 import os
 from dataclasses import dataclass, field
-from typing import ClassVar
 
 from dotenv import load_dotenv
 
@@ -37,7 +36,6 @@ _FALSE_FLAGS = frozenset({"0", "false", "no", "off"})
 
 # The social-safe subset of the image SDK's aspect ratios the visual agents may
 # pick per concept (creative_agent) and a share snapshot may carry (runserver).
-IMAGE_ASPECT_RATIOS_ALLOWED: tuple[str, ...] = ("9:16", "1:1", "4:5", "16:9", "3:4")
 
 
 def parse_on_flag(raw: str | None) -> bool:
@@ -91,10 +89,6 @@ class BaseAgentConfiguration:
     critic_fallback_model: str = field(
         default_factory=lambda: os.getenv("CRITIC_FALLBACK_MODEL", "gemini-3.8-flash")
     )
-
-    # Not a per-instance knob: the fixed allowed set, shared by creative_agent's
-    # renders and runserver.share_snapshot (which reads it off this class).
-    image_aspect_ratios_allowed: ClassVar[tuple[str, ...]] = IMAGE_ASPECT_RATIOS_ALLOWED
 
     # Timezone for the per-run date state (agent_common/clock.py; seeded once per
     # run as current_date / current_datetime / current_timezone / current_weekday).

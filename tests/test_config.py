@@ -113,6 +113,7 @@ class TestBaseAgentConfiguration:
             "image_qa_model",
             "image_size",
             "image_aspect_ratio_default",
+            "image_aspect_ratios_allowed",
             "BQ_TABLE_RATINGS",
         )
         scout_only = ("trend_digest_enabled", "BQ_TABLE_TREND_DIGEST")
@@ -125,10 +126,10 @@ class TestBaseAgentConfiguration:
             assert hasattr(tt.config, name), name
             assert not hasattr(ca.config, name), name
             assert not hasattr(base, name), name
-        # The fixed aspect-ratio set stays readable off the base (runserver).
-        assert ca.config.image_aspect_ratios_allowed == (
-            BaseAgentConfiguration.image_aspect_ratios_allowed
-        )
+        # The fixed aspect-ratio set is the one runserver's share snapshot uses.
+        from runserver import share_snapshot
+
+        assert share_snapshot.ASPECT_RATIOS is ca.config.image_aspect_ratios_allowed
 
     def test_both_agent_configs_subclass_the_base(self):
         import creative_agent.config as ca

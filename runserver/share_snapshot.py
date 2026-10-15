@@ -28,8 +28,8 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any
 
-from agent_common.config import BaseAgentConfiguration
 from agent_common.sanitize import scrub_lone_surrogates
+from creative_agent.config import ResearchConfiguration
 from creative_eval.dimensions import ADVISORY_GATES, gate_label
 from runserver.ratings import _as_obj, _id_text, _items
 from runserver.timely import timely_expired, valid_until
@@ -52,7 +52,7 @@ CREATIVE_FIELDS = (
 )
 TEXT_MAX_CHARS = 4000
 # The image tool's aspect-ratio rules (creative_agent/image_tools._resolve_aspect_ratio).
-ASPECT_RATIOS = BaseAgentConfiguration.image_aspect_ratios_allowed
+ASPECT_RATIOS = ResearchConfiguration.image_aspect_ratios_allowed
 DEFAULT_ASPECT_RATIO = "9:16"
 
 
