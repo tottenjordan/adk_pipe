@@ -619,11 +619,19 @@ the oracle collected 2,028 clicks. Linear TS had the lowest regret in every epis
   at ~650 rounds/s (~2.3M rounds per hour, see Live measurements), so the api caps a run at
   1,500,000 rounds (`400 run_too_large` / `invalid_learning`). If the job is still running at the
   timeout, Cloud Run sends SIGTERM (then SIGKILL ~10 s later): the job stops after the current
-  batch, flushes the buffered events (finished episodes' metrics are already written), logs
+  batch, or inside a stalled request before its next attempt or retry sleep, flushes the
+  buffered events (at most 500 rows; finished episodes' metrics are already written), logs
   `traffic run stopped early by SIGTERM` and exits 143, so the execution fails with the partial
-  run kept. Each predict is bounded at 60 s and each BigQuery insert / progress update at
-  30 s / 60 s, so a stalled call is retried or fails instead of eating the hour
-  ([contracts §2](contracts.md)).
+  run kept. Each predict is bounded at 20 s and each BigQuery insert / progress update at
+  30 s / 60 s, so a stalled call is retried or fails instead of eating the hour. Insert retries
+  back off and re-send only the failed rows; a progress UPDATE that still fails after its
+  retries is only a warning ([contracts §2](contracts.md)).
+
+- **A mid-run endpoint restart is visible, not repaired.** The endpoint doesn't checkpoint its
+  pending decisions, so after a restart the in-flight batch's rewards come back
+  `accepted: false` (`unknown request_id`) and the endpoint no longer matches the simulator
+  exactly. The job counts them in `bandit_experiments.progress.rewards_rejected` and logs a
+  warning at the end of the run when the count is above zero.
 
 - **Single replica, single worker.** The posterior lives in one process's memory, so the
   container must run with **`VERTEX_CPR_WEB_CONCURRENCY=1`** (CPR otherwise starts
