@@ -71,7 +71,6 @@ TRAFFIC_FILES = (
     "__init__.py",
     "bq.py",
     "endpoint_client.py",
-    "fake_endpoint.py",
     "main.py",
     "traffic.py",
 )

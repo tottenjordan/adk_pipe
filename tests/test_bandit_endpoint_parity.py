@@ -34,8 +34,7 @@ from bandit.config import (
 from bandit.policies import make_policy
 from bandit_serving.predictor import BanditPredictor
 from bandit_traffic import traffic
-from bandit_traffic.endpoint_client import InProcessClient
-from bandit_traffic.fake_endpoint import FakeBanditEndpoint
+from bandit_traffic.endpoint_client import InProcessClient, LocalPredictorEndpoint
 from bandit_traffic.traffic import TrafficRunner, TrafficSettings
 from tests._bandit_sizes import BATCH, HORIZON_M, HORIZON_S
 
@@ -157,11 +156,13 @@ def test_endpoint_lints_matches_simulator_round_for_round(
     assert int(predictor._state.step) == cfg.horizon
 
 
-def test_fake_endpoint_matches_simulator_round_for_round():
-    """``--in-process`` runs (the fake endpoint) follow the simulator too."""
+def test_in_process_endpoint_matches_simulator_round_for_round():
+    """``--in-process`` runs (``LocalPredictorEndpoint``: the real predictor
+    loaded from a temp ``experiment.json``, via ``InProcessClient``) follow the
+    simulator too."""
     cfg = _cfg("segment_winners", "engaged")
     writer = _Writer()
-    client = InProcessClient(FakeBanditEndpoint(cfg))
+    client = InProcessClient(LocalPredictorEndpoint(cfg))
     TrafficRunner(cfg, client, writer, TrafficSettings(baselines=())).run()
     env, local = _local(cfg)
     for e in range(cfg.episodes):
@@ -243,12 +244,12 @@ def test_endpoint_lints_matches_simulator_in_continuous_mode(
     assert episode.endswith("-e0") and int(n) >= total // cfg.batch_size
 
 
-def test_fake_endpoint_matches_simulator_in_continuous_mode():
-    """The fake endpoint (``--in-process``) behaves identically under one reset
-    plus global batch indices."""
+def test_in_process_endpoint_matches_simulator_in_continuous_mode():
+    """The ``--in-process`` endpoint behaves identically under one reset plus
+    global batch indices."""
     cfg = _cfg("segment_winners", "engaged", episodes=SEGMENTS)
     writer = _Writer()
-    endpoint = FakeBanditEndpoint(cfg)
+    endpoint = LocalPredictorEndpoint(cfg)
     TrafficRunner(
         cfg,
         InProcessClient(endpoint),
@@ -258,7 +259,10 @@ def test_fake_endpoint_matches_simulator_in_continuous_mode():
     ).run()
     env, chained, _ = _continuous_local(cfg)
     np.testing.assert_array_equal(_global_served(writer, env), chained)
-    assert endpoint.model_version == f"e0-v{SEGMENTS * cfg.horizon // cfg.batch_size}"
+    state = endpoint.predict([{"type": "state"}])["predictions"][0]
+    updates = SEGMENTS * cfg.horizon // cfg.batch_size
+    assert state["model_version"] == f"{cfg.experiment_id}-e0-v{updates}"
+    assert state["step"] == SEGMENTS * cfg.horizon
 
 
 SHIFTS = [

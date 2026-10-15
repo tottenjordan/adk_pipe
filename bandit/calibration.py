@@ -104,6 +104,6 @@ def default_shift_discount(ctr_mode: str, batch_size: int, horizon: int) -> floa
 #: Bounds on a ``reset`` instance's optional ``discount`` (contracts §2 / §10): the
 #: per-run forgetting γ the traffic job sends when ``forget`` is on. Short runs
 #: (``default_shift_discount`` below 0.95, i.e. horizon < ~15.6k at batch 100)
-#: are clamped up to the floor by the job. ``bandit_serving`` and the fake
-#: endpoint both validate against this.
+#: are clamped up to the floor by the job. ``bandit_serving`` validates
+#: against this.
 RESET_DISCOUNT_BOUNDS: tuple[float, float] = (0.95, 1.0)

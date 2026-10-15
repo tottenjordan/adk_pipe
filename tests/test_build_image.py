@@ -53,7 +53,6 @@ def test_staged_tree_contents(tmp_path):
         "bandit_traffic/__init__.py",
         "bandit_traffic/bq.py",
         "bandit_traffic/endpoint_client.py",
-        "bandit_traffic/fake_endpoint.py",
         "bandit_traffic/main.py",
         "bandit_traffic/traffic.py",
     ]

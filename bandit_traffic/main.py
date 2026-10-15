@@ -5,7 +5,7 @@
       ENDPOINT_ID=projects/P/locations/R/endpoints/N EPISODES=20 \\
       BQ_PROJECT_ID=... BQ_DATASET_ID=... python -m bandit_traffic.main
 
-    # Local, no GCP: in-process fake endpoint, JSONL instead of BigQuery
+    # Local, no GCP: the real predictor in-process, JSONL instead of BigQuery
     python -m bandit_traffic.main --in-process --config /tmp/experiment.json \\
       --episodes 2 --horizon 4000 --dry-run --out /tmp/traffic
 
@@ -17,9 +17,9 @@
     LEARNING_MODE=continuous python -m bandit_traffic.main ...   # or --learning
 
 Every setting is a flag or the env var named in its help. Exactly one target:
-``--in-process`` (the ``fake_endpoint`` stand-in), ``--local-url`` (a local CPR
-container's predict URL) or ``ENDPOINT_ID`` (a Vertex endpoint, full resource
-name). Exit codes: 0 done, 1 run failure (endpoint / BigQuery / error rate),
+``--in-process`` (the real ``BanditPredictor`` in this process, no checkpoints),
+``--local-url`` (a local CPR container's predict URL) or ``ENDPOINT_ID`` (a
+Vertex endpoint, full resource name). Exit codes: 0 done, 1 run failure (endpoint / BigQuery / error rate),
 2 bad configuration, 143 stopped early by SIGTERM.
 
 **Early stop.** Cloud Run sends SIGTERM at the task timeout and SIGKILL about
@@ -65,6 +65,7 @@ from bandit_traffic.endpoint_client import (
     EndpointError,
     HttpClient,
     InProcessClient,
+    LocalPredictorEndpoint,
     VertexEndpointClient,
 )
 from bandit_traffic.traffic import (
@@ -93,7 +94,9 @@ def build_parser() -> argparse.ArgumentParser:
     target.add_argument("--endpoint-id", help="env ENDPOINT_ID (full resource name)")
     target.add_argument("--local-url", help="env LOCAL_URL: local CPR predict URL")
     target.add_argument(
-        "--in-process", action="store_true", help="use the in-process fake endpoint"
+        "--in-process",
+        action="store_true",
+        help="use the real predictor in this process",
     )
     p.add_argument("--episodes", type=int, help="env EPISODES (default: config)")
     p.add_argument("--horizon", type=int, help="env HORIZON (default: config)")
@@ -309,9 +312,7 @@ def build_client(
     """The endpoint client; ``should_stop`` (the SIGTERM flag) lets it stop
     before an attempt or a retry sleep instead of finishing its retries."""
     if args.in_process:
-        from bandit_traffic.fake_endpoint import FakeBanditEndpoint
-
-        return InProcessClient(FakeBanditEndpoint(cfg), should_stop=should_stop)
+        return InProcessClient(LocalPredictorEndpoint(cfg), should_stop=should_stop)
     url = _pick(args.local_url, env, "LOCAL_URL")
     if url:
         return HttpClient(url, should_stop=should_stop)
