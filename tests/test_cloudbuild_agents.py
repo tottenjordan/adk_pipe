@@ -117,6 +117,21 @@ class TestBuildConfig:
         clone = _script(steps["clone"])
         assert "git fetch" in clone and "${_REF}" in clone
         assert "uv sync --frozen --no-dev" in _script(steps["sync"])
+        # The checkout refuses a committed .env and records the built commit.
+        assert "refusing: .env in the checkout" in clone
+        assert "/workspace/commit.txt" in clone
+
+    def test_clone_is_partial_and_sparse(self, build):
+        """Only the files the deploy needs: docs/ alone is ~277 MB of media (fetch
+        14.7 s -> 1.5 s, checkout 564 MB -> 10 MB, measured 2026-10-15)."""
+        clone = _script(_steps(build)["clone"])
+        assert "--depth 1" in clone and "--filter=blob:none" in clone
+        assert "git sparse-checkout set --no-cone" in clone
+        # Sparse patterns must be set before the fetch, or every blob is fetched.
+        assert clone.index("git sparse-checkout set") < clone.index("git fetch")
+        assert "'/*'" in clone
+        for excluded in ("docs", "experiments", "frontend", "imgs"):
+            assert f"'!/{excluded}/'" in clone, excluded
 
     def test_python_version_is_asserted(self, build):
         script = _script(_steps(build)["python-313"])
@@ -131,9 +146,15 @@ class TestBuildConfig:
         )
         assert "/workspace/engine_ids.json" in _script(collect)
         smoke = steps["smoke"]
-        assert smoke["waitFor"] == ["collect"]
+        # The smoke needs only the creative engine, so it starts as soon as that
+        # deploy finishes, in parallel with the other deploys and collect.
+        assert smoke["waitFor"] == ["deploy-creative_agent"]
         script = _script(smoke)
         assert "${_SMOKE}" in script
+        assert "/workspace/engine_ids/creative_agent.json" in script
+        assert "no creative_agent record" in script
+        # engine_ids.json is collect's output, which may not exist yet.
+        assert "/workspace/engine_ids.json" not in script
         assert "CREATIVE_AGENT_ENGINE_ID=" in script
         assert "--check smoke --agent creative_agent" in script
 
