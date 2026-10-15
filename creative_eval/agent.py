@@ -19,8 +19,10 @@ from .config import EvalConfig
 from .dimensions import JUDGE_VERSION
 from .evaluate import (
     _build_summary,
+    _is_failed,
     evaluate_all_concurrently,
     judge_warnings,
+    run_trend_situation,
     safer_angle_active,
     safer_angle_reason,
     trend_valid_until,
@@ -65,8 +67,10 @@ def _state_items(state: Mapping[str, Any], key: str, list_key: str) -> list[dict
 def ad_copy_eval_fingerprint(state: Mapping[str, Any]) -> str:
     """Hash of everything an ad-copy judgement depends on.
 
-    Ad copies, brief, campaign, the validated ``trend_situation`` (a timely
-    copy is judged against it), the safer-angle state (``safer_angle_active``,
+    Ad copies, brief, campaign, the validated ``trend_situation`` and the
+    ``trend_sensitive_hint`` that turns it off (a timely copy is judged
+    against it, :func:`creative_eval.evaluate.run_trend_situation`), the
+    safer-angle state (``safer_angle_active``,
     ``safer_angle_sensitive_reason``, ``safer_angle_named_copies``; the brief's
     ``trend_bridge.safer_angle`` is in the brief) and the judge. An early ad-copy evaluation is
     reused by :func:`evaluate_all_creatives` only while this still matches, so
@@ -77,6 +81,7 @@ def ad_copy_eval_fingerprint(state: Mapping[str, Any]) -> str:
         "ad_copies": _state_items(state, "ad_copy_critique", "ad_copies"),
         "brief": parse_brief(state.get("creative_brief")),
         "trend_situation": state.get("trend_situation"),
+        "trend_sensitive_hint": state.get("trend_sensitive_hint"),
         "safer_angle": [
             state.get("safer_angle_active"),
             state.get("safer_angle_sensitive_reason"),
@@ -107,7 +112,7 @@ def evaluate_ad_copies_only(tool_context) -> dict:
         _campaign_context(state),
         _config,
         brief=parse_brief(state.get("creative_brief")),
-        trend_situation=state.get("trend_situation"),
+        trend_situation=run_trend_situation(state),
         sources=state.get("sources"),
         safer_angle=safer_angle_active(state),
         sensitive_reason=safer_angle_reason(state),
@@ -143,7 +148,7 @@ def _reusable_ad_evals(
     except ValueError:
         logger.warning("Malformed early ad-copy evaluation; re-judging the ad copies")
         return fresh
-    return [None if "evaluation_failed" in e.score.improvements else e for e in evals]
+    return [None if _is_failed(e) else e for e in evals]
 
 
 def learning_record(applied: Any) -> tuple[bool, list[str]]:
@@ -236,7 +241,7 @@ def evaluate_all_creatives(tool_context) -> dict:
         brief=brief,
         generated_images=generated_images,
         person_reference=state.get("person_reference"),
-        trend_situation=state.get("trend_situation"),
+        trend_situation=run_trend_situation(state),
         sources=state.get("sources"),
         # Visuals pair with every final copy, also the ones reused above.
         paired_ad_copies=ad_copies,
@@ -272,7 +277,7 @@ def evaluate_all_creatives(tool_context) -> dict:
         brief_used=brief is not None,
         learning_used=learning_used,
         learning_flags=learning_flags,
-        trend_valid_until=trend_valid_until(state.get("trend_situation")),
+        trend_valid_until=trend_valid_until(run_trend_situation(state)),
     )
 
     # Store in session state

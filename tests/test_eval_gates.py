@@ -32,7 +32,15 @@ from creative_eval.schemas import (
     GateResult,
     VisualConceptEvaluation,
 )
+from tests._eval_fakes import verdict_dicts
 from tests._fakes import FakeToolContext
+
+
+@pytest.fixture(autouse=True)
+def _no_run_bucket(monkeypatch):
+    """Judge any gs:// test image (the bucket check: test_eval_integrity)."""
+    monkeypatch.delenv("GOOGLE_CLOUD_STORAGE_BUCKET", raising=False)
+
 
 OLD_REPORT = {
     "brand": "B",
@@ -334,9 +342,9 @@ class TestPromptsListGates:
 
 
 class TestNormalizeGates:
-    def test_orders_drops_unknown_and_passes_missing(self):
-        """Conservative: an omitted gate is 'not checked', never a failure."""
-        from creative_eval.evaluate import normalize_gates
+    def test_orders_drops_unknown_and_fails_missing(self):
+        """An omitted gate the judge had to decide fails as 'not checked'."""
+        from creative_eval.evaluate import NOT_CHECKED_NOTE, normalize_gates
 
         raw = [
             GateResult(gate="avoid_respected", passed=True, note="  clean  "),
@@ -349,8 +357,8 @@ class TestNormalizeGates:
         by = {g.gate: g for g in gates}
         assert by["product_named"].passed and by["product_named"].note == "named"
         assert by["avoid_respected"].note == "clean"
-        assert by["mandatories_met"].passed
-        assert by["mandatories_met"].note.startswith("not checked")
+        assert not by["mandatories_met"].passed
+        assert by["mandatories_met"].note == NOT_CHECKED_NOTE
 
     @pytest.mark.parametrize("brief_used", [True, False])
     def test_judge_returning_no_gates_fails_the_creative(self, brief_used):
@@ -402,9 +410,7 @@ def _judge_json(kind: str, gates: dict[str, bool], score: int = 9) -> str:
             "overall_score": 0.1,
             "passed": True,
             "gates_passed": True,
-            "verdicts": [
-                {"dimension": "d", "score": score, "verdict": "pass", "rationale": "r"}
-            ],
+            "verdicts": verdict_dicts(kind, score),
             "strengths": ["s"],
             "improvements": [],
             "gates": [
@@ -1000,15 +1006,24 @@ def _eval_with_gates(notes: list[str]) -> AdCopyEvaluation:
 
 
 class TestUnreportedGatesWarning:
-    def test_partial_omission_passes_with_not_checked_note(self):
-        from creative_eval.evaluate import NOT_REPORTED_NOTE, normalize_gates
+    def test_partial_omission_fails_as_not_checked(self):
+        from creative_eval.evaluate import (
+            NOT_CHECKED_NOTE,
+            NOT_REPORTED_NOTE,
+            normalize_gates,
+        )
 
         raw = [GateResult(gate="product_visible", passed=True)]
         gates = normalize_gates(raw, VISUAL_GATES, brief_used=True)
-        assert all(g.passed for g in gates)
         # product_visible was reported; the person, timely and safer-angle
-        # gates are decided in code.
-        assert sum(g.note == NOT_REPORTED_NOTE for g in gates) == len(VISUAL_GATES) - 4
+        # gates are decided in code; the advisory brand cue passes unchecked;
+        # every other blocking gate fails unchecked.
+        assert [g.gate for g in gates if g.note == NOT_REPORTED_NOTE] == [
+            "brand_cue_present"
+        ]
+        failed = [g for g in gates if not g.passed]
+        assert all(g.note == NOT_CHECKED_NOTE for g in failed)
+        assert len(failed) == len(VISUAL_GATES) - 5
 
     def test_warning_counts_not_checked_gates(self):
         from creative_eval.evaluate import NOT_REPORTED_NOTE, unreported_gates_warning
@@ -1427,19 +1442,24 @@ class TestTrendRisksGate:
     def test_no_brief_passes_with_note(self):
         from creative_eval.evaluate import normalize_gates
 
-        raw = [GateResult(gate="trend_risks_respected", passed=False)]
+        raw = [
+            GateResult(gate="trend_risks_respected", passed=False),
+            GateResult(gate="product_named", passed=True),
+            GateResult(gate="product_visible", passed=True),
+        ]
         for expected in (AD_COPY_GATES, VISUAL_GATES):
             by = {g.gate: g for g in normalize_gates(raw, expected, brief_used=False)}
             gate = by["trend_risks_respected"]
             assert gate.passed and gate.note == "no brief"
 
     def test_unreported_is_not_checked(self):
-        from creative_eval.evaluate import NOT_REPORTED_NOTE, normalize_gates
+        """A blocking gate the judge had to decide fails when left out."""
+        from creative_eval.evaluate import NOT_CHECKED_NOTE, normalize_gates
 
         raw = [GateResult(gate="product_named", passed=True)]
         by = {g.gate: g for g in normalize_gates(raw, AD_COPY_GATES, brief_used=True)}
         gate = by["trend_risks_respected"]
-        assert gate.passed and gate.note == NOT_REPORTED_NOTE
+        assert not gate.passed and gate.note == NOT_CHECKED_NOTE
 
     def test_failed_risk_gate_blocks_both_kinds(self):
         from creative_eval.evaluate import evaluate_ad_copy, evaluate_visual_concept
@@ -1509,7 +1529,10 @@ class TestTrendConnectedGate:
     def test_empty_trend_passes_with_note(self):
         from creative_eval.evaluate import NO_TREND_NOTE, normalize_gates
 
-        raw = [GateResult(gate="trend_connected", passed=False)]
+        raw = [
+            GateResult(gate="trend_connected", passed=False),
+            GateResult(gate="product_named", passed=True),
+        ]
         by = {
             g.gate: g
             for g in normalize_gates(

@@ -45,6 +45,7 @@ from creative_eval.schemas import (
     GateResult,
     VisualConceptEvaluation,
 )
+from tests._eval_fakes import all_verdict_dicts
 from tests._fakes import FakeToolContext
 
 GATE = "timely_claim_supported"
@@ -180,7 +181,8 @@ def test_creative_is_timely_needs_a_flag_and_a_validated_moment():
     assert not creative_is_timely(flagged, None)
     assert not creative_is_timely(flagged, {**SITUATION, "timely_ok": False})
     assert not creative_is_timely(flagged, {**SITUATION, "timely_ok": "yes"})
-    assert not creative_is_timely(flagged, {**SITUATION, "valid_until": ""})
+    # Like the engine's timely_allowed: no valid_until does not switch it off.
+    assert creative_is_timely(flagged, {**SITUATION, "valid_until": ""})
 
 
 def test_moment_block_lists_the_moment_and_source_urls():
@@ -216,9 +218,7 @@ def _vis_body(gate_passed: bool) -> dict:
 
 def _score(gates, gate_passed: bool) -> dict:
     return {
-        "verdicts": [
-            {"dimension": "d", "score": 9, "verdict": "pass", "rationale": "r"}
-        ],
+        "verdicts": all_verdict_dicts(9),
         "strengths": [],
         "improvements": [],
         "gates": [

@@ -53,6 +53,7 @@ def _score(overall: float, *, failed: bool = False) -> CreativeScore:
         ],
         strengths=[],
         improvements=["evaluation_failed"] if failed else [],
+        judge_failed=failed,
     )
 
 
