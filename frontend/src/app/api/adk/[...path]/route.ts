@@ -9,8 +9,7 @@ import { scopeQuery, scopeRequestToUser } from "@/lib/user-scoping";
 // server-side to the api_server on localhost. Request/response bodies are small JSON:
 // the async-job run model replaced the long-lived SSE stream (/run_sse) with short
 // GET polls (/runs/...), so the proxy no longer needs undici's idle-timeout override.
-export const dynamic = "force-dynamic";
-export const runtime = "nodejs";
+// No route segment config: route handlers are uncached and run on Node.js by default.
 
 const BACKEND = process.env.ADK_API_BASE ?? "http://localhost:8000";
 
