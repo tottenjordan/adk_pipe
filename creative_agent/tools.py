@@ -211,7 +211,7 @@ async def save_creative_gallery_html(tool_context: ToolContext) -> dict:
                 "valid_until"
             ) or moment_valid_until
             GCS_BLOB_PATH = f"{gcs_folder}/{gcs_subdir}/{ARTIFACT_KEY}"
-            AUTH_GCS_URL = f"https://storage.mtls.cloud.google.com/{config.GCS_BUCKET_NAME}/{GCS_BLOB_PATH}?authuser=3"
+            AUTH_GCS_URL = f"https://storage.mtls.cloud.google.com/{config.GCS_BUCKET_NAME}/{GCS_BLOB_PATH}"
             # The lightbox links the original 2K render: the old 1.5x Lanczos
             # upscale re-upload added no detail and cost seconds per image.
 
