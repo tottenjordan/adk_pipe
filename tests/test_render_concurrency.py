@@ -234,3 +234,37 @@ def test_first_render_failure_aborts_with_nothing_uploaded(monkeypatch, failing)
     assert run.uploads == []
     assert "generated_images" not in run.ctx.state
     assert "_images_generated" not in run.ctx.state
+
+
+def test_next_concepts_rerender_starts_before_this_rerender_returns(monkeypatch):
+    """The budget is claimed in concept order, but once concept i has made its last
+    possible claim it releases ``claims_done`` before re-rendering, so concept
+    i+1's re-render can start while concept i's re-render is still in flight."""
+    bad = _result(artifacts=True, issues=["warped neck"])
+    run = _Run(
+        monkeypatch,
+        2,
+        concurrency=2,
+        verdicts={"C1": [bad, _result()], "C2": [bad, _result()]},
+    )
+    r = run.renders
+
+    async def scenario():
+        task = run.start()
+        await _until(lambda: len(r.starts) == 2, "two first renders")
+        r.release(0)
+        await _until(lambda: len(r.starts) == 3, "C1's re-render")
+        assert r.starts[2] == "C1"
+        r.release(1)  # C2 renders, fails its check and wants a re-render
+        # C1's re-render (index 2) is still held: C2's must start anyway.
+        await _until(lambda: len(r.starts) == 4, "C2's re-render")
+        assert r.starts[3] == "C2"
+        r.release(2)
+        r.release(3)
+        return await asyncio.wait_for(task, _WAIT)
+
+    result = asyncio.run(scenario())
+
+    assert result["status"] == "success"
+    images = run.ctx.state["generated_images"]
+    assert images["C1"]["attempts"] == 2 and images["C2"]["attempts"] == 2
