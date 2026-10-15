@@ -7,7 +7,7 @@ from agent_common.clock import DATE_CONTEXT_LINE
 
 from .claims import ABSOLUTE_CLAIM_TERMS
 from .config import PHOTOGRAPHIC_PERSON_STYLES, config
-from .copy_gate import MAX_HEADLINE_CHARS
+from .copy_gate import MAX_CAPTION_CHARS, MAX_CTA_WORDS, MAX_HEADLINE_CHARS
 from .temporal_terms import TEMPORAL_TERMS
 from .trend_situation import as_situation, moment_phrase
 
@@ -256,7 +256,7 @@ TREND_SITUATION_SYNTHESIZER_INSTR = (
     2.  **Phase:** "upcoming" = a dated event is still to come; "live" = it is happening right now; "just_happened" = a dated event ended recently with a known outcome; "ongoing" = a continuing story without one dated event; "evergreen" = nothing time-bound; "sensitive" = a tragedy, injury, death, scandal or disaster (choose it whenever one is involved, whatever else is true).
     3.  **Dates:** `event_start` (and `event_end` when it differs) as an ISO date (YYYY-MM-DD) or datetime with its UTC offset, exactly as the sources state them.
     4.  **Outcome:** for "just_happened" only, `outcome` from the side the target audience supports (win, loss, draw; "other" for a non-sports outcome; when the audience is neutral or its side is unclear, from the first-named subject's side) and `outcome_summary` as ONE factual sentence. Otherwise set `outcome` to "none" and leave `outcome_summary` empty.
-    5.  **Sources:** `source_ids` lists the "src-N" ids from <sources> that state the date and outcome. Cite only ids present in <sources>; never invent one.
+    5.  **Sources:** `source_ids` lists the "src-N" ids from <sources> (the sources the findings came from) that state the date and outcome. Cite only ids present in <sources>; never invent one.
     6.  **Confidence:** "high" only when sources agree on the date and outcome; "low" when they conflict or are old.
     </INSTRUCTIONS>
 
@@ -269,7 +269,7 @@ TREND_SITUATION_SYNTHESIZER_INSTR = (
         </trend_situation_raw>
 
         <sources>
-        {sources?}
+        {trend_situation_sources?}
         </sources>
     </CONTEXT>
 
@@ -424,7 +424,7 @@ TIMELY_ANGLE_RULE = "**Timely angle:** if the current moment is present and time
 # creative_eval's blocking trend_connected gate (the critic's trend_bridge
 # self-check gates a revision, copy_gate GATING_BRIEF_CHECKS). Brace-free.
 COPY_TREND_TIE_RULE = "**Trend tie:** every copy makes a clear, specific connection to the trend that someone who follows the trend would recognise: a named reference, its signature language, events, rituals, iconography or memes. A nod so vague it could fit any trend, or the trend name bolted on as a generic word, is not enough. For a sensitive trend, connect through its general culture, never the harmful event itself."
-COPY_CLAIMS_RULE = "**Claims:** make no unsupported absolute claims (guaranteed, indestructible, unbreakable, risk-free, 100%, lifetime, never fails) unless the user's key selling points or the brief's mandatories state them; prefer a concrete, verifiable benefit."
+COPY_CLAIMS_RULE = "**Claims:** make no unsupported absolute claims (guaranteed, indestructible, unbreakable, risk-free, 100%, lifetime, never fails); use one only when the user's key selling points state them (a claim in the brief's mandatories or reasons to believe never counts on its own); prefer a concrete, verifiable benefit."
 
 CREATIVE_BRIEF_WRITER_INSTR = (
     """Role: You are the Strategy Director. Turn the research report and campaign inputs into ONE structured creative brief: the contract the ad copy and visual teams must deliver against.
@@ -613,7 +613,9 @@ AD_COPY_CRITIC_INSTR = (
         *   **Surprise:** include at least one idea with `typicality` below 0.5, unless every such idea clearly weakens the fit with the brief.
         *   Carry each selected idea's `angle_id` and `typicality` through unchanged (re-rate `typicality` only if you substantially rewrite the idea).
     4.  **Enrich and Critique:** For each selected idea, you must add a high-converting **Call-to-Action (CTA)** and a **Detailed Rationale** explaining the strategic choice.
-        *   **CTA:** critique and improve every CTA: it must be specific to this offer (never a generic "Learn more"), start with an action verb, match the brief's desired response, and stay within 8 words.
+        *   **CTA:** critique and improve every CTA: it must be specific to this offer (never a generic "Learn more"), start with an action verb, match the brief's desired response, and stay within """
+    + str(MAX_CTA_WORDS)
+    + """ words.
         *   **Headline:** keep every headline within """
     + str(MAX_HEADLINE_CHARS)
     + """ characters; shorten any longer one.
@@ -697,7 +699,13 @@ AD_COPY_REVISER_INSTR = (
     + CREATIVE_BRIEF_CONTRACT_CORE
     + """ If the brief is empty, fall back to the campaign inputs.
     1.  **Scope:** <ad_copy_issues> lists the flagged copies by `original_id` and headline, each with its issues. Rewrite ONLY those copies, changing only what is needed to fix exactly the listed issues. Every copy that is not listed stays verbatim, field for field.
-    2.  **Fixes:** name the target product ({target_product}) in the headline, body text or social caption when it is missing; keep the call to action specific, starting with an action verb and within the word limit in its issue (8 by default); keep the headline within 60 characters and the social caption within 2200 characters; remove every avoided term; for a trend-tie issue, name the trend or one of the listed motifs naturally (never a sensitive event); and for each failed brief check, change the copy so the item is clearly met.
+    2.  **Fixes:** name the target product ({target_product}) in the headline, body text, social caption or call to action when it is missing; keep the call to action specific, starting with an action verb and within the word limit in its issue ("""
+    + str(MAX_CTA_WORDS)
+    + """ by default); keep the headline within """
+    + str(MAX_HEADLINE_CHARS)
+    + """ characters and the social caption within """
+    + str(MAX_CAPTION_CHARS)
+    + """ characters; remove every avoided term; for a trend-tie issue, name the trend or one of the listed motifs naturally (never a sensitive event); and for each failed brief check, change the copy so the item is clearly met.
     3.  **Keep the idea:** a revised copy keeps its `original_id`, `tone_style`, `angle_id` and core idea; re-rate `typicality` only if the idea changed.
     4.  **Checklist:** refresh `brief_checks` on every copy you revise (one entry per item, judged accurately against the revised copy; mark an item failed only when the copy clearly fails it); leave the other copies' checks unchanged.
     5.  **User feedback:** when <user_ad_copy_feedback> is non-empty, honour it in the copies you revise.

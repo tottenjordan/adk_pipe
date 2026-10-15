@@ -140,3 +140,47 @@ def test_trend_situation_disabled_makes_no_model_call(monkeypatch):
     assert state["trend_situation"]["abstain_reason"] == "disabled"
     assert state["trend_situation_md"] == ""
     assert len(_responses(events)) == 1
+
+
+def test_situation_synthesizer_sees_only_its_searchers_sources(monkeypatch):
+    """The trend researcher's grounding joins `sources` but never reaches the
+    situation synthesizer; the validator still finds the cited ids in
+    `sources`."""
+    from google.genai import types
+
+    import creative_agent.agent as ca
+    from tests.test_creative_agent_graph import _URL
+
+    own_url = "https://news.example.org/final"
+    monkeypatch.setattr(ca.config, "trend_state_enabled", True)
+    llms = _stub_graph(monkeypatch, ca.combined_research_pipeline)
+    _script_research(llms, ["CA INSIGHTS"])  # gs_web_searcher grounds on _URL
+    situation = text_response("final is tomorrow, Oct 12")
+    situation.grounding_metadata = types.GroundingMetadata(
+        grounding_chunks=[
+            types.GroundingChunk(
+                web=types.GroundingChunkWeb(
+                    uri=own_url, title="Final preview", domain="news.example.org"
+                )
+            )
+        ]
+    )
+    llms["trend_situation_searcher"].push(situation)
+    # Both branches' sources exist (ids depend on which searcher finished first).
+    draft = dict(_DRAFT, source_ids=["src-1", "src-2"])
+    llms["trend_situation_synthesizer"].push(text_response(json.dumps(draft)))
+
+    _, _, state = _run_root(
+        monkeypatch, "combined_research_pipeline", extra_state=_NOW_STATE
+    )
+
+    urls = {entry["url"] for entry in state["sources"].values()}
+    assert urls == {_URL, own_url}
+    synth_prompt = str(
+        llms["trend_situation_synthesizer"].requests[-1].config.system_instruction
+    )
+    assert own_url in synth_prompt
+    assert _URL not in synth_prompt
+    own_id = state["url_to_short_id"][own_url]
+    assert state["source_ids_by_agent"]["trend_situation_searcher"] == [own_id]
+    assert state["trend_situation"]["timely_ok"] is True

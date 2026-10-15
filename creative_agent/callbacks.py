@@ -485,9 +485,17 @@ def collect_research_sources_callback(callback_context: CallbackContext) -> None
     url_to_short_id = callback_context.state.get("url_to_short_id", {})
     sources = callback_context.state.get("sources", {})
     id_counter = len(url_to_short_id) + 1
+    agent_name = getattr(callback_context, "agent_name", None)
+    invocation_id = getattr(callback_context, "invocation_id", None)
+    own_ids: list[str] = []
     for event in session.events:
         if not (event.grounding_metadata and event.grounding_metadata.grounding_chunks):
             continue
+        is_own = (
+            agent_name is not None
+            and getattr(event, "author", None) == agent_name
+            and getattr(event, "invocation_id", None) == invocation_id
+        )
         chunks_info = {}
         for idx, chunk in enumerate(event.grounding_metadata.grounding_chunks):
             if not chunk.web:
@@ -510,6 +518,8 @@ def collect_research_sources_callback(callback_context: CallbackContext) -> None
                 }
                 id_counter += 1
             chunks_info[idx] = url_to_short_id[url]
+            if is_own and url_to_short_id[url] not in own_ids:
+                own_ids.append(url_to_short_id[url])
         if event.grounding_metadata.grounding_supports:
             for support in event.grounding_metadata.grounding_supports:
                 confidence_scores = support.confidence_scores or []
@@ -539,6 +549,35 @@ def collect_research_sources_callback(callback_context: CallbackContext) -> None
                             known["confidence"] = confidence
     callback_context.state["url_to_short_id"] = url_to_short_id
     callback_context.state["sources"] = sources
+    if agent_name is not None:
+        by_agent = dict(callback_context.state.get("source_ids_by_agent") or {})
+        by_agent[agent_name] = own_ids
+        callback_context.state["source_ids_by_agent"] = by_agent
+
+
+def collect_trend_situation_sources_callback(
+    callback_context: CallbackContext,
+) -> None:
+    """`after_agent_callback` on `trend_situation_searcher`.
+
+    Runs `collect_research_sources_callback` (every source still joins
+    ``sources`` with its ``src-N`` id, where the validator checks the cited ids),
+    then writes ``trend_situation_sources``: only the sources this searcher's own
+    turns grounded on in this invocation, as compact JSON keyed by id, for the
+    synthesizer's ``{trend_situation_sources?}`` token. The whole ``sources``
+    dict would carry the other research branches' snippets, and its size would
+    depend on which branch finished first. ``""`` when the searcher grounded on
+    nothing.
+    """
+    collect_research_sources_callback(callback_context)
+    state = callback_context.state
+    agent_name = getattr(callback_context, "agent_name", None)
+    own_ids = (state.get("source_ids_by_agent") or {}).get(agent_name) or []
+    sources = state.get("sources") or {}
+    scoped = {sid: sources[sid] for sid in own_ids if sid in sources}
+    state["trend_situation_sources"] = (
+        json.dumps(scoped, ensure_ascii=False) if scoped else ""
+    )
 
 
 def citation_replacement_callback(

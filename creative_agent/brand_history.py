@@ -115,7 +115,7 @@ def build_history_query(
     interpolated; ``table`` comes from config, not user input.
     """
     sql = f"""
-        SELECT datetime, target_trend, overall_pass_rate, avg_ad_copy_score,
+        SELECT datetime, overall_pass_rate, avg_ad_copy_score,
                avg_visual_score, weakest_dimension_labels, gates_pass_rate,
                eval_report_gcs_uri
         FROM `{table}`

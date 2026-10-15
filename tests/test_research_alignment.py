@@ -107,6 +107,80 @@ def test_rescanning_the_session_does_not_duplicate_claims():
     ]
 
 
+def _authored(event, author, invocation_id="inv-1"):
+    event.author = author
+    event.invocation_id = invocation_id
+    return event
+
+
+def _agent_ctx(events, state, agent_name, invocation_id="inv-1"):
+    return SimpleNamespace(
+        session=SimpleNamespace(events=events),
+        state=state,
+        agent_name=agent_name,
+        invocation_id=invocation_id,
+    )
+
+
+def test_each_searcher_records_its_own_source_ids():
+    from creative_agent.callbacks import collect_research_sources_callback
+
+    gs = _authored(_grounded_event("https://ex.com/gs", "GS", "G.", 0.9), "gs")
+    ca = _authored(_grounded_event("https://ex.com/ca", "CA", "C.", 0.9), "ca")
+    old = _authored(
+        _grounded_event("https://ex.com/old", "Old", "O.", 0.9), "ca", "inv-0"
+    )
+    state: dict = {}
+    collect_research_sources_callback(_agent_ctx([gs], state, "gs"))
+    collect_research_sources_callback(_agent_ctx([old, gs, ca], state, "ca"))
+
+    assert set(state["sources"]) == {"src-1", "src-2", "src-3"}
+    # Only this invocation's own events count (an earlier run's are not ours).
+    assert state["source_ids_by_agent"] == {"gs": ["src-1"], "ca": ["src-3"]}
+
+
+def test_situation_synthesizer_sees_only_its_searchers_sources():
+    from creative_agent.callbacks import collect_trend_situation_sources_callback
+
+    other = _authored(
+        _grounded_event("https://ex.com/other", "Other", "Other claim.", 0.9),
+        "gs_web_searcher",
+    )
+    own = _authored(
+        _grounded_event("https://ex.com/2026/10/11/final", "Final", "Oct 12.", 0.9),
+        "trend_situation_searcher",
+    )
+    state: dict = {}
+    collect_trend_situation_sources_callback(
+        _agent_ctx([other, own], state, "trend_situation_searcher")
+    )
+
+    # Every source still joins `sources` (the validator checks cited ids there).
+    assert set(state["sources"]) == {"src-1", "src-2"}
+    scoped = state["trend_situation_sources"]
+    assert "src-2" in scoped and "https://ex.com/2026/10/11/final" in scoped
+    assert "Oct 12." in scoped
+    assert "src-1" not in scoped and "ex.com/other" not in scoped
+    assert "Other claim." not in scoped
+
+
+def test_situation_sources_are_empty_without_own_grounding():
+    from creative_agent.callbacks import collect_trend_situation_sources_callback
+
+    other = _authored(_grounded_event("https://ex.com/o", "O", "O.", 0.9), "gs")
+    state: dict = {"trend_situation_sources": "stale"}
+    collect_trend_situation_sources_callback(
+        _agent_ctx([other], state, "trend_situation_searcher")
+    )
+    assert state["trend_situation_sources"] == ""
+
+
+def test_situation_synthesizer_reads_the_scoped_sources_not_all():
+    instr = prompts.TREND_SITUATION_SYNTHESIZER_INSTR
+    assert "{trend_situation_sources?}" in instr
+    assert "{sources?}" not in instr
+
+
 # --- 7. synthesizers receive the inputs they are told to use ----------------- #
 def test_campaign_synthesizer_receives_the_campaign_inputs():
     tokens = _tokens(ca_agent.campaign_web_synthesizer.instruction)
