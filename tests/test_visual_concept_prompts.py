@@ -183,8 +183,11 @@ def test_person_casting_rules_allow_real_person_and_sensitive_trends():
     assert "never a likeness of the trending real person" in rules
     assert "appears as themselves" in rules
     assert "never presented as the real person" in rules
-    assert "costume, signature attire, uniform or vestments" in rules
-    assert "endorsed by them" in rules
+    assert "no costume, signature attire, uniform or vestments" not in rules
+    assert "may wear or hold one signature item" in rules
+    assert "never a full recreation of the real person's look" in rules
+    assert "no features copied from them" in rules
+    assert "implying they are that person or are endorsed by them" in rules
     assert "never place the cast person in a scene depicting" in rules
     assert "injury, damage or victims" in rules
     assert "general cultural iconography" in rules
@@ -193,6 +196,8 @@ def test_person_casting_rules_allow_real_person_and_sensitive_trends():
         built = prompts.build_person_casting_rules(style_set, 2)
         assert "{" not in built and "}" not in built
         assert "appears as themselves" in built
+        assert "may wear or hold one signature item" in built
+        assert "never a full recreation of the real person's look" in built
 
 
 def test_person_casting_rules_keep_the_product_out_of_the_persons_hands():
