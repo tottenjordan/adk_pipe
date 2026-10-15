@@ -1151,6 +1151,20 @@ def validate_brief_edit(value: object) -> dict:
     return brief.model_dump()
 
 
+def _same_brief(current: Mapping[str, Any], brief: dict) -> bool:
+    """Is the stored ``current`` brief the edited ``brief``? A brief stored
+    before a field was added (e.g. ``trend_bridge.safer_angle``) is compared
+    with its defaults filled in."""
+    if dict(current) == brief:
+        return True
+    from creative_agent import CreativeBrief
+
+    try:
+        return CreativeBrief.model_validate(current).model_dump() == brief
+    except ValidationError:
+        return False
+
+
 def merge_brief_edit(state: dict | None, edits: list | None) -> dict:
     """Pure: turn a checkpoint-1 structured-brief edit into a state delta.
 
@@ -1159,18 +1173,23 @@ def merge_brief_edit(state: dict | None, edits: list | None) -> dict:
     Markdown ``creative_brief_md`` (what the creative prompts read, re-rendered
     exactly as the brief gate does) and ``creative_brief_edited: True``, and
     clears ``creative_brief__issues`` (the gate's verdict was on the old brief;
-    the user's edit is authoritative). No brief edit, or a brief equal to the
-    current one, is a no-op ({})."""
+    the user's edit is authoritative). On a run without an active safer angle
+    (``creative_agent.safer_angle``) a ``trend_bridge.safer_angle`` is cleared,
+    as the brief gate does, so the creative prompts never see one. No brief
+    edit, or a brief equal to the current one, is a no-op ({})."""
     from creative_agent.brief_check import parse_brief
     from creative_agent.brief_render import render_brief_markdown
+    from creative_agent.safer_angle import clear_stray_safer_angle, is_active
 
     found, value = _brief_edit_value(edits)
     if not found:
         return {}
     brief = validate_brief_edit(value)
     state = state if isinstance(state, dict) else {}
+    if not is_active(state) and (stray := clear_stray_safer_angle(brief)):
+        brief = stray
     current = parse_brief(state.get(BRIEF_EDIT_FIELD))
-    if current is not None and dict(current) == brief:
+    if current is not None and _same_brief(current, brief):
         return {}
     return {
         BRIEF_EDIT_FIELD: brief,

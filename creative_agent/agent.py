@@ -60,6 +60,8 @@ from .finalize import (
     persist_node,
 )
 from .rating_signals import strictness_flags
+from .safer_angle import clear_stray_safer_angle
+from .safer_angle import is_active as is_safer_angle_active
 from .schemas import (  # noqa: F401
     AdCopy,
     AdCopyList,
@@ -365,6 +367,7 @@ def _brief_issues(state: Mapping[str, Any]) -> list[str]:
         key_selling_points=_selling_points(state),
         trend_situation=situation if isinstance(situation, Mapping) else None,
         max_timely=config.max_timely_concepts,
+        safer_angle_active=is_safer_angle_active(state),
     )
 
 
@@ -385,6 +388,14 @@ def brief_gate_decision(
         brief = cleaned
         snapshot["creative_brief"] = cleaned
         base["creative_brief"] = cleaned
+    # Without an active safer angle the creative prompts must never see one:
+    # a stray trend_bridge.safer_angle is cleared here (no revision round).
+    if not is_safer_angle_active(snapshot) and (
+        stray := clear_stray_safer_angle(dict(parse_brief(brief) or {}))
+    ):
+        brief = stray
+        snapshot["creative_brief"] = stray
+        base["creative_brief"] = stray
     brief_md = render_brief_markdown(
         brief, heading=False, current_moment=_current_moment(snapshot)
     )
