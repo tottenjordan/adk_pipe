@@ -95,6 +95,7 @@ def test_runtime_knobs_are_shipped():
         ("EVAL_MAX_WORKERS", "2"),
         ("EVAL_MAX_VISUAL_WAVE_WORKERS", "4"),
         ("CAMPAIGN_RESEARCH_PLACEMENT", "global_altbucket"),
+        ("GEMINI_TEMPERATURE_PROFILE", "tuned"),
         ("MODEL_LOCATION", "global"),
     ],
 )
@@ -107,10 +108,12 @@ def test_shipped_defaults_match_config_defaults(key, expected):
 def test_config_parser_defaults_are_the_documented_ones(monkeypatch):
     """Pin the parser side of the defaults compared above."""
     from agent_common.genai_retry import DEFAULT_MODEL_REQUEST_TIMEOUT_SECONDS
+    from agent_common.sampling import DEFAULT_PROFILE
     from creative_agent.config import DEFAULT_CAMPAIGN_ARM
 
     assert DEFAULT_MODEL_REQUEST_TIMEOUT_SECONDS == 240
     assert DEFAULT_CAMPAIGN_ARM == "global_altbucket"
+    assert DEFAULT_PROFILE == "tuned"
     for key in ("EVAL_MODEL", "EVAL_MAX_WORKERS", "EVAL_MAX_VISUAL_WAVE_WORKERS"):
         monkeypatch.delenv(key, raising=False)
     from creative_eval.config import EvalConfig

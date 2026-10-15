@@ -149,6 +149,12 @@ ENV_VAR_DICT = {
     "CAMPAIGN_RESEARCH_PLACEMENT": os.getenv(
         "CAMPAIGN_RESEARCH_PLACEMENT", "global_altbucket"
     ),
+    # Sampling profile for the agents' explicit temperatures
+    # (agent_common/sampling.py; default `tuned`, `default` = Gemini 3's 1.0,
+    # unknown values fall back to `tuned`). Read at agent-module import, so the
+    # pickled agents carry the deployer's value; shipped so the engine env
+    # records which arm it is.
+    "GEMINI_TEMPERATURE_PROFILE": os.getenv("GEMINI_TEMPERATURE_PROFILE", "tuned"),
 }
 
 # Shipped only when set in the deployer's env (never a None, never an invented
