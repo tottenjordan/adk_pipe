@@ -86,6 +86,15 @@ class FakeBucket:
         meta = self.objects.get(name)
         return FakeBlob(self, name, meta) if meta is not None else None
 
+    def list_blobs(self, prefix: str = "", max_results: int | None = None):
+        self.gcs.ops.append(("list", self.name, prefix, max_results))
+        if self.gcs.fail_list:
+            raise RuntimeError("list failed")
+        names = sorted(n for n in self.objects if n.startswith(prefix))
+        if max_results is not None:
+            names = names[:max_results]
+        return [FakeBlob(self, n, self.objects[n]) for n in names]
+
 
 class FakeGCS:
     def __init__(self):
@@ -94,6 +103,7 @@ class FakeGCS:
         self.fail_head = False
         self.fail_delete = False
         self.fail_download = False
+        self.fail_list = False
 
     def add(
         self,
@@ -832,6 +842,134 @@ def test_session_read_failure_is_502_and_retryable(monkeypatch):
         monkeypatch.setattr(h.svc, "get_session", real)
         assert (await h.client.delete(f"/person-refs/{A}/{cid}")).status_code == 204
         assert not h.gcs.has(PHOTO_A)
+
+    run(go)
+
+
+# --- revoke: the recorded runs' output folders ------------------------------------
+
+RUN_STATE = {"gcs_folder": "run1", "agent_output_dir": "creative_output"}
+
+
+async def _session_run(h: Harness, cid: str, state: dict, session_id: str = "s-1"):
+    await h.svc.create_session(
+        app_name="creative_agent", user_id=A, session_id=session_id, state=state
+    )
+    await pr.record_session(A, cid, "creative_agent", session_id)
+
+
+def _lists(h: Harness) -> list[tuple]:
+    return [op for op in h.gcs.ops if op[0] == "list"]
+
+
+def test_revoke_scans_the_run_folder_for_renders_missing_from_state():
+    """A concept renamed and re-rendered within a segment drops its first cast
+    render out of ``generated_images``; the object (blob metadata ``consent_id``)
+    stays in the run folder and must still go on revoke."""
+
+    async def go():
+        h = Harness()
+        cid = (await h.create()).json()["consent_id"]
+        orphan = _render(cid, "Old_Name.png")
+        swap = _variant(cid, "swap.png")
+        other = _render(cid, "other.png")
+        bare = _render(cid, "bare.png")
+        h.gcs.add(orphan, metadata={"consent_id": cid})
+        h.gcs.add(swap, metadata={"consent_id": "new-12345", "source_consent_id": cid})
+        h.gcs.add(other, metadata={"consent_id": "other-1234"})
+        h.gcs.add(bare, metadata=None)
+        await _session_run(h, cid, {**RUN_STATE, "generated_images": {}})
+        r = await h.client.delete(f"/person-refs/{A}/{cid}")
+        assert r.status_code == 204, r.text
+        assert not h.gcs.has(orphan) and not h.gcs.has(swap)
+        assert h.gcs.has(other) and h.gcs.has(bare)
+        assert _lists(h) == [
+            ("list", BUCKET, "run1/creative_output/", pr.MAX_FOLDER_SCAN_BLOBS)
+        ]
+        assert pr.MAX_FOLDER_SCAN_BLOBS == 500
+        # idempotent
+        assert (await h.client.delete(f"/person-refs/{A}/{cid}")).status_code == 204
+
+    run(go)
+
+
+@pytest.mark.parametrize(
+    "over",
+    [
+        {"gcs_folder": "shares"},
+        {"gcs_folder": "person-refs"},
+        {"gcs_folder": ".."},
+        {"gcs_folder": "a/b"},
+        {"gcs_folder": ""},
+        {"gcs_folder": None},
+        {"agent_output_dir": "variants"},
+        {"agent_output_dir": "x/../y"},
+        {"agent_output_dir": 3},
+    ],
+)
+def test_revoke_never_lists_an_unsafe_run_folder(over):
+    async def go():
+        h = Harness()
+        cid = (await h.create()).json()["consent_id"]
+        orphan = _render(cid, "Old_Name.png")
+        h.gcs.add(orphan, metadata={"consent_id": cid})
+        await _session_run(h, cid, {**RUN_STATE, **over})
+        r = await h.client.delete(f"/person-refs/{A}/{cid}")
+        assert r.status_code == 204, r.text
+        assert _lists(h) == []
+        assert h.gcs.has(orphan)
+
+    run(go)
+
+
+def test_revoke_folder_scan_is_capped(monkeypatch):
+    async def go():
+        h = Harness()
+        cid = (await h.create()).json()["consent_id"]
+        monkeypatch.setattr(pr, "MAX_FOLDER_SCAN_BLOBS", 2)
+        renders = [_render(cid, f"c{i}.png") for i in range(3)]
+        for uri in renders:
+            h.gcs.add(uri, metadata={"consent_id": cid})
+        await _session_run(h, cid, RUN_STATE)
+        r = await h.client.delete(f"/person-refs/{A}/{cid}")
+        assert r.status_code == 204, r.text
+        assert _lists(h) == [("list", BUCKET, "run1/creative_output/", 2)]
+        assert [h.gcs.has(u) for u in renders] == [False, False, True]
+
+    run(go)
+
+
+def test_revoke_skips_the_folder_of_a_deleted_or_missing_session():
+    async def go():
+        h = Harness()
+        cid = (await h.create()).json()["consent_id"]
+        orphan = _render(cid, "Old_Name.png")
+        h.gcs.add(orphan, metadata={"consent_id": cid})
+        await pr.record_session(A, cid, "creative_agent", "gone-1")
+        await _session_run(h, cid, {}, session_id="s-empty")  # no folder keys
+        r = await h.client.delete(f"/person-refs/{A}/{cid}")
+        assert r.status_code == 204, r.text
+        assert _lists(h) == []
+        assert h.gcs.has(orphan)
+
+    run(go)
+
+
+def test_revoke_folder_listing_failure_is_revoke_incomplete():
+    async def go():
+        h = Harness()
+        cid = (await h.create()).json()["consent_id"]
+        orphan = _render(cid, "Old_Name.png")
+        h.gcs.add(orphan, metadata={"consent_id": cid})
+        await _session_run(h, cid, RUN_STATE)
+        h.gcs.fail_list = True
+        r = await h.client.delete(f"/person-refs/{A}/{cid}")
+        assert r.status_code == 502
+        assert r.json()["detail"]["reason"] == "revoke_incomplete"
+        assert h.gcs.has(orphan) and h.gcs.has(PHOTO_A)
+        h.gcs.fail_list = False
+        assert (await h.client.delete(f"/person-refs/{A}/{cid}")).status_code == 204
+        assert not h.gcs.has(orphan) and not h.gcs.has(PHOTO_A)
 
     run(go)
 

@@ -19,7 +19,10 @@ in the record's ``person_renders`` (cast base renders, recorded by
 ``record_renders`` from the api run path, and personalised variants, recorded at
 upload), plus the cast renders and variants found in the state of every run
 recorded on it as a ``session:<app>/<session_id>`` marker (``record_session``, at
-kick-off, so a run that died mid-segment is covered too), but only objects still
+kick-off, so a run that died mid-segment is covered too) and in that run's output
+folder ``{gcs_folder}/{agent_output_dir}/`` (at most ``MAX_FOLDER_SCAN_BLOBS``
+listed; catches a render that dropped out of state when its concept was renamed
+and re-rendered), but only objects still
 carrying blob metadata ``consent_id`` or ``source_consent_id`` = this consent
 (session state is client-seedable, so a recorded URI alone never deletes an
 object; ``source_consent_id`` marks a person swap edited from a render cast
@@ -96,6 +99,9 @@ _NOT_RENDER_PREFIXES = ("shares/", PERSON_REFS_PREFIX)
 # ``person_renders`` entries that name a run (``session:<app>/<session_id>``)
 # rather than an object; written at kick-off by the /runs path.
 SESSION_MARKER_PREFIX = "session:"
+# At most this many objects are listed per recorded run's output folder at revoke
+# (a run writes a handful of renders, variants and reports).
+MAX_FOLDER_SCAN_BLOBS = 500
 _APP_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,63}$")
 _SESSION_ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
 
@@ -414,6 +420,39 @@ def _delete_photo(bucket_name: str, path: str) -> None:
         pass
 
 
+def _made_with(blob: Any, consent_id: str) -> bool:
+    """The object's metadata names this consent (``consent_id``, or
+    ``source_consent_id`` for a person swap edited from a render cast with it)."""
+    metadata = blob.metadata or {}
+    return consent_id in (
+        metadata.get(RENDER_METADATA_KEY),
+        metadata.get(RENDER_SOURCE_METADATA_KEY),
+    )
+
+
+def _delete_folder_renders(bucket_name: str, consent_id: str, prefix: str) -> int:
+    """Delete every object in a run's output folder ``prefix`` (at most
+    ``MAX_FOLDER_SCAN_BLOBS`` listed, variants included) whose metadata names this
+    consent (blocking); returns the number deleted. Catches renders that dropped
+    out of session state (a concept renamed and re-rendered within a segment).
+    Raises on a GCS failure."""
+    from google.api_core.exceptions import NotFound
+
+    bucket = _gcs().bucket(bucket_name)
+    deleted = 0
+    # The default ``noAcl`` projection returns each object's custom metadata.
+    for blob in bucket.list_blobs(prefix=prefix, max_results=MAX_FOLDER_SCAN_BLOBS):
+        name = blob.name or ""
+        if name.startswith(_NOT_RENDER_PREFIXES) or not _made_with(blob, consent_id):
+            continue
+        try:
+            blob.delete()
+            deleted += 1
+        except NotFound:
+            pass
+    return deleted
+
+
 def _delete_renders(bucket_name: str, consent_id: str, uris: Iterable[Any]) -> int:
     """Delete each recorded render that still carries this consent's metadata
     (``consent_id``, or ``source_consent_id`` for a person swap edited from a
@@ -430,11 +469,7 @@ def _delete_renders(bucket_name: str, consent_id: str, uris: Iterable[Any]) -> i
         blob = bucket.get_blob(path)
         if blob is None:
             continue
-        metadata = blob.metadata or {}
-        if consent_id not in (
-            metadata.get(RENDER_METADATA_KEY),
-            metadata.get(RENDER_SOURCE_METADATA_KEY),
-        ):
+        if not _made_with(blob, consent_id):
             skipped += 1  # overwritten since, or never made with this consent
             continue
         try:
@@ -479,8 +514,13 @@ async def _session_state(owner: str, app_name: str, session_id: str) -> Any:
 async def delete_session_renders(record: Mapping[str, Any]) -> None:
     """For every run recorded on the consent (``session:`` markers), delete the
     cast renders and variants its state lists for this consent (metadata-checked,
-    see ``_delete_renders``). A deleted session is skipped; a read failure raises
-    (the revoke is retryable)."""
+    see ``_delete_renders``), then every object in the run's output folder
+    ``{gcs_folder}/{agent_output_dir}/`` (validated like ``shares.output_prefix``;
+    skipped when absent or unsafe) whose metadata names the consent. A deleted
+    session is skipped; a read or listing failure raises (the revoke is
+    retryable)."""
+    from runserver.shares import output_prefix  # shares imports this module
+
     bucket, cid = _BUCKET, record.get("consent_id")
     owner = record.get("owner_user")
     if _SESSION_SERVICE is None or not (
@@ -495,6 +535,17 @@ async def delete_session_renders(record: Mapping[str, Any]) -> None:
         uris = session_render_uris(state, cid)
         if uris:
             await asyncio.to_thread(_delete_renders, bucket, cid, uris)
+        prefix = output_prefix(state) if isinstance(state, Mapping) else None
+        if prefix:
+            deleted = await asyncio.to_thread(
+                _delete_folder_renders, bucket, cid, prefix
+            )
+            if deleted:
+                log.info(
+                    "person refs: deleted %d unrecorded image(s) of a revoked "
+                    "consent from a run folder",
+                    deleted,
+                )
 
 
 async def record_session(
