@@ -12,7 +12,8 @@ Each parallel deploy step of deployment/cloudbuild.agents.yaml writes one
   apply    operator side: write the IDs into a local ``.env`` (old -> new shown);
            ``--update-worker`` also sets the batch worker's
            ``CREATIVE_AGENT_ENGINE_ID`` env var (``gcloud run services update``),
-           refusing while a trends row is PROCESSING unless ``--force``
+           then routes 100% of its (pinned) traffic to the new revision and
+           verifies revision, env and traffic; refuses while a trends row is PROCESSING unless ``--force``
 
     uv run python deployment/engine_handoff.py apply --ids engine_ids.json --env-file .env
     uv run python deployment/engine_handoff.py apply --ids engine_ids.json --update-worker
@@ -199,11 +200,97 @@ def check_worker_idle() -> None:
         )
 
 
+class WorkerTrafficError(RuntimeError):
+    """The worker's new revision was created but is not verifiably serving."""
+
+
+def _gcloud_json(args: list[str]) -> dict:
+    """Run a read-only ``gcloud ... --format=json`` command and parse it."""
+    out = subprocess.run(
+        ["gcloud", *args, "--format=json"],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    return json.loads(out.stdout or "{}")
+
+
+def _describe_service(service: str, region: str) -> dict:
+    return _gcloud_json(["run", "services", "describe", service, "--region", region])
+
+
+def _serving(svc: dict) -> dict[str, int]:
+    """``{revision: percent}`` of the service's routed traffic (percent > 0)."""
+    serving: dict[str, int] = {}
+    for t in (svc.get("status") or {}).get("traffic") or []:
+        rev, pct = t.get("revisionName"), int(t.get("percent") or 0)
+        if rev and pct:
+            serving[rev] = serving.get(rev, 0) + pct
+    return serving
+
+
+def _to_revisions(serving: dict[str, int]) -> str:
+    return ",".join(f"{rev}={pct}" for rev, pct in sorted(serving.items()))
+
+
+def _traffic_cmd(service: str, region: str, to_revisions: str) -> str:
+    return (
+        f"gcloud run services update-traffic {service} --region {region} "
+        f"--to-revisions {to_revisions}"
+    )
+
+
 def update_worker(resource_name: str, service: str = WORKER_SERVICE) -> None:
-    """Set ``service``'s ``CREATIVE_AGENT_ENGINE_ID`` to ``resource_name``
-    (shell-free gcloud; a failure raises CalledProcessError). The worker
-    accepts the full resource name or a bare id."""
+    """Set ``service``'s ``CREATIVE_AGENT_ENGINE_ID`` to ``resource_name`` and
+    make the new revision serve 100% of the traffic (shell-free gcloud; a
+    failing gcloud call raises CalledProcessError). The worker accepts the full
+    resource name or a bare id.
+
+    The worker service is traffic-pinned (traffic assigned to a named revision,
+    not "latest"), so ``services update`` alone creates the new revision at 0%
+    and the old engine keeps serving (seen 2026-10-15). After the update:
+
+    1. ``services describe`` -> ``status.latestCreatedRevisionName`` = the
+       revision the update created;
+    2. ``revisions describe`` it: its ``Ready`` condition must be ``True`` and
+       its container env must carry the new ``CREATIVE_AGENT_ENGINE_ID``;
+    3. unless it already serves 100% (a service that follows the latest
+       revision), ``services update-traffic --to-revisions <new>=100``. The
+       explicit revision rather than ``--to-latest``: it keeps the pin model
+       the service already uses (rollback = pin the previous revision again)
+       and routes exactly the revision verified in step 2, never a newer one a
+       concurrent deploy created in between;
+    4. ``services describe`` again: ``status.traffic`` must give the new
+       revision 100%.
+
+    A failed check raises WorkerTrafficError naming the manual fix and the
+    rollback command (the revisions that served before the update).
+
+    gcloud references:
+    https://cloud.google.com/sdk/gcloud/reference/run/services/update-traffic
+    https://cloud.google.com/sdk/gcloud/reference/run/services/describe
+    https://cloud.google.com/sdk/gcloud/reference/run/revisions/describe
+    (JSON fields ``status.latestCreatedRevisionName`` / ``status.traffic``:
+    https://cloud.google.com/run/docs/reference/rest/v1/namespaces.services)
+    """
     region = os.getenv("GCP_REGION", "us-central1")
+    before = _serving(_describe_service(service, region))
+    rollback = (
+        _traffic_cmd(service, region, _to_revisions(before)) if before else "(none)"
+    )
+
+    def fail(problem: str, new: str | None) -> WorkerTrafficError:
+        fix = (
+            f"\n  fix (once {new} is Ready with the new env): "
+            f"{_traffic_cmd(service, region, f'{new}=100')}"
+            if new
+            else ""
+        )
+        return WorkerTrafficError(
+            f"{problem}\n  traffic before the update: "
+            f"{_to_revisions(before) or 'unknown'}{fix}\n  rollback: {rollback}"
+        )
+
     print(f"{service}: {WORKER_ENV_KEY} -> {resource_name}")
     subprocess.run(
         [
@@ -220,6 +307,60 @@ def update_worker(resource_name: str, service: str = WORKER_SERVICE) -> None:
         ],
         check=True,
     )
+
+    svc = _describe_service(service, region)
+    new = (svc.get("status") or {}).get("latestCreatedRevisionName")
+    if not new:
+        raise fail("can't tell which revision the update created", None)
+    rev = _gcloud_json(["run", "revisions", "describe", new, "--region", region])
+    ready = any(
+        c.get("type") == "Ready" and c.get("status") == "True"
+        for c in (rev.get("status") or {}).get("conditions") or []
+    )
+    if not ready:
+        raise fail(
+            f"new revision {new} is not Ready; traffic left on "
+            f"{_to_revisions(_serving(svc)) or 'unknown'}",
+            new,
+        )
+    env_values = [
+        e.get("value")
+        for c in (rev.get("spec") or {}).get("containers") or []
+        for e in c.get("env") or []
+        if e.get("name") == WORKER_ENV_KEY
+    ]
+    if env_values != [resource_name]:
+        raise fail(
+            f"new revision {new} has {WORKER_ENV_KEY}={env_values!r}, "
+            f"expected {resource_name!r}",
+            None,
+        )
+    if _serving(svc).get(new) != 100:
+        print(f"{service}: routing 100% to {new} (was {_to_revisions(_serving(svc))})")
+        subprocess.run(
+            [
+                "gcloud",
+                "run",
+                "services",
+                "update-traffic",
+                service,
+                "--region",
+                region,
+                "--to-revisions",
+                f"{new}=100",
+                "--quiet",
+            ],
+            check=True,
+        )
+        svc = _describe_service(service, region)
+    serving = _serving(svc)
+    if serving.get(new) != 100:
+        raise fail(
+            f"{new} does not serve 100% after update-traffic "
+            f"(traffic: {_to_revisions(serving) or 'none'})",
+            new,
+        )
+    print(f"{service}: {new} serves 100% with {WORKER_ENV_KEY}={resource_name}")
 
 
 def _storage_client():
@@ -321,7 +462,7 @@ def main(argv: list[str] | None = None) -> int:
     except WorkerUpdateError as e:
         print(f"Refusing to update {args.worker_service}: {e}")
         return 1
-    except subprocess.CalledProcessError as e:
+    except (WorkerTrafficError, subprocess.CalledProcessError) as e:
         print(f"Updating {args.worker_service} failed: {e}")
         return 1
     return 0
