@@ -16,6 +16,7 @@ import {
   type BriefErrors,
 } from "@/lib/brief-edit";
 import type { CreativeBrief, FitMode } from "@/lib/creative-brief";
+import { saferAngleActive } from "@/lib/safer-angle";
 import { cn } from "@/lib/utils";
 import { ResearchReportEditor, useReportEdit } from "./report-editor";
 import { useReviewDraft } from "./review-drafts";
@@ -150,10 +151,13 @@ export function BriefEditForm({
   draft,
   onChange,
   errors,
+  showSaferAngle = false,
 }: {
   draft: CreativeBrief;
   onChange: (draft: CreativeBrief) => void;
   errors: BriefErrors;
+  /** Show the optional safer-angle field (a safer-angle run, or a brief that has one). */
+  showSaferAngle?: boolean;
 }) {
   const uid = useId();
   const id = (name: string) => `${uid}-${name}`;
@@ -245,6 +249,16 @@ export function BriefEditForm({
             <FieldLabel>Timely angle (set by the current moment)</FieldLabel>
             <p className="mt-1 text-sm">{tb.timelyAngle}</p>
           </div>
+        )}
+        {showSaferAngle && (
+          <TextField
+            id={id("safer-angle")}
+            label="Safer angle (optional)"
+            value={tb.saferAngle}
+            onChange={(v) => setBridge({ saferAngle: v })}
+            error={errors["trend_bridge.safer_angle"]}
+            rows={2}
+          />
         )}
         <TextField
           id={id("tone")}
@@ -410,7 +424,12 @@ export function ReviewBrief({
         guidance.
       </p>
 
-      <BriefEditForm draft={draft} onChange={setDraft} errors={shownErrors} />
+      <BriefEditForm
+        draft={draft}
+        onChange={setDraft}
+        errors={shownErrors}
+        showSaferAngle={saferAngleActive(state) || Boolean(brief.trendBridge.saferAngle)}
+      />
 
       <details className="group rounded-md border border-border bg-background">
         <summary className="cursor-pointer px-4 py-2.5 text-sm font-medium text-foreground">

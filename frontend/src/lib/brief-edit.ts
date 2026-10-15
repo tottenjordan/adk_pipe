@@ -94,6 +94,9 @@ export function toBriefPayload(draft: CreativeBrief): Record<string, unknown> {
       motifs: clean(tb.motifs),
       risks: clean(tb.risks),
       timely_angle: tb.timelyAngle.trim(),
+      // Only when set: older briefs (and engines) have no safer angle, and the
+      // backend defaults a missing one to "".
+      ...(tb.saferAngle.trim() && { safer_angle: tb.saferAngle.trim() }),
     },
     mandatories: clean(draft.mandatories),
     avoid: clean(draft.avoid),

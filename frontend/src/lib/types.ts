@@ -81,6 +81,14 @@ export interface CampaignInput {
    */
   learnFromRatings?: boolean;
   /**
+   * creative_agent / interactive_creative only: for a trend whose carried
+   * `trendContext` is flagged sensitive, look for a respectful, positive angle
+   * on the trend's subject (the event itself is never referenced). Seeded as
+   * `safer_angle_opt_in: true` only when checked AND the context is sensitive.
+   * Cleared with `trendContext` when the trend is edited.
+   */
+  saferAngle?: boolean;
+  /**
    * creative_agent / interactive_creative only: one of the caller's active
    * person consents (/people) that the visual agents may cast as a concept's
    * hero. Seeded as `person_reference: {uri, consent_id}` only when chosen; the

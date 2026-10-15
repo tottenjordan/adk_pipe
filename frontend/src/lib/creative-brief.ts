@@ -37,6 +37,12 @@ export interface TrendBridge {
    * carried through so an edited brief keeps it.
    */
   timelyAngle: string;
+  /**
+   * The respectful, positive angle on a sensitive trend's subject (opt-in
+   * safer-angle runs); "" otherwise and on older briefs. Editable at
+   * checkpoint 1.
+   */
+  saferAngle: string;
 }
 
 export interface CreativeAngle {
@@ -136,6 +142,7 @@ export function parseCreativeBrief(value: unknown): CreativeBrief | null {
       motifs: strList(bridge.motifs),
       risks: strList(bridge.risks),
       timelyAngle: str(bridge.timely_angle),
+      saferAngle: str(bridge.safer_angle),
     },
     mandatories: strList(raw.mandatories),
     avoid: strList(raw.avoid),

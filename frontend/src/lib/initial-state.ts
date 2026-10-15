@@ -1,4 +1,5 @@
 import { isReferenceUri, referenceImagesFromForm } from "@/lib/reference-images";
+import { contextSensitivity } from "@/lib/trend-flags";
 import type { CampaignInput } from "@/lib/types";
 
 /**
@@ -21,6 +22,9 @@ import type { CampaignInput } from "@/lib/types";
  *   (`trend_scout_context` / `trend_detected_on`, hints the agents re-verify).
  * - Rating learning: `learn_from_ratings: true` only when a creative run opts
  *   in (the backend setdefaults it to false).
+ * - Safer angle: `safer_angle_opt_in: true` only when a creative run opts in
+ *   AND the carried trend context is flagged sensitive (otherwise the key is
+ *   omitted; the backend treats it as off).
  * - Person: `person_reference: {uri, consent_id}` only when a creative run
  *   picks one of the caller's consents (the backend setdefaults it to {}).
  * - Reference images: every set reference row goes to `reference_images`
@@ -73,6 +77,9 @@ export function buildInitialState(form: CampaignInput): Record<string, unknown> 
   }
 
   if (form.learnFromRatings === true) state.learn_from_ratings = true;
+  if (form.saferAngle === true && contextSensitivity(form.trendContext).sensitive) {
+    state.safer_angle_opt_in = true;
+  }
 
   const person = form.personReference;
   if (person?.uri?.trim() && person.consentId?.trim()) {

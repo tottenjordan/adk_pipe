@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/select";
 import { LearnFromRatingsToggle } from "@/components/learn-from-ratings-toggle";
 import { PersonSelect } from "@/components/person-select";
+import { SAFER_ANGLE_ADVICE, SaferAngleToggle } from "@/components/safer-angle-toggle";
 import { SENSITIVE_TREND_ADVICE } from "@/components/sensitive-chip";
 import { RunList, useRunHistory } from "@/components/run-list";
 import { createSession, SELF_USER_ID } from "@/lib/api";
@@ -45,6 +46,7 @@ const EMPTY_FORM: CampaignInput = {
   targetSearchTrend: "",
   interactiveTrendPick: false,
   learnFromRatings: false,
+  saferAngle: false,
   personReference: null,
   referenceImageUri: "",
   referenceImageRole: "",
@@ -226,6 +228,8 @@ function HomeContent() {
         ...(targetSearchTrend && { targetSearchTrend }),
         ...(targetSearchTrend && trendContext && { trendContext }),
         ...(targetSearchTrend && trendDetectedOn && { trendDetectedOn }),
+        // A newly carried trend starts with the respectful-angle opt-in off.
+        ...(targetSearchTrend && { saferAngle: false }),
       }));
     }
   }
@@ -336,14 +340,17 @@ function HomeContent() {
           </p>
         )}
         {isCreative && sensitivity.sensitive && (
-          <p
-            role="alert"
-            className="mb-5 rounded-md border border-mark-pending/40 bg-mark-pending/5 px-3 py-2 text-sm text-foreground"
-          >
-            <strong className="font-semibold">Sensitive trend</strong>
-            {sensitivity.reason ? `: ${sensitivity.reason}. ` : ". "}
-            {SENSITIVE_TREND_ADVICE}
-          </p>
+          <div className="mb-5 space-y-2.5 rounded-md border border-mark-pending/40 bg-mark-pending/5 px-3 py-2 text-sm text-foreground">
+            <p role="alert">
+              <strong className="font-semibold">Sensitive trend</strong>
+              {sensitivity.reason ? `: ${sensitivity.reason}. ` : ". "}
+              {form.saferAngle ? SAFER_ANGLE_ADVICE : SENSITIVE_TREND_ADVICE}
+            </p>
+            <SaferAngleToggle
+              checked={form.saferAngle ?? false}
+              onChange={(checked) => setForm({ ...form, saferAngle: checked })}
+            />
+          </div>
         )}
 
         <form
@@ -503,12 +510,14 @@ function HomeContent() {
                   value={form.targetSearchTrend}
                   onChange={(e) =>
                     // A different trend: the carried-over trend_scout context
-                    // and detection date no longer describe it.
+                    // and detection date no longer describe it (and the
+                    // respectful-angle opt-in goes with the sensitive context).
                     setForm({
                       ...form,
                       targetSearchTrend: e.target.value,
                       trendContext: undefined,
                       trendDetectedOn: undefined,
+                      saferAngle: false,
                     })
                   }
                 />

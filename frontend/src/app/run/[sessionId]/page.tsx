@@ -23,11 +23,13 @@ import { SELF_USER_ID } from "@/lib/api";
 import { STEP_ERROR_PREFIX } from "@/lib/step-errors";
 import { LearningSummary } from "@/components/learning-summary";
 import { TrendSituationLine } from "@/components/trend-situation-line";
+import { SaferAngleLine } from "@/components/safer-angle-line";
 import { learningSummaryText } from "@/lib/rating-learning";
 import { trendSituationText } from "@/lib/trend-situation";
 import {
   buildDisplayFields,
   RATING_LEARNING_FIELD,
+  SAFER_ANGLE_FIELD,
   VISUAL_DIRECTION_FIELDS,
   type DisplayFieldDef,
 } from "@/lib/utils";
@@ -46,6 +48,7 @@ const CAMPAIGN_FIELD_DEFS: DisplayFieldDef[] = [
   { label: "Key selling points", key: "key_selling_points" },
   { label: "Search trend", key: "target_search_trends", altKey: "target_search_trend" },
   RATING_LEARNING_FIELD,
+  SAFER_ANGLE_FIELD,
 ];
 
 export default function RunPage({
@@ -324,6 +327,8 @@ export default function RunPage({
 
                   {/* The trend's validated current moment (read-only) */}
                   <TrendSituationLine state={sessionState} className="sm:col-span-2" />
+                  {/* The respectful angle of an opted-in sensitive-trend run */}
+                  <SaferAngleLine state={sessionState} className="sm:col-span-2" />
 
                   {/* Full width first: the brief is the strategy every later output follows */}
                   {creativeBrief && (
