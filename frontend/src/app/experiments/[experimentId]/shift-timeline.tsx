@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
-import { ChevronDownIcon, ChevronUpIcon, PlusIcon, XIcon } from "lucide-react";
+import { useId, useMemo, useState, type ReactNode } from "react";
+import { ChevronDownIcon, ChevronUpIcon, XIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { FieldLabel } from "@/components/field-label";
 import { InfoTip } from "@/components/ui/info-tip";
@@ -24,7 +24,6 @@ import {
   SHIFT_KINDS,
   SHIFT_LEADER,
   SHIFT_MIN_WINDOW,
-  SHIFT_PRESETS,
   shiftBounds,
   shiftPreview,
   swapTimes,
@@ -37,6 +36,7 @@ import {
 } from "@/lib/shifts";
 import { cn } from "@/lib/utils";
 import { CONDENSED } from "@/app/results/[sessionId]/score-mark";
+import { AddShiftMenu } from "./add-shift-menu";
 import { SHADE_MIN, SHADE_SPAN } from "./segment-grid";
 
 const INK = "#1a1d21";
@@ -167,87 +167,6 @@ export function ShiftTimeline({
         </p>
       )}
     </section>
-  );
-}
-
-// ── Add menu ─────────────────────────────────────────────────────────────────
-
-function AddShiftMenu({
-  onAdd,
-  disabled,
-}: {
-  onAdd: (kind: ShiftKind | null, preset: ShiftPresetId | null) => void;
-  disabled: boolean;
-}) {
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-  const menuId = useId();
-  useEffect(() => {
-    if (!open) return;
-    const onDown = (e: MouseEvent) => {
-      if (!ref.current?.contains(e.target as Node)) setOpen(false);
-    };
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
-    };
-    document.addEventListener("mousedown", onDown);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDown);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [open]);
-  const pick = (kind: ShiftKind | null, preset: ShiftPresetId | null) => {
-    onAdd(kind, preset);
-    setOpen(false);
-  };
-  return (
-    <div ref={ref} className="relative">
-      <Button
-        variant="outline"
-        size="sm"
-        disabled={disabled}
-        aria-expanded={open}
-        aria-controls={menuId}
-        onClick={() => setOpen((o) => !o)}
-      >
-        <PlusIcon /> Add shift
-      </Button>
-      {open && (
-        <div
-          id={menuId}
-          role="menu"
-          className="absolute right-0 z-20 mt-1 w-72 rounded-md border border-border bg-popover p-1 text-sm shadow-md"
-        >
-          <p className="px-2.5 pt-1.5 pb-1 text-xs text-muted-foreground">What changes</p>
-          {SHIFT_KINDS.map((k) => (
-            <button
-              key={k}
-              type="button"
-              role="menuitem"
-              onClick={() => pick(k, null)}
-              className="block w-full rounded-sm px-2.5 py-1.5 text-left text-foreground outline-none hover:bg-muted focus-visible:bg-muted"
-            >
-              {KIND_LABELS[k]}
-            </button>
-          ))}
-          <div className="my-1 border-t border-border" />
-          <p className="px-2.5 pt-1 pb-1 text-xs text-muted-foreground">Ready-made</p>
-          {SHIFT_PRESETS.map((p) => (
-            <button
-              key={p.id}
-              type="button"
-              role="menuitem"
-              onClick={() => pick(null, p.id)}
-              className="block w-full rounded-sm px-2.5 py-1.5 text-left outline-none hover:bg-muted focus-visible:bg-muted"
-            >
-              <span className="block text-foreground">{p.label}</span>
-              <span className="block text-xs text-muted-foreground">{p.description}</span>
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
   );
 }
 
@@ -646,7 +565,7 @@ function CreativeChip({
       disabled={disabled}
       onClick={onClick}
       className={cn(
-        "inline-flex h-8 max-w-[14rem] items-center gap-1.5 rounded-sm border px-2 text-sm outline-none focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-50",
+        "inline-flex h-8 max-w-[14rem] items-center gap-1.5 rounded-sm border px-2 text-sm outline-hidden focus-visible:ring-3 focus-visible:ring-ring/50 disabled:opacity-50",
         active ? "border-foreground bg-foreground/[0.06] font-medium text-foreground" : "border-input bg-card text-foreground/80 hover:bg-muted"
       )}
     >
