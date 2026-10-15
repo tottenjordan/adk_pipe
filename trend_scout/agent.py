@@ -17,6 +17,7 @@ from agent_common import (
     build_safety_plugins,
     drop_other_agent_context,
 )
+from agent_common.sampling import temperature as sampled_temperature
 
 from . import callbacks, prompts
 from .config import INFRA_RETRY, config
@@ -49,7 +50,7 @@ gather_trends_agent = Agent(
     tools=[get_daily_gtrends],
     retry_config=INFRA_RETRY,
     generate_content_config=types.GenerateContentConfig(
-        temperature=1.0,
+        temperature=sampled_temperature(1.0),
         response_modalities=["TEXT"],
         labels={
             "agentic_wf": "trend_scout",
@@ -93,7 +94,7 @@ understand_trends_searcher = Agent(
     ),
     instruction=prompts.UNDERSTAND_TRENDS_SEARCHER_INSTR,
     generate_content_config=types.GenerateContentConfig(
-        temperature=1.5,
+        temperature=sampled_temperature(1.5),
         labels={
             "agentic_wf": "trend_scout",
             "agent": "trend_scout",
@@ -120,7 +121,7 @@ understand_trends_synthesizer = Agent(
     description="Synthesizes the raw trend findings into the structured JSON briefing.",
     instruction=prompts.UNDERSTAND_TRENDS_SYNTHESIZER_INSTR,
     generate_content_config=types.GenerateContentConfig(
-        temperature=1.5,
+        temperature=sampled_temperature(1.5),
         labels={
             "agentic_wf": "trend_scout",
             "agent": "trend_scout",
@@ -179,7 +180,7 @@ pick_trends_agent = Agent(
     ),
     instruction=prompts.PICK_TRENDS_INSTR,
     generate_content_config=types.GenerateContentConfig(
-        temperature=0.4,
+        temperature=sampled_temperature(0.4),
         labels={
             "agentic_wf": "trend_scout",
             "agent": "trend_scout",
@@ -235,7 +236,7 @@ trend_scout = Agent(
         memorize,
     ],
     generate_content_config=types.GenerateContentConfig(
-        temperature=0.01,
+        temperature=sampled_temperature(0.01),
         response_modalities=["TEXT"],
         labels={
             "agentic_wf": "trend_scout",

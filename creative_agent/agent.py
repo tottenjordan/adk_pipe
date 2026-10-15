@@ -25,6 +25,7 @@ from agent_common import (
     drop_other_agent_context,
     is_populated,
 )
+from agent_common.sampling import temperature as sampled_temperature
 
 from . import brand_history, callbacks, gcs_tools, image_tools, prompts, tools
 from .brief_check import check_brief, normalize_brief_terms, parse_brief
@@ -230,7 +231,7 @@ def _build_brief_agent(
         ),
         instruction=prompts.CREATIVE_BRIEF_WRITER_INSTR,
         generate_content_config=types.GenerateContentConfig(
-            temperature=0.7,
+            temperature=sampled_temperature(0.7),
             labels={
                 "agentic_wf": "trend_scout",
                 "agent": "creative_agent",
@@ -648,7 +649,7 @@ ad_copy_drafter = Agent(
     ),
     instruction=prompts.AD_COPY_DRAFTER_INSTR,
     generate_content_config=types.GenerateContentConfig(
-        temperature=1.5,
+        temperature=sampled_temperature(1.5),
         labels={
             "agentic_wf": "trend_scout",
             "agent": "creative_agent",
@@ -682,7 +683,7 @@ ad_copy_critic = Agent(
     ),
     instruction=prompts.AD_COPY_CRITIC_INSTR,
     generate_content_config=types.GenerateContentConfig(
-        temperature=0.7,
+        temperature=sampled_temperature(0.7),
         labels={
             "agentic_wf": "trend_scout",
             "agent": "creative_agent",
@@ -726,7 +727,7 @@ ad_copy_reviser = Agent(
     ),
     instruction=prompts.AD_COPY_REVISER_INSTR,
     generate_content_config=types.GenerateContentConfig(
-        temperature=0.7,
+        temperature=sampled_temperature(0.7),
         labels={
             "agentic_wf": "trend_scout",
             "agent": "creative_agent",
@@ -981,7 +982,7 @@ art_director = Agent(
     ),
     instruction=prompts.ART_DIRECTOR_INSTR,
     generate_content_config=types.GenerateContentConfig(
-        temperature=0.9,
+        temperature=sampled_temperature(0.9),
         labels={
             "agentic_wf": "trend_scout",
             "agent": "creative_agent",
@@ -1008,7 +1009,7 @@ visual_concept_drafter = Agent(
     ),
     instruction=prompts.VISUAL_CONCEPT_DRAFTER_INSTR,
     generate_content_config=types.GenerateContentConfig(
-        temperature=1.5,
+        temperature=sampled_temperature(1.5),
         labels={
             "agentic_wf": "trend_scout",
             "agent": "creative_agent",
@@ -1037,7 +1038,7 @@ visual_concept_critic = Agent(
     ),
     instruction=prompts.VISUAL_CONCEPT_CRITIC_INSTR,
     generate_content_config=types.GenerateContentConfig(
-        temperature=0.7,
+        temperature=sampled_temperature(0.7),
         labels={
             "agentic_wf": "trend_scout",
             "agent": "creative_agent",
@@ -1061,7 +1062,7 @@ visual_concept_finalizer = Agent(
     description="Finalize visual concepts to proceed with.",
     instruction=prompts.VISUAL_CONCEPT_FINALIZER_INSTR,
     generate_content_config=types.GenerateContentConfig(
-        temperature=0.8,
+        temperature=sampled_temperature(0.8),
         labels={
             "agentic_wf": "trend_scout",
             "agent": "creative_agent",
@@ -1100,7 +1101,7 @@ visual_concept_fixer = Agent(
     ),
     instruction=prompts.VISUAL_CONCEPT_FIXER_INSTR,
     generate_content_config=types.GenerateContentConfig(
-        temperature=0.7,
+        temperature=sampled_temperature(0.7),
         labels={
             "agentic_wf": "trend_scout",
             "agent": "creative_agent",
@@ -1447,7 +1448,7 @@ root_agent = Agent(
     instruction=prompts.ROOT_AGENT_INSTR,
     tools=[creative_pipeline, tools.memorize],
     generate_content_config=types.GenerateContentConfig(
-        temperature=1.0,
+        temperature=sampled_temperature(1.0),
         labels={
             "agentic_wf": "trend_scout",
             "agent": "creative_agent",

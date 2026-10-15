@@ -16,6 +16,7 @@ from agent_common import (
     build_safety_plugins,
     drop_other_agent_context,
 )
+from agent_common.sampling import temperature as sampled_temperature
 
 # Reuse existing building blocks from the creative_agent public facade.
 from creative_agent import (
@@ -65,7 +66,7 @@ visual_concept_reviser = Agent(
     description="Apply the user's checkpoint revision notes to the finalized visual concepts before rendering.",
     instruction=ic_prompts.VISUAL_CONCEPT_REVISER_INSTR,
     generate_content_config=types.GenerateContentConfig(
-        temperature=0.4,
+        temperature=sampled_temperature(0.4),
         labels={
             "agentic_wf": "trend_scout",
             "agent": "interactive_creative",
@@ -211,7 +212,7 @@ root_agent = Agent(
         tools.memorize,
     ],
     generate_content_config=types.GenerateContentConfig(
-        temperature=1.0,
+        temperature=sampled_temperature(1.0),
         labels={
             "agentic_wf": "trend_scout",
             "agent": "interactive_creative",
