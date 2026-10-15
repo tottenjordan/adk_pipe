@@ -988,14 +988,24 @@ def test_creative_researcher_agents_have_finish_reason_callback():
 def test_trend_scout_split_agents_have_finish_reason_callback():
     """Both halves of trend_scout's split understand_trends producer keep the
     finish_reason callback (WS3 log parity)."""
-    from agent_common import log_empty_turn_finish_reason
+    from agent_common import (
+        log_empty_turn_finish_reason,
+        scrub_surrogates_in_response,
+    )
     from trend_scout.agent import (
         understand_trends_searcher,
         understand_trends_synthesizer,
     )
 
-    for a in (understand_trends_searcher, understand_trends_synthesizer):
-        assert a.after_model_callback is log_empty_turn_finish_reason
+    assert understand_trends_searcher.after_model_callback is (
+        log_empty_turn_finish_reason
+    )
+    # TS-6: the structured synthesizer scrubs lone surrogates (and blanks a
+    # reply that fails its schema) before logging.
+    callbacks = understand_trends_synthesizer.after_model_callback
+    assert isinstance(callbacks, list)
+    assert callbacks[0] is scrub_surrogates_in_response
+    assert callbacks[-1] is log_empty_turn_finish_reason
 
 
 def test_creative_root_has_final_state_summary():

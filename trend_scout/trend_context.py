@@ -19,13 +19,14 @@ from typing import Any
 
 MAX_FIELD_CHARS = 400
 
-_FENCE = re.compile(r"^\s*```(?:json)?\s*|\s*```\s*$", re.IGNORECASE)
+# A leading/trailing Markdown code fence around model JSON (```json ... ```).
+FENCE = re.compile(r"^\s*```(?:json)?\s*|\s*```\s*$", re.IGNORECASE)
 _HEADING = re.compile(r"^\s{0,3}(#{2,3})\s+(.*?)\s*#*\s*$")
 _HOOK = re.compile(r"\*\*\s*The\s+\"?Hook\"?\s*:?\s*\*\*\s*:?\s*(.*)", re.IGNORECASE)
 _CONTEXT = re.compile(r"\*\*\s*Context\s*:?\s*\*\*\s*:?\s*(.*)", re.IGNORECASE)
 
 
-def _norm_term(term: Any) -> str:
+def norm_term(term: Any) -> str:
     """Case/space/quote-insensitive key for matching a term to its research."""
     if not isinstance(term, str):
         return ""
@@ -45,7 +46,7 @@ def _info_item(term_key: str, info_gtrends: Any) -> dict[str, Any]:
     data = info_gtrends
     if isinstance(data, str):
         try:
-            data = json.loads(_FENCE.sub("", data))
+            data = json.loads(FENCE.sub("", data))
         except ValueError:
             return {}
     if not isinstance(data, dict):
@@ -54,12 +55,13 @@ def _info_item(term_key: str, info_gtrends: Any) -> dict[str, Any]:
     if not isinstance(items, list):
         return {}
     for item in items:
-        if isinstance(item, dict) and _norm_term(item.get("term")) == term_key:
+        if isinstance(item, dict) and norm_term(item.get("term")) == term_key:
             return item
     return {}
 
 
-def _is_true(value: Any) -> bool:
+def is_true(value: Any) -> bool:
+    """True for ``True`` or the string "true" (any case/spacing), else False."""
     return value is True or (
         isinstance(value, str) and value.strip().casefold() == "true"
     )
@@ -75,7 +77,7 @@ def sensitive_flags(trend_flags: Any) -> dict[str, str]:
     data = trend_flags
     if isinstance(data, str):
         try:
-            data = json.loads(_FENCE.sub("", data))
+            data = json.loads(FENCE.sub("", data))
         except ValueError:
             return {}
     if isinstance(data, dict):
@@ -84,9 +86,9 @@ def sensitive_flags(trend_flags: Any) -> dict[str, str]:
         return {}
     flagged: dict[str, str] = {}
     for item in data:
-        if not isinstance(item, dict) or not _is_true(item.get("sensitive")):
+        if not isinstance(item, dict) or not is_true(item.get("sensitive")):
             continue
-        key = _norm_term(item.get("term"))
+        key = norm_term(item.get("term"))
         if key and key not in flagged:
             flagged[key] = _clean(item.get("reason"))
     return flagged
@@ -104,7 +106,7 @@ def _selected_section(term_key: str, selected_gtrends: Any) -> dict[str, str]:
             if in_section:
                 break
             in_section = (
-                heading.group(1) == "###" and _norm_term(heading.group(2)) == term_key
+                heading.group(1) == "###" and norm_term(heading.group(2)) == term_key
             )
             continue
         if not in_section:
@@ -130,7 +132,7 @@ def trend_context_for(
             ``"sensitive_reason"`` (after the other keys); an unflagged term's
             JSON is unchanged.
     """
-    term_key = _norm_term(term)
+    term_key = norm_term(term)
     if not term_key:
         return ""
     item = _info_item(term_key, info_gtrends)

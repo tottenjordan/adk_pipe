@@ -1,4 +1,4 @@
-"""trend_scout's trend digest (trend_scout/digest.py): grounded one-line
+"""trend_scout's trend digest (trend_scout/digest.py + digest_store.py): grounded one-line
 summaries of the day's trends + the sensitivity flags, cached per trend list in
 BigQuery (`trend_digest`), exposed to the root as the `trend_digest` NodeTool.
 
@@ -49,7 +49,7 @@ FLAGS = {
 
 
 def test_terms_hash_ignores_order_and_case_and_changes_with_terms():
-    from trend_scout.digest import terms_hash
+    from trend_scout.digest_store import terms_hash
 
     base = terms_hash(REFRESH, TERMS)
     assert len(base) == 16
@@ -61,7 +61,7 @@ def test_terms_hash_ignores_order_and_case_and_changes_with_terms():
 
 
 def test_normalize_draft_keeps_raw_terms_verbatim_in_raw_order():
-    from trend_scout.digest import normalize_draft
+    from trend_scout.digest_store import normalize_draft
 
     draft = {
         "items": [
@@ -83,7 +83,7 @@ def test_normalize_draft_keeps_raw_terms_verbatim_in_raw_order():
 
 
 def test_normalize_draft_caps_length_and_reads_json_strings():
-    from trend_scout.digest import MAX_SUMMARY_CHARS, normalize_draft
+    from trend_scout.digest_store import MAX_SUMMARY_CHARS, normalize_draft
 
     long = "word " * 200
     raw = "```json\n" + json.dumps({"items": [{"term": "Storm Ada", "summary": long}]})
@@ -97,7 +97,7 @@ def test_normalize_draft_caps_length_and_reads_json_strings():
     "draft", [None, "", "not json", {}, {"items": "x"}, {"items": [None, 3]}, [1]]
 )
 def test_normalize_draft_unavailable_on_empty_or_malformed(draft):
-    from trend_scout.digest import normalize_draft
+    from trend_scout.digest_store import normalize_draft
 
     assert normalize_draft(draft, TERMS, REFRESH) == {
         "refresh_date": REFRESH,
@@ -107,7 +107,7 @@ def test_normalize_draft_unavailable_on_empty_or_malformed(draft):
 
 
 def test_sql_builders_bind_every_value():
-    from trend_scout.digest import build_insert_sql, build_lookup_sql
+    from trend_scout.digest_store import build_insert_sql, build_lookup_sql
 
     sql, params = build_lookup_sql("p.d.trend_digest", REFRESH, "h" * 16)
     assert REFRESH not in sql and "h" * 16 not in sql
@@ -144,7 +144,7 @@ def test_insert_columns_match_the_table_schema():
     import re
     from pathlib import Path
 
-    from trend_scout.digest import build_insert_sql
+    from trend_scout.digest_store import build_insert_sql
 
     schema = Path(__file__).parent.parent / "deployment" / "bq_schemas"
     fields = json.loads((schema / "trend_digest.json").read_text())
@@ -170,7 +170,7 @@ def test_insert_columns_match_the_table_schema():
 @pytest.fixture
 def digest_env(monkeypatch):
     """A configured cache table + a fake BigQuery client per test."""
-    import trend_scout.digest as digest
+    import trend_scout.digest_store as store
     from trend_scout.config import config
 
     monkeypatch.setattr(config, "trend_digest_enabled", True)
@@ -179,7 +179,7 @@ def digest_env(monkeypatch):
     monkeypatch.setattr(config, "BQ_TABLE_TREND_DIGEST", "trend_digest")
 
     def use(client: Any) -> None:
-        monkeypatch.setattr(digest, "_get_bigquery_client", lambda: client)
+        monkeypatch.setattr(store, "_get_bigquery_client", lambda: client)
 
     return use
 
@@ -247,7 +247,7 @@ _SEED = {"raw_gtrends": TERMS, "gtrends_refresh_date": REFRESH}
 
 
 def test_cache_hit_restores_state_and_skips_the_models(monkeypatch, digest_env):
-    from trend_scout.digest import terms_hash
+    from trend_scout.digest_store import terms_hash
 
     bq = FakeBigQueryClient([_cached_row()])
     digest_env(bq)
@@ -280,7 +280,7 @@ def _script_miss(run: _Run, *, synth_turns: list[str], flags=FLAGS) -> None:
 
 def test_cache_miss_describes_classifies_and_stores_once(monkeypatch, digest_env):
     from agent_common import stable_row_id
-    from trend_scout.digest import terms_hash
+    from trend_scout.digest_store import terms_hash
 
     bq = FakeBigQueryClient([])  # lookup finds nothing
     digest_env(bq)
@@ -355,7 +355,7 @@ def test_classifier_without_flags_writes_nothing(monkeypatch, digest_env):
 
 def test_different_terms_hash_misses(monkeypatch, digest_env):
     """The cache is keyed by the term list: rows for another list never match."""
-    from trend_scout.digest import terms_hash
+    from trend_scout.digest_store import terms_hash
 
     other = terms_hash(REFRESH, ["something else"])
 
@@ -394,34 +394,34 @@ def test_bigquery_error_routes_miss(monkeypatch, digest_env):
 def test_lookup_timeout_is_a_miss(monkeypatch, digest_env):
     import time
 
-    import trend_scout.digest as digest
+    import trend_scout.digest_store as store
 
-    monkeypatch.setattr(digest, "LOOKUP_TIMEOUT_SECONDS", 0.05)
+    monkeypatch.setattr(store, "LOOKUP_TIMEOUT_SECONDS", 0.05)
 
     def slow(sql, job_config):
         time.sleep(0.5)
         return [_cached_row()]
 
     digest_env(FakeBigQueryClient(slow))
-    assert asyncio.run(digest.lookup_cached_digest(dict(_SEED))) is None
+    assert asyncio.run(store.lookup_cached_digest(dict(_SEED))) is None
 
 
 def test_lookup_without_refresh_date_or_terms_skips_the_query(digest_env):
-    import trend_scout.digest as digest
+    import trend_scout.digest_store as store
 
     bq = FakeBigQueryClient([_cached_row()])
     digest_env(bq)
     for state in ({"raw_gtrends": TERMS}, {"gtrends_refresh_date": REFRESH}, {}):
-        assert asyncio.run(digest.lookup_cached_digest(state)) is None
+        assert asyncio.run(store.lookup_cached_digest(state)) is None
     assert bq.queries == []
 
 
 def test_malformed_cached_row_is_a_miss(digest_env):
-    import trend_scout.digest as digest
+    import trend_scout.digest_store as store
 
     for row in ({"digest": "not json"}, {"digest": json.dumps({"items": []})}):
         digest_env(FakeBigQueryClient([row]))
-        assert asyncio.run(digest.lookup_cached_digest(dict(_SEED))) is None
+        assert asyncio.run(store.lookup_cached_digest(dict(_SEED))) is None
 
 
 def test_disabled_runs_only_the_classifier(monkeypatch, digest_env):
@@ -450,7 +450,7 @@ def test_disabled_runs_only_the_classifier(monkeypatch, digest_env):
 
 
 def test_should_cache_requires_a_verdict_for_every_term():
-    from trend_scout.digest import normalize_draft, normalize_flags, should_cache
+    from trend_scout.digest_store import normalize_draft, normalize_flags, should_cache
 
     summaries = normalize_draft(SUMMARIES, TERMS, REFRESH)
     full = normalize_flags(FLAGS, TERMS)
@@ -490,7 +490,7 @@ def test_partial_flag_coverage_writes_nothing(monkeypatch, digest_env, caplog):
 
 def test_cached_row_without_full_flags_is_a_miss(digest_env):
     """M8: a row with summaries but no (or partial) flags is never a hit."""
-    import trend_scout.digest as digest
+    import trend_scout.digest_store as store
 
     rows = (
         {"items": SUMMARIES["items"]},
@@ -499,7 +499,7 @@ def test_cached_row_without_full_flags_is_a_miss(digest_env):
     )
     for row in rows:
         digest_env(FakeBigQueryClient([{"digest": json.dumps(row)}]))
-        assert asyncio.run(digest.lookup_cached_digest(dict(_SEED))) is None
+        assert asyncio.run(store.lookup_cached_digest(dict(_SEED))) is None
 
 
 def test_stale_draft_is_cleared_so_the_describe_step_runs(monkeypatch, digest_env):

@@ -1,5 +1,3 @@
-import logging
-
 from google.adk.agents import Agent
 from google.adk.apps import App, ResumabilityConfig
 from google.adk.planners import BuiltInPlanner
@@ -14,8 +12,10 @@ from agent_common import (
     RetryUntilKeyNode,
     build_gemini,
     build_gemini_with_fallback,
+    build_invalid_reply_dropper,
     build_safety_plugins,
     drop_other_agent_context,
+    scrub_surrogates_in_response,
 )
 from agent_common.sampling import temperature as sampled_temperature
 
@@ -23,6 +23,7 @@ from . import callbacks, prompts
 from .config import INFRA_RETRY, config
 from .digest import classify_trends_agent, trend_digest  # noqa: F401 (re-export)
 from .review_tools import review_trends_tool
+from .schemas import AnalyzedTrends
 from .tools import (
     get_daily_gtrends,
     memorize,
@@ -32,12 +33,6 @@ from .tools import (
     write_to_file,
     write_trends_to_bq,
 )
-
-# --- config ---
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
-)
-
 
 # --- TREND SUBAGENTS ---
 gather_trends_agent = Agent(
@@ -112,6 +107,14 @@ understand_trends_searcher = Agent(
 # (optional `{...?}` so an empty searcher turn degrades to empty synthesis and the
 # wrapper retries the whole pair rather than raising KeyError inside it) and shapes
 # them into the existing JSON `analyzed_trends` structure pick_trends_agent consumes.
+# TS-6: the structure is enforced by `output_schema=AnalyzedTrends` (state holds
+# the validated dict, which trend_context, the picker and the frontend all read),
+# so a malformed reply at the tuned temperature no longer slips through as a string
+# that silently turns `trend_context` into "". Fail-soft like an empty reply: lone
+# surrogates are scrubbed, then a reply that still fails the schema is blanked
+# (build_invalid_reply_dropper; ADK would otherwise raise a ValidationError out of
+# the run), so understand_trends_agent_resilient re-runs the pair and, when every
+# attempt fails, records `info_gtrends__retry_exhausted` and the run continues.
 understand_trends_synthesizer = Agent(
     # Tool-free synthesis into structured JSON; its own global flash-lite bucket.
     model=build_gemini(config.lite_planner_model),
@@ -128,9 +131,14 @@ understand_trends_synthesizer = Agent(
             "subagent": "understand_trends_synthesizer",
         },
     ),
+    output_schema=AnalyzedTrends,
     output_key="info_gtrends",
     before_model_callback=callbacks.rate_limit_callback,
-    after_model_callback=callbacks.log_empty_turn_finish_reason,
+    after_model_callback=[
+        scrub_surrogates_in_response,
+        build_invalid_reply_dropper(AnalyzedTrends),
+        callbacks.log_empty_turn_finish_reason,
+    ],
 )
 
 # NOTE: the Workflow graph holds its own copies of the two agents, so mutating

@@ -1,4 +1,3 @@
-import logging
 from typing import Any
 
 from google.adk.agents.callback_context import CallbackContext
@@ -9,12 +8,6 @@ from agent_common.rate_limit import build_rate_limit_callback
 from agent_common.state import seed_initial_state
 
 from .config import config
-
-# --- config ---
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
-)
-
 
 # Shared debugging-observability callbacks (extracted to agent_common in WS3).
 # Re-exported here so trend_scout/agent.py keeps referencing `callbacks.<name>`.

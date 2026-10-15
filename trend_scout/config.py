@@ -1,8 +1,9 @@
-from dataclasses import dataclass
+import os
+from dataclasses import dataclass, field
 
 from google.genai import errors as genai_errors
 
-from agent_common.config import BaseAgentConfiguration
+from agent_common.config import BaseAgentConfiguration, parse_on_flag
 from agent_common.retry import build_infra_retry
 
 # Shared transient-error retry plus the genai 5xx ServerError: ADK's Gemini model
@@ -42,6 +43,18 @@ class ResearchConfiguration(BaseAgentConfiguration):
 
     gather_model: str = "gemini-3.1-flash-lite"
     picker_model: str = "gemini-3.5-flash"
+
+    # The trend digest (trend_scout/digest.py): grounded one-line summaries of
+    # the day's trends + the sensitivity flags, cached per trend list in
+    # BQ_TABLE_TREND_DIGEST. TREND_DIGEST_ENABLED is on by default; off
+    # (0/false/no/off) = only the classifier runs (no describe step, no cache
+    # I/O). default_factory: read per instance, so tests can monkeypatch the env.
+    trend_digest_enabled: bool = field(
+        default_factory=lambda: parse_on_flag(os.getenv("TREND_DIGEST_ENABLED"))
+    )
+    BQ_TABLE_TREND_DIGEST: str = field(
+        default_factory=lambda: os.getenv("BQ_TABLE_TREND_DIGEST") or "trend_digest"
+    )
 
 
 config = ResearchConfiguration()

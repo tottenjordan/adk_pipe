@@ -16,6 +16,13 @@ event delta before persisting (``BaseSessionService._trim_temp_delta_state``;
 https://adk.dev/sessions/state/), so the limiter no longer writes two state keys
 to the session store on every model call. The window therefore resets per
 invocation (each ``/runs`` segment, resume or CRF retry starts a fresh count).
+
+``rpm_quota`` is a SAFETY CAP, not quota pacing: the default 1000 RPM sits far
+above the real per-base-model Vertex quotas (e.g. ~5 RPM for the Pro model), so
+in normal runs it never waits. It only bounds a runaway loop of model calls
+within one invocation; real quota pressure is handled by spreading agents
+across model buckets, the genai HTTP retry on 429 and the Pro producers'
+FallbackModel.
 """
 
 import asyncio

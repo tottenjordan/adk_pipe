@@ -50,7 +50,7 @@ _SEED: dict[str, Any] = {
 }
 _GATHERED = "GATHERED: t1, t2"
 _RAW = "RAW FINDINGS t1"
-_BRIEF = '{"analyzed_trends": ["t1"]}'
+_BRIEF = '{"analyzed_trends": [{"term": "t1"}]}'
 _PICKED = "### t1\nThe strategic bridge."
 _PICK = {"status": "selected", "selected_trends": ["t1"], "instruction": "x"}
 _DESCRIBE_RAW = "DESCRIBE FINDINGS t1"
