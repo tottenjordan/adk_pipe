@@ -10,13 +10,16 @@ response body, so ``postprocess`` returns the full ``{"predictions": [...]}``):
 
 - ``preprocess`` validates every instance on its own; a bad instance becomes a
   per-instance ``{"type": "error", ...}`` and never fails the batch. Only a
-  malformed request envelope is a 400.
+  malformed request envelope is a 400. Instance content (incl. the reward bounds
+  per reward mode) is validated here, before any state change, so ``predict``
+  can't raise on it (only ``row < batch_size`` waits for the reset in force).
 - ``predict`` walks the instances in order, batching each maximal run of
   consecutive ``decision`` (or ``reward``) instances: decisions are encoded with
   ``bandit.features``, Thompson-sampled with ``linear_ts.select`` and given Monte
   Carlo ``propensities``; rewards are de-duplicated against the bounded
   ``pending`` map (request_id -> (arm, x)) / seen-id set and applied as one
-  batched ``linear_ts.update``, which bumps ``model_version``.
+  batched ``linear_ts.update``, which bumps ``model_version``. An update that
+  would leave the posterior non-finite is refused and the old state kept.
 - ``reset`` starts a fresh posterior; its optional ``discount`` (the traffic
   run's forgetting γ, contracts §10) replaces ``policy.discount`` for every
   update until the next reset, and a reset without one restores the config value.
@@ -65,6 +68,7 @@ from google.cloud.aiplatform.prediction.predictor import Predictor
 
 from bandit import linear_ts as lts
 from bandit.config import (
+    MAX_DWELL_S,
     RESET_DISCOUNT_BOUNDS,
     ExperimentConfig,
     LinTSParams,
@@ -84,9 +88,11 @@ MAX_INSTANCES = 1000  # per request (contracts §2; the traffic client splits at
 MIN_BUCKET = 16  # pad batches to powers of two >= this (bounded jit recompiles)
 MAX_CHUNK = 1024  # rows per decision kernel call (bounds the MC propensity tensor)
 MAX_SEED = 2**31  # reset seeds are 31-bit (``bandit_traffic.traffic.reset_seed``)
+MAX_BATCH_INDEX = 2**31  # decision batch/row bound (``fold_in`` takes a uint32)
 CHECKPOINT_KEEP = 5  # newest checkpoint .npz files kept under BANDIT_CHECKPOINT_URI
 CHECKPOINT_ENV = "BANDIT_CHECKPOINT_URI"
 MAX_LOGGED_ERROR = 300  # chars of a storage error kept in a warning
+MAX_DISTINCT_PARAMS = 16  # distinct request params per process (each one compiles)
 
 
 # ----------------------------------------------------------------------- storage
@@ -112,8 +118,10 @@ class LocalStorage:
         self.root = Path(root)
 
     def read_bytes(self, rel: str) -> bytes | None:
-        path = self.root / rel
-        return path.read_bytes() if path.exists() else None
+        try:  # no exists() check first: a concurrent prune may delete the file
+            return (self.root / rel).read_bytes()
+        except FileNotFoundError:
+            return None
 
     def write_bytes(self, rel: str, data: bytes) -> None:
         path = self.root / rel
@@ -375,14 +383,44 @@ def _policy_stream(inst: Mapping[str, Any]) -> _PolicyStream | None:
 
 
 def _batch_row(inst: Mapping[str, Any]) -> tuple[int | None, int | None]:
-    """A decision's optional ``batch`` + ``row`` (both or neither, ints >= 0)."""
+    """A decision's optional ``batch`` + ``row`` (both or neither, ints in
+    [0, 2**31): ``batch`` is folded into a uint32 PRNG key and ``row`` indexes an
+    int32 array, so a larger value would raise ``OverflowError`` in ``predict``)."""
     raw_b, raw_r = inst.get("batch"), inst.get("row")
     if raw_b is None and raw_r is None:
         return None, None
     b, r = _integral(raw_b), _integral(raw_r)
-    if b is None or r is None or b < 0 or r < 0:
-        raise ValueError("batch and row must both be integers >= 0")
+    if (
+        b is None
+        or r is None
+        or not (0 <= b < MAX_BATCH_INDEX and 0 <= r < MAX_BATCH_INDEX)
+    ):
+        raise ValueError("batch and row must both be integers in [0, 2**31)")
     return b, r
+
+
+def _reward_value(inst: Mapping[str, Any], reward_mode: str) -> float:
+    """A reward's ``reward`` checked against ``clicked`` and the reward mode
+    (contracts §2): ``click`` mode 0 or 1 and equal to ``clicked``; ``engaged``
+    mode dwell seconds in [0, ``MAX_DWELL_S``], 0 without a click. A click may
+    carry a zero dwell: the simulator's Exponential(1) draw is exactly 0 when its
+    uniform is 0. Unbounded values would overflow the float32 posterior."""
+    reward = _finite(inst.get("reward"))
+    if reward is None:
+        raise ValueError("reward must be a finite number")
+    clicked = inst.get("clicked")
+    if clicked not in (0, 1) or not isinstance(clicked, int | bool):
+        raise ValueError("clicked must be 0 or 1")
+    if reward_mode == "engaged":
+        if not 0.0 <= reward <= MAX_DWELL_S:
+            raise ValueError(
+                f"reward must be dwell seconds in [0, {MAX_DWELL_S:g}] in engaged mode"
+            )
+        if reward > 0 and not clicked:
+            raise ValueError("reward must be 0 when clicked is 0")
+    elif reward != clicked:
+        raise ValueError("reward must equal clicked (0 or 1) in click mode")
+    return reward
 
 
 def _request_id(inst: Mapping[str, Any]) -> str:
@@ -450,10 +488,17 @@ def _decide_rows_kernel(key, state, X, rows, eligible, params, batch_size):
 def _update_kernel(state, arms, X, rewards, valid, params, reward_scale=1.0):
     """``lts.update`` on zero-padded rows; padding adds nothing to Λ/b and is
     excluded from the pull counts and step. The raw float32 rewards are divided
-    by ``reward_scale`` in here: the same float32 op as ``simulate._episode``."""
+    by ``reward_scale`` in here: the same float32 op as ``simulate._episode``.
+    Returns ``(new_state, finite)``: ``finite`` is False when the update left Λ
+    or b non-finite, and the caller then keeps the previous state."""
     new = lts.update(state, arms, X, rewards / reward_scale, params)
     counts = jnp.zeros_like(state.n).at[arms].add(valid.astype(state.n.dtype))
-    return new._replace(n=state.n + counts, step=state.step + jnp.sum(valid))
+    new = new._replace(n=state.n + counts, step=state.step + jnp.sum(valid))
+    return new, _state_finite(new)
+
+
+def _state_finite(state: lts.LinTSState) -> jax.Array:
+    return jnp.all(jnp.isfinite(state.precision)) & jnp.all(jnp.isfinite(state.b))
 
 
 _posterior_mean = jax.jit(lts.posterior_mean)
@@ -566,6 +611,8 @@ class BanditPredictor(Predictor):
         self.params = cfg.policy
         self.arm_ids = [a.creative_id for a in cfg.arms]
         self._arm_index = {cid: i for i, cid in enumerate(self.arm_ids)}
+        self._known_params: set[LinTSParams] = {cfg.policy}
+        self._params_cap_warned = False
         self._reward_scale = reward_scale(cfg.scenario, cfg.reward_mode)
         self._dim = DIM
         with self._lock:
@@ -686,23 +733,48 @@ class BanditPredictor(Predictor):
                 n=jnp.asarray(arrays["n"], jnp.int32),
                 step=jnp.asarray(arrays["step"], jnp.int32),
             )
-            if state.b.shape != (len(self.arm_ids), self._dim):
+            k, d = len(self.arm_ids), self._dim
+            expected = {"precision": (k, d, d), "b": (k, d), "n": (k,), "step": ()}
+            shapes = {name: getattr(state, name).shape for name in expected}
+            if shapes != expected:
                 log.warning(
-                    "checkpoint shape %s mismatches config; ignoring", state.b.shape
+                    "checkpoint shapes %s mismatch the config %s; starting fresh",
+                    shapes,
+                    expected,
+                )
+                return
+            if not bool(_state_finite(state)):
+                log.warning(
+                    "checkpoint %s holds a non-finite posterior; starting fresh",
+                    meta.get("model_version"),
                 )
                 return
             discount = meta.get("discount")
-            stream = meta.get("policy_stream")
+            raw_stream = meta.get("policy_stream")
+            stream = (
+                None
+                if raw_stream is None
+                else _PolicyStream(
+                    tuple(int(w) for w in raw_stream["key_data"]),
+                    int(raw_stream["batch_size"]),
+                )
+            )
+            if stream is not None and (
+                len(stream.key_data) != KEY_DATA_LEN
+                or stream.batch_size != self.config.batch_size
+            ):
+                log.warning(
+                    "checkpoint policy stream mismatches the config "
+                    "(%d key words, batch_size %d); starting fresh",
+                    len(stream.key_data),
+                    stream.batch_size,
+                )
+                return
             self._fresh(
                 episode=int(meta["episode"]),
                 seed=int(meta["seed"]),
                 discount=None if discount is None else float(discount),
-                policy_stream=None
-                if stream is None
-                else _PolicyStream(
-                    tuple(int(w) for w in stream["key_data"]),
-                    int(stream["batch_size"]),
-                ),
+                policy_stream=stream,
             )
             self._state = state
             self._n_updates = int(meta["n_updates"])
@@ -719,6 +791,9 @@ class BanditPredictor(Predictor):
         if storage is None:
             return
         version = self._version()
+        if not bool(_state_finite(self._state)):
+            log.warning("not checkpointing %s: non-finite posterior", version)
+            return
         buf = io.BytesIO()
         np.savez(
             buf,
@@ -796,8 +871,27 @@ class BanditPredictor(Predictor):
             )
         return Batch(
             items=[self._parse(inst) for inst in instances],
-            params=resolve_params(self.params, parameters),
+            params=self._capped_params(resolve_params(self.params, parameters)),
         )
+
+    def _capped_params(self, params: LinTSParams) -> LinTSParams:
+        """``params`` unless it would be the process's ``MAX_DISTINCT_PARAMS``+1th
+        distinct value (each compiles the decision kernels), then the config's
+        params, with one warning per process."""
+        with self._lock:
+            if params in self._known_params:
+                return params
+            if len(self._known_params) < MAX_DISTINCT_PARAMS:
+                self._known_params.add(params)
+                return params
+            if not self._params_cap_warned:
+                self._params_cap_warned = True
+                log.warning(
+                    "more than %d distinct request parameters; serving the "
+                    "config's parameters for new values",
+                    MAX_DISTINCT_PARAMS,
+                )
+        return self.params
 
     def _parse(self, inst: Any) -> _Item:
         if not isinstance(inst, Mapping):
@@ -811,17 +905,26 @@ class BanditPredictor(Predictor):
             if kind == "reward":
                 return self._parse_reward(inst)
             if kind == "reset":
-                return _Reset(
-                    _int_field(inst, "episode", 0),
-                    _int_field(inst, "seed", 0, MAX_SEED),
-                    _reset_discount(inst),
-                    _policy_stream(inst),
-                )
+                return self._parse_reset(inst)
             if kind == "state":
                 return _StateReq()
             raise ValueError(f"unknown instance type {kind!r}")
-        except ValueError as exc:
+        except (ValueError, TypeError, OverflowError) as exc:
+            # whatever the content, a bad instance never fails the request
             return _Error(rid, str(exc))
+
+    def _parse_reset(self, inst: Mapping[str, Any]) -> _Reset:
+        episode = _int_field(inst, "episode", 0)
+        seed = _int_field(inst, "seed", 0, MAX_SEED)
+        discount = _reset_discount(inst)
+        stream = _policy_stream(inst)
+        if stream is not None and stream.batch_size != self.config.batch_size:
+            # a static jit argument: only the config's value (warmed up) compiles
+            raise ValueError(
+                f"batch_size must equal the experiment's batch_size "
+                f"{self.config.batch_size}"
+            )
+        return _Reset(episode, seed, discount, stream)
 
     def _parse_decision(self, inst: Mapping[str, Any]) -> _Decision:
         rid = _request_id(inst)
@@ -837,6 +940,8 @@ class BanditPredictor(Predictor):
                 raise ValueError(
                     "eligible_arms must be a non-empty list of creative ids"
                 )
+            if not all(isinstance(a, str) for a in eligible_ids):
+                raise ValueError("eligible_arms must be creative id strings")
             unknown = [a for a in eligible_ids if a not in self._arm_index]
             if unknown:
                 raise ValueError(f"unknown eligible_arms: {unknown}")
@@ -847,18 +952,15 @@ class BanditPredictor(Predictor):
     def _parse_reward(self, inst: Mapping[str, Any]) -> _Reward:
         rid = _request_id(inst)
         arm = inst.get("arm")
+        if not isinstance(arm, str):
+            raise ValueError("arm must be a creative id string")
         if arm not in self._arm_index:
             raise ValueError(f"unknown arm {arm!r}")
-        reward = _finite(inst.get("reward"))
-        if reward is None:
-            raise ValueError("reward must be a finite number")
-        clicked = inst.get("clicked")
-        if clicked not in (0, 1) or not isinstance(clicked, int | bool):
-            raise ValueError("clicked must be 0 or 1")
+        reward = _reward_value(inst, self.config.reward_mode)
         dwell = inst.get("dwell_s")
         if dwell is not None and _finite(dwell) is None:
             raise ValueError("dwell_s must be a finite number")
-        return _Reward(rid, self._arm_index[str(arm)], reward)
+        return _Reward(rid, self._arm_index[arm], reward)
 
     def predict(self, instances: Batch) -> list[dict[str, Any]]:
         items = instances.items
@@ -1006,8 +1108,10 @@ class BanditPredictor(Predictor):
         were split over requests) is applied without decaying again, so γ is
         applied once per simulator batch as in ``bandit.simulate``."""
         verdicts: list[str | None] = []
-        runs: list[tuple[int | None, list[int], list[np.ndarray], list[float]]] = []
-        for r in rewards:
+        runs: list[
+            tuple[int | None, list[int], list[np.ndarray], list[float], list[int]]
+        ] = []
+        for i, r in enumerate(rewards):
             reason = None
             if r.request_id in self._seen:
                 reason = "duplicate"
@@ -1021,19 +1125,19 @@ class BanditPredictor(Predictor):
                 while len(self._seen) > self.max_seen:
                     self._seen.popitem(last=False)
                 if not runs or (batch is not None and runs[-1][0] != batch):
-                    runs.append((batch, [], [], []))
+                    runs.append((batch, [], [], [], []))
                 runs[-1][1].append(arm)
                 runs[-1][2].append(x)
                 runs[-1][3].append(r.reward)
+                runs[-1][4].append(i)
             verdicts.append(reason)
-        for batch, arms, xs, values in runs:
+        for batch, arms, xs, values, members in runs:
             params = self._update_params()
             if batch is not None and batch == self._last_update_batch:
                 params = dataclasses.replace(params, discount=1.0)
-            self._last_update_batch = batch
             n = len(arms)
             size = _bucket(n)
-            self._state = _update_kernel(
+            new_state, finite = _update_kernel(
                 self._state,
                 jnp.asarray(_pad_rows(np.asarray(arms, np.int32), size)),
                 jnp.asarray(_pad_rows(np.stack(xs), size)),
@@ -1042,6 +1146,14 @@ class BanditPredictor(Predictor):
                 params,
                 self._reward_scale,
             )
+            if not bool(finite):
+                # keep the previous posterior; the run's rewards stay consumed
+                log.warning("refused a non-finite posterior update (%d rewards)", n)
+                for k in members:
+                    verdicts[k] = "non-finite update"
+                continue
+            self._state = new_state
+            self._last_update_batch = batch
             self._n_updates += 1
             self._updates_since_ckpt += 1
             self._maybe_checkpoint()

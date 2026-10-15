@@ -3,14 +3,18 @@
 import json
 import logging
 import threading
+from pathlib import Path
 
+import jax.numpy as jnp
 import numpy as np
 import pytest
 from fastapi import HTTPException
 
-from bandit.config import DEFAULT_EXPLORATION_SCALE, scenario_noise_var
+from bandit.config import DEFAULT_EXPLORATION_SCALE, MAX_DWELL_S, scenario_noise_var
+from bandit.features import DIM
 from bandit_serving import predictor as predictor_mod
 from bandit_serving.predictor import (
+    MAX_DISTINCT_PARAMS,
     MAX_SEED,
     BanditPredictor,
     GcsStorage,
@@ -39,7 +43,13 @@ IDS = {"c1", "c2", "c3"}
 
 
 def _write_config(path, **over):
-    cfg = {"experiment_id": "exp1", "arms": ARMS, "scenario": "clear_winner"}
+    # batch_size 8 = POLICY_RESET's: a reset's batch_size must equal the config's
+    cfg = {
+        "experiment_id": "exp1",
+        "arms": ARMS,
+        "scenario": "clear_winner",
+        "batch_size": 8,
+    }
     cfg.update(over)
     path.mkdir(parents=True, exist_ok=True)
     (path / "experiment.json").write_text(json.dumps(cfg))
@@ -181,7 +191,13 @@ def test_duplicate_unknown_and_mismatched_rewards_rejected(art):
         ],
     )  # fmt: skip
     assert [a["accepted"] for a in acks] == [False, True, False, False, False]
-    assert all(a.get("reason") for a in acks if not a["accepted"])
+    assert [a.get("reason") for a in acks] == [
+        "duplicate",
+        None,
+        "duplicate",
+        "unknown request_id",
+        "arm does not match the decision",
+    ]
     s = _state(p)
     assert s["step"] == 2 and s["model_version"] == "exp1-e0-v2"
 
@@ -950,3 +966,345 @@ def test_out_of_range_reset_seed_is_rejected_before_reset(art, seed):
 def test_max_valid_seed_resets(art):
     out = run(_predictor(art), [{"type": "reset", "episode": 2, "seed": MAX_SEED - 1}])
     assert out[0]["type"] == "reset" and out[0]["model_version"] == "exp1-e2-v0"
+
+
+# ------------------------------------------ reward bounds + finite guard (R1)
+
+
+def _reward_for(d, reward, clicked):
+    return {
+        "type": "reward",
+        "request_id": d["request_id"],
+        "arm": d["chosen_arm"],
+        "reward": reward,
+        "clicked": clicked,
+    }
+
+
+def _strict_json(obj):
+    return json.dumps(obj, allow_nan=False)  # NaN/inf would 500 the response
+
+
+@pytest.mark.parametrize(
+    ("reward_mode", "reward", "clicked"),
+    [
+        ("click", 1e38, 1),  # the review's repro: overflows b, NaNs the posterior
+        ("click", 1e6, 1),
+        ("click", 2.0, 1),
+        ("click", 0.5, 1),
+        ("click", 1.0, 0),  # reward must equal clicked
+        ("click", 0.0, 1),
+        ("click", -1.0, 0),
+        ("engaged", 1e38, 1),
+        ("engaged", MAX_DWELL_S + 0.5, 1),
+        ("engaged", 3.6e6, 1),  # milliseconds for seconds
+        ("engaged", -1.0, 0),
+        ("engaged", 5.0, 0),  # dwell without a click
+    ],
+)
+def test_out_of_bounds_reward_is_a_per_instance_error(
+    tmp_path, reward_mode, reward, clicked
+):
+    p = _predictor(_write_config(tmp_path / "a", reward_mode=reward_mode))
+    d = run(p, _decisions(1))[0]
+    before = _state(p)
+    out = run(p, [_reward_for(d, reward, clicked)])[0]
+    assert out["type"] == "error" and out["request_id"] == d["request_id"]
+    assert "reward" in out["error"]
+    after = _state(p)
+    assert after == before
+    _strict_json(after)
+    # the decision is still pending, so a valid reward is accepted
+    good = 1.0 if reward_mode == "click" else 30.0
+    assert run(p, [_reward_for(d, good, 1)])[0]["accepted"] is True
+
+
+@pytest.mark.parametrize(
+    ("reward_mode", "reward", "clicked"),
+    [
+        ("click", 0.0, 0),
+        ("click", 1.0, 1),
+        ("click", 1, True),
+        ("engaged", 0.0, 0),
+        # a click with a zero dwell: the simulator's Exponential(1) draw is
+        # -log1p(-u) with u in [0, 1), so u == 0 gives exactly 0 seconds
+        ("engaged", 0.0, 1),
+        ("engaged", 12.5, 1),
+        ("engaged", MAX_DWELL_S, 1),
+    ],
+)
+def test_in_bounds_reward_is_accepted(tmp_path, reward_mode, reward, clicked):
+    p = _predictor(_write_config(tmp_path / "a", reward_mode=reward_mode))
+    d = run(p, _decisions(1))[0]
+    assert run(p, [_reward_for(d, reward, clicked)])[0]["accepted"] is True
+
+
+def test_non_finite_update_keeps_the_previous_state(art):
+    """The finite guard: an update that would leave Λ or b non-finite is
+    refused as a whole and the posterior stays as it was (contracts §7)."""
+    p = _predictor(art)
+    preds = run(p, _decisions(3))
+    run(p, _rewards(preds[:1]))
+    before = _state(p)
+    rewards = [
+        predictor_mod._Reward(
+            d["request_id"], p._arm_index[d["chosen_arm"]], value
+        )  # bypasses the parse-time bound
+        for d, value in zip(preds[1:], (1e38, 1.0), strict=True)
+    ]
+    acks = p._apply_rewards(rewards)
+    assert [(a["accepted"], a.get("reason")) for a in acks] == [
+        (False, "non-finite update"),
+        (False, "non-finite update"),
+    ]
+    assert all(a["model_version"] == "exp1-e0-v1" for a in acks)
+    after = _state(p)
+    assert after == before
+    _strict_json(after)
+    assert np.isfinite(np.asarray(p._state.b)).all()
+
+
+def test_non_finite_state_is_never_checkpointed(art, caplog):
+    p = _predictor(art)
+    p._state = p._state._replace(b=p._state.b.at[0, 0].set(jnp.nan))
+    p._schedule_checkpoint()
+    p.flush()
+    assert not (art / "checkpoints" / "latest.json").exists()
+    assert caplog.text.count("non-finite") == 1
+
+
+def _rewrite_checkpoint(art, meta_changes=None, **arrays):
+    """Overwrite fields of the latest checkpoint's ``.npz`` / ``latest.json``."""
+    ckpt = art / "checkpoints"
+    meta = json.loads((ckpt / "latest.json").read_text())
+    npz = ckpt / meta["npz"]
+    data = dict(np.load(npz))
+    data.update(arrays)
+    with npz.open("wb") as f:
+        np.savez(f, **data)
+    if meta_changes:
+        (ckpt / "latest.json").write_text(json.dumps(meta | meta_changes))
+    return data
+
+
+def _assert_fresh(p):
+    s = _state(p)
+    assert s["model_version"] == "exp1-e0-v0" and s["step"] == 0
+
+
+@pytest.mark.parametrize("field", ["precision", "b"])
+def test_non_finite_checkpoint_is_not_restored(art, caplog, field):
+    _train(_predictor(art, checkpoint_every=1))
+    data = np.load(art / "checkpoints" / "exp1-e0-v1.npz")
+    bad = np.array(data[field])
+    bad.flat[0] = np.inf if field == "b" else np.nan
+    _rewrite_checkpoint(art, **{field: bad})
+    _assert_fresh(_predictor(art))
+    assert "non-finite" in caplog.text
+
+
+# --------------------------------------------- restore shape checks (R4 M37)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("precision", np.zeros((3, DIM, DIM - 1), np.float32)),
+        ("precision", np.zeros((2, DIM, DIM), np.float32)),
+        ("b", np.zeros((2, DIM), np.float32)),
+        ("n", np.zeros((4,), np.int32)),
+        ("step", np.zeros((2,), np.int32)),
+    ],
+)
+def test_checkpoint_with_a_mismatched_shape_starts_fresh(art, caplog, field, value):
+    _train(_predictor(art, checkpoint_every=1))
+    _rewrite_checkpoint(art, **{field: value})
+    _assert_fresh(_predictor(art))
+    assert "mismatch" in caplog.text
+
+
+def test_two_arm_checkpoint_is_not_loaded_into_a_three_arm_config(tmp_path, caplog):
+    art = _write_config(tmp_path / "a", arms=ARMS[:2])
+    _train(_predictor(art, checkpoint_every=1), 2)
+    _write_config(art)  # same experiment_id, now K = 3
+    q = _predictor(art)
+    _assert_fresh(q)
+    assert "mismatch" in caplog.text
+    assert all(d["type"] == "decision" for d in run(q, _decisions(5)))
+
+
+@pytest.mark.parametrize(
+    "stream",
+    [
+        {"key_data": [1], "batch_size": 8},  # not KEY_DATA_LEN words
+        {"key_data": [1, 2], "batch_size": 100},  # not the config's batch_size
+    ],
+)
+def test_checkpoint_with_a_bad_policy_stream_starts_fresh(art, caplog, stream):
+    _train(_predictor(art, checkpoint_every=1))
+    _rewrite_checkpoint(art, {"policy_stream": stream})
+    _assert_fresh(_predictor(art))
+    assert "mismatch" in caplog.text
+
+
+# ---------------------------------- one update per reward batch (R4 M36) / M09
+
+
+def test_two_reward_batches_in_one_request_decay_twice(tmp_path):
+    """One request carrying batch b and b+1 rewards is two simulator updates
+    (two γ), exactly like two requests (contracts §2)."""
+    art = _write_config(tmp_path / "a", policy={"discount": 0.98, "noise_var": 0.04})
+    one, two = _predictor(art), _predictor(art)
+    batches = []
+    for p in (one, two):
+        run(p, [POLICY_RESET])
+        batches.append((run(p, _keyed(8, 0, "a")), run(p, _keyed(8, 1, "b"))))
+    (d0, d1), (e0, e1) = batches
+    assert [d["chosen_arm"] for d in d0 + d1] == [d["chosen_arm"] for d in e0 + e1]
+    run(one, _rewards(d0) + _rewards(d1))
+    run(two, _rewards(d0))
+    run(two, _rewards(d1))
+    assert _state(one)["model_version"] == _state(two)["model_version"] == "exp1-e1-v2"
+    np.testing.assert_allclose(
+        np.asarray(one._state.precision), np.asarray(two._state.precision), rtol=1e-6
+    )
+    np.testing.assert_allclose(
+        np.asarray(one._state.b), np.asarray(two._state.b), rtol=1e-6, atol=1e-7
+    )
+
+
+def test_reward_for_a_retried_decision_is_a_duplicate(art):
+    """A decision retried after its reward was applied (the job retries on
+    timeouts) must not let the reward count twice."""
+    p = _predictor(art)
+    d = run(p, _decisions(1))[0]
+    assert run(p, _rewards([d]))[0]["accepted"] is True
+    again = run(p, _decisions(1))[0]  # same request_id
+    ack = run(p, _rewards([again]))[0]
+    assert ack["accepted"] is False and ack["reason"] == "duplicate"
+    assert _state(p)["step"] == 1
+
+
+# ------------------------------------------- legacy key after restore (C9 M11)
+
+
+def test_restore_continues_the_legacy_key_counter(art):
+    p = _predictor(art, checkpoint_every=1)
+    run(p, [{"type": "reset", "episode": 1, "seed": 5}])
+    start = run(p, _decisions(20, "s"))  # call 1: the episode's first draw
+    run(p, _rewards(start[:4]))  # checkpoint with calls == 1
+    p.flush()
+    q = _predictor(art)
+    assert q._calls == p._calls == 1
+    probs = [d["arm_probabilities"] for d in run(q, _decisions(20, "x"))]
+    assert probs == [d["arm_probabilities"] for d in run(p, _decisions(20, "x"))]
+    # a fresh counter would replay the episode's first key on the new posterior
+    fresh = _predictor(art)
+    fresh._calls = 0
+    assert probs != [d["arm_probabilities"] for d in run(fresh, _decisions(20, "x"))]
+
+
+# ------------------------------------- malformed instance content (R2), C4
+
+
+@pytest.mark.parametrize(
+    ("bad", "needle"),
+    [
+        ({"eligible_arms": [{}]}, "eligible_arms must be creative id strings"),
+        ({"eligible_arms": [["c1"]]}, "eligible_arms must be creative id strings"),
+        ({"eligible_arms": ["c1", None]}, "eligible_arms must be creative id strings"),
+        ({"eligible_arms": [1]}, "eligible_arms must be creative id strings"),
+        ({"context": {**CTX, "devicetype": []}}, "devicetype"),
+        ({"context": {**CTX, "devicetype": {}}}, "devicetype"),
+        ({"batch": MAX_SEED, "row": 0}, "batch and row"),
+        ({"batch": 2**32 + 5, "row": 0}, "batch and row"),
+        ({"batch": 2**64, "row": 0}, "batch and row"),
+        ({"batch": 0, "row": 2**31}, "batch and row"),
+        ({"batch": 2**64, "row": 2**64}, "batch and row"),
+    ],
+)
+def test_malformed_decision_content_is_a_per_instance_error(art, bad, needle):
+    p = _predictor(art)
+    run(p, [POLICY_RESET])
+    bad_decision = _keyed(1, 0, "bad")[0] | bad
+    preds = run(p, [*_keyed(1, 0, "ok"), bad_decision, *_keyed(1, 0, "ok2")])
+    assert [d["type"] for d in preds] == ["decision", "error", "decision"]
+    assert preds[1]["request_id"] == "bad0"
+    assert needle in preds[1]["error"]
+
+
+@pytest.mark.parametrize("arm", [[1], {"a": 1}, 1, None, True])
+def test_malformed_reward_arm_is_a_per_instance_error(art, arm):
+    p = _predictor(art)
+    d = run(p, _decisions(1))[0]
+    out = run(p, [_reward_for(d, 1.0, 1) | {"arm": arm}, *_rewards([d])])
+    assert [o["type"] for o in out] == ["error", "reward"]
+    assert out[0]["error"] == "arm must be a creative id string"
+    assert out[1]["accepted"] is True
+
+
+@pytest.mark.parametrize(
+    "exc", [TypeError("type boom"), OverflowError("too big"), ValueError("bad")]
+)
+def test_parse_turns_validation_exceptions_into_errors(art, monkeypatch, exc):
+    """The backstop: nothing about an instance's content can raise past
+    ``preprocess`` and fail the whole request."""
+    p = _predictor(art)
+
+    def boom(inst):
+        raise exc
+
+    monkeypatch.setattr(p, "_parse_decision", boom)
+    assert run(p, _decisions(1)) == [
+        {"type": "error", "request_id": "r0", "error": str(exc)}
+    ]
+
+
+def test_bad_decision_after_applied_rewards_is_not_a_500(art):
+    """Every instance is validated in ``preprocess``, before any state change:
+    a bad decision later in the request can't 500 it after its rewards were
+    applied (a client retry would then see them as duplicates)."""
+    p = _predictor(art)
+    run(p, [POLICY_RESET])
+    preds = run(p, _keyed(4, 0))
+    late = _keyed(1, 1, "late")[0] | {"batch": 2**40}
+    out = run(p, [*_rewards(preds), late, {"type": "state"}])
+    assert [o["type"] for o in out] == ["reward"] * 4 + ["error", "state"]
+    assert all(o["accepted"] for o in out[:4])
+    assert out[-1]["model_version"] == "exp1-e1-v1" and out[-1]["step"] == 4
+
+
+def test_reset_batch_size_must_equal_the_config(art):
+    """A reset's ``batch_size`` is a static jit argument, so only the config's
+    value is accepted (one compiled kernel; the traffic job always sends it)."""
+    p = _predictor(art)
+    run(p, _rewards(run(p, _decisions(2))))
+    for bs in (9, 100, 10_000):
+        out = run(p, [POLICY_RESET | {"batch_size": bs}])[0]
+        assert out["type"] == "error" and "batch_size" in out["error"]
+    assert p._policy_stream is None
+    assert _state(p)["model_version"] == "exp1-e0-v1"
+    assert run(p, [POLICY_RESET])[0]["type"] == "reset"
+
+
+def test_distinct_request_params_are_capped(art, caplog):
+    """Each distinct ``parameters`` value compiles the decision kernel once; past
+    ``MAX_DISTINCT_PARAMS`` per process a request gets the config's params."""
+    p = _predictor(art)
+
+    def params_for(scale):
+        body = {"instances": [], "parameters": {"exploration_scale": scale}}
+        return p.preprocess(body).params
+
+    got = [params_for(round(0.1 * i, 1)) for i in range(1, 41)]
+    assert len(set(got) | {p.params}) == MAX_DISTINCT_PARAMS
+    assert got[0].exploration_scale == 0.1  # admitted while under the cap
+    assert got[-1] == p.params  # past the cap: the config's params
+    assert params_for(0.1).exploration_scale == 0.1  # admitted ones still served
+    assert caplog.text.count("distinct request parameters") == 1
+
+
+def test_local_storage_read_of_a_vanishing_file_is_none(tmp_path, monkeypatch):
+    # a concurrent prune can delete the file between an exists() check and the read
+    monkeypatch.setattr(Path, "exists", lambda self: True)
+    assert LocalStorage(tmp_path).read_bytes("gone.npz") is None
