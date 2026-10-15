@@ -115,7 +115,7 @@ export default function ExperimentsPage() {
                     <Link
                       href={`/experiments/${encodeURIComponent(row.experimentId)}`}
                       prefetch={false}
-                      className="truncate font-medium text-foreground after:absolute after:inset-0 after:content-[''] focus-visible:outline-none"
+                      className="truncate font-medium text-foreground after:absolute after:inset-0 after:content-[''] focus-visible:outline-hidden"
                     >
                       {scenarioLabel(row.scenario)} <CustomBadge overrides={row.scenarioOverrides} />
                     </Link>

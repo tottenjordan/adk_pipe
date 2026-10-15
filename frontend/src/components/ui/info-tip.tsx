@@ -52,7 +52,7 @@ function InfoTip({ label, children, side = "top", align = "center", className }:
           setOpen(false);
         }}
         className={cn(
-          "inline-flex size-4 shrink-0 cursor-help items-center justify-center rounded-full align-middle text-muted-foreground/70 outline-none hover:text-foreground focus-visible:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50 data-[popup-open]:text-foreground",
+          "inline-flex size-4 shrink-0 cursor-help items-center justify-center rounded-full align-middle text-muted-foreground/70 outline-hidden hover:text-foreground focus-visible:text-foreground focus-visible:ring-3 focus-visible:ring-ring/50 data-[popup-open]:text-foreground",
           className
         )}
       >
@@ -66,7 +66,7 @@ function InfoTip({ label, children, side = "top", align = "center", className }:
             initialFocus={false}
             finalFocus={false}
             data-slot="info-tip-content"
-            className="max-w-xs rounded-lg border border-border bg-popover px-3 py-2 text-sm leading-snug font-normal text-popover-foreground shadow-sm outline-none transition-opacity duration-100 data-[ending-style]:opacity-0 data-[starting-style]:opacity-0 motion-reduce:transition-none"
+            className="max-w-xs rounded-lg border border-border bg-popover px-3 py-2 text-sm leading-snug font-normal text-popover-foreground shadow-sm outline-hidden transition-opacity duration-100 data-[ending-style]:opacity-0 data-[starting-style]:opacity-0 motion-reduce:transition-none"
           >
             {children}
           </PopoverPrimitive.Popup>

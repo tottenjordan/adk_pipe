@@ -87,7 +87,7 @@ export function PersonSelect({
               const person = (people ?? []).find((p) => p.consent_id === e.target.value);
               onChange(person ? { uri: person.photo_uri, consentId: person.consent_id } : null);
             }}
-            className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
+            className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
           >
             <option value="">No person</option>
             {(people ?? []).map((p) => (

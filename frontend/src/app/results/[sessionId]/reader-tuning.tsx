@@ -69,7 +69,7 @@ export function ReaderTuning({
   return (
     <Collapsible className="mt-5 border-t border-border pt-4">
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-        <CollapsibleTrigger className="group inline-flex items-center gap-1.5 rounded-sm text-sm font-semibold text-foreground outline-none focus-visible:ring-3 focus-visible:ring-ring/50">
+        <CollapsibleTrigger className="group inline-flex items-center gap-1.5 rounded-sm text-sm font-semibold text-foreground outline-hidden focus-visible:ring-3 focus-visible:ring-ring/50">
           <ChevronRight
             aria-hidden
             className="size-4 text-muted-foreground transition-transform group-data-[panel-open]:rotate-90 motion-reduce:transition-none"

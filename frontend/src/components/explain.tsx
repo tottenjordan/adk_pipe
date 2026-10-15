@@ -20,7 +20,7 @@ export function ExplainSwitch({
       aria-checked={on}
       onClick={() => onChange(!on)}
       className={cn(
-        "group inline-flex h-8 items-center gap-2 rounded-sm px-1.5 text-sm font-medium text-foreground outline-none select-none hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/50",
+        "group inline-flex h-8 items-center gap-2 rounded-sm px-1.5 text-sm font-medium text-foreground outline-hidden select-none hover:bg-muted focus-visible:ring-3 focus-visible:ring-ring/50",
         className
       )}
     >

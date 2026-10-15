@@ -77,7 +77,7 @@ export function CreativeDetailDrawer({
       <DialogPrimitive.Portal>
         <DialogPrimitive.Backdrop className="fixed inset-0 isolate z-50 bg-foreground/40" />
         <DialogPrimitive.Popup
-          className="fixed inset-y-0 right-0 z-50 flex w-full flex-col border-l border-border bg-card text-card-foreground shadow-xl outline-none sm:w-[min(40rem,calc(100vw-3rem))]"
+          className="fixed inset-y-0 right-0 z-50 flex w-full flex-col border-l border-border bg-card text-card-foreground shadow-xl outline-hidden sm:w-[min(40rem,calc(100vw-3rem))]"
         >
           {lane && (
             <>

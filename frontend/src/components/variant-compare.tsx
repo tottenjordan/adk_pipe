@@ -32,7 +32,7 @@ export function VariantCompare({ original, preview }: { original: Side; preview:
               onClick={() => setOpen(true)}
               disabled={!side.src}
               aria-label={`View larger: ${side.caption}`}
-              className="block w-full cursor-zoom-in rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default"
+              className="block w-full cursor-zoom-in rounded-sm outline-hidden focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default"
             >
               <ProofImage
                 src={side.src}
