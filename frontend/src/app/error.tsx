@@ -19,7 +19,7 @@ export default function AppError({
     <div className="mx-auto flex w-full max-w-xl flex-col gap-3 px-6 py-24">
       <h1 className="text-2xl font-semibold text-foreground">Something went wrong showing this page</h1>
       <p className="text-base text-muted-foreground">
-        Your run carries on on the server. Try again, or reload.
+        If a run was in progress, it carries on on the server. Try again, or reload.
       </p>
       {error.digest && (
         <p className="text-sm text-muted-foreground">Reference: {error.digest}</p>
