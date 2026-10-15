@@ -105,6 +105,32 @@ function AddButton({ children, onClick, disabled }: { children: React.ReactNode;
   );
 }
 
+let rowSeq = 0;
+const newRowId = () => `brief-row-${++rowSeq}`;
+
+/**
+ * Stable React keys for an editable list's rows, kept beside the items (never
+ * in them) so the brief sent to the server stays unchanged. Call `added` /
+ * `removed(i)` alongside the matching list change. A list replaced from
+ * outside with a different length is resynced while rendering.
+ */
+function useRowIds(count: number) {
+  const [ids, setIds] = useState(() => Array.from({ length: count }, newRowId));
+  let current = ids;
+  if (ids.length !== count) {
+    current =
+      ids.length < count
+        ? [...ids, ...Array.from({ length: count - ids.length }, newRowId)]
+        : ids.slice(0, count);
+    setIds(current);
+  }
+  return {
+    ids: current,
+    added: () => setIds((prev) => [...prev, newRowId()]),
+    removed: (i: number) => setIds((prev) => prev.filter((_, j) => j !== i)),
+  };
+}
+
 /** An editable list of short strings (add / remove rows). */
 function StringListEditor({
   id,
@@ -120,11 +146,12 @@ function StringListEditor({
   items: string[];
   onChange: (items: string[]) => void;
 }) {
+  const rows = useRowIds(items.length);
   return (
     <fieldset className="space-y-2">
       <FieldLabel as="legend">{label}</FieldLabel>
       {items.map((item, i) => (
-        <div key={i} className="flex items-center gap-2">
+        <div key={rows.ids[i]} className="flex items-center gap-2">
           <Input
             aria-label={`${label}, ${itemLabel} ${i + 1}`}
             id={`${id}-${i}`}
@@ -134,11 +161,21 @@ function StringListEditor({
           />
           <RemoveButton
             label={`Remove ${itemLabel} ${i + 1}`}
-            onClick={() => onChange(items.filter((_, j) => j !== i))}
+            onClick={() => {
+              rows.removed(i);
+              onChange(items.filter((_, j) => j !== i));
+            }}
           />
         </div>
       ))}
-      <AddButton onClick={() => onChange([...items, ""])}>Add {itemLabel}</AddButton>
+      <AddButton
+        onClick={() => {
+          rows.added();
+          onChange([...items, ""]);
+        }}
+      >
+        Add {itemLabel}
+      </AddButton>
     </fieldset>
   );
 }
@@ -172,6 +209,7 @@ export function BriefEditForm({
       angles.map((a, j) => (j === i ? { ...a, ...patch } : a))
     );
   const rtbs = draft.reasonsToBelieve;
+  const rtbRows = useRowIds(rtbs.length);
   const setRtb = (i: number, patch: Partial<CreativeBrief["reasonsToBelieve"][number]>) =>
     set(
       "reasonsToBelieve",
@@ -272,7 +310,7 @@ export function BriefEditForm({
       <fieldset className={SECTION}>
         <FieldLabel as="legend">Reasons to believe</FieldLabel>
         {rtbs.map((r, i) => (
-          <div key={i} className="flex items-center gap-2">
+          <div key={rtbRows.ids[i]} className="flex items-center gap-2">
             <Input
               aria-label={`Reason ${i + 1} claim`}
               value={r.claim}
@@ -288,16 +326,22 @@ export function BriefEditForm({
             />
             <RemoveButton
               label={`Remove reason ${i + 1}`}
-              onClick={() =>
+              onClick={() => {
+                rtbRows.removed(i);
                 set(
                   "reasonsToBelieve",
                   rtbs.filter((_, j) => j !== i)
-                )
-              }
+                );
+              }}
             />
           </div>
         ))}
-        <AddButton onClick={() => set("reasonsToBelieve", [...rtbs, { claim: "", sourceId: null }])}>
+        <AddButton
+          onClick={() => {
+            rtbRows.added();
+            set("reasonsToBelieve", [...rtbs, { claim: "", sourceId: null }]);
+          }}
+        >
           Add reason
         </AddButton>
       </fieldset>
