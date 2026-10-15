@@ -428,7 +428,22 @@ async function settle(page, { pinHeader = true } = {}) {
       // hide the Next dev-tools badge when capturing against `npm run dev`
       "nextjs-portal{display:none!important;}",
   });
-  await page.waitForTimeout(400);
+  await painted(page);
+}
+
+// Wait (on conditions, not a timer) until the page is still and painted: web fonts
+// loaded, every finite animation/transition finished (one already running when
+// settle()'s style tag lands keeps its old duration), then two rAFs (the first
+// fires before the next paint, the second after it).
+async function painted(page) {
+  await page.evaluate(async () => {
+    await document.fonts.ready;
+    const finite = document
+      .getAnimations()
+      .filter((a) => a.playState === "running" && a.effect?.getComputedTiming().endTime !== Infinity);
+    await Promise.all(finite.map((a) => a.finished.catch(() => {})));
+    await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+  });
 }
 
 async function newPage(context, { sessionId } = {}) {
@@ -476,12 +491,12 @@ async function main() {
       targetSearchTrend: CAMPAIGN.targetSearchTrend,
     });
     await page.goto(`${BASE}/?${qs}`, { waitUntil: "networkidle" });
-    await page.waitForSelector("#referenceImage");
-    await page.fill("#audience", CAMPAIGN.targetAudience);
-    await page.fill("#product", CAMPAIGN.targetProduct);
-    await page.fill("#selling-points", CAMPAIGN.keySellingPoints);
-    await page.fill("#trend", CAMPAIGN.targetSearchTrend);
-    await page.fill("#referenceImage", CAMPAIGN.referenceImageUri);
+    await page.locator("#referenceImage").waitFor();
+    await page.locator("#audience").fill(CAMPAIGN.targetAudience);
+    await page.locator("#product").fill(CAMPAIGN.targetProduct);
+    await page.locator("#selling-points").fill(CAMPAIGN.keySellingPoints);
+    await page.locator("#trend").fill(CAMPAIGN.targetSearchTrend);
+    await page.locator("#referenceImage").fill(CAMPAIGN.referenceImageUri);
     await page.locator("#referenceImage").blur();
     // Opt-in rating learning on; the person select lists the label-only demo people
     // and stays on "No person" (no one is cast in the fixtures).
@@ -535,7 +550,7 @@ async function main() {
     await page.waitForFunction(() =>
       [...document.querySelectorAll('[role="dialog"] img')].some((im) => im.naturalWidth > 0)
     );
-    await page.waitForTimeout(300);
+    await painted(page);
     await shot(page, "09-results-proof-detail.png", { fullPage: false });
     await page.close();
   }
@@ -606,7 +621,7 @@ async function main() {
     await page.evaluate(() => window.scrollTo(0, 0));
     await page.getByRole("button", { name: "About stop" }).focus();
     await page.getByText("Stopping deletes the live endpoint").waitFor();
-    await page.waitForTimeout(250);
+    await painted(page);
     await shot(page, "13-experiment-help.png", { fullPage: false });
     await page.close();
   }
@@ -629,7 +644,8 @@ async function main() {
     await page.getByRole("tab", { name: "Analysis" }).click();
     await page.getByRole("heading", { name: "Cumulative regret" }).waitFor();
     await page.getByRole("switch", { name: "Explain" }).click();
-    await page.waitForTimeout(500);
+    await page.getByRole("switch", { name: "Explain", checked: true }).waitFor();
+    await painted(page);
     await shot(page, "15-experiment-explain.png");
     await page.evaluate(() => localStorage.removeItem("tt:explain"));
     await page.close();
@@ -649,7 +665,7 @@ async function main() {
     await page.waitForFunction(() =>
       [...document.querySelectorAll('[role="dialog"] img')].some((im) => im.naturalWidth > 0)
     );
-    await page.waitForTimeout(300);
+    await painted(page);
     await shot(page, "16-experiment-creative-detail.png", { fullPage: false });
     await page.close();
   }
@@ -942,7 +958,7 @@ async function scrollToLocator(page, locator, offset = 80) {
     (el, off) => window.scrollTo({ top: el.getBoundingClientRect().top + window.scrollY - off }),
     offset
   );
-  await page.waitForTimeout(200);
+  await painted(page);
 }
 
 // Box of one or more locators (union), padded, intersected with `clip` (a
@@ -1040,11 +1056,11 @@ async function journey() {
     const qs = new URLSearchParams({ brand: CAMPAIGN.brand });
     await page.goto(`${BASE}/?${qs}`, { waitUntil: "networkidle" });
     await page.getByText("Creative run with reviews", { exact: true }).first().click();
-    await page.fill("#audience", CAMPAIGN.targetAudience);
-    await page.fill("#product", CAMPAIGN.targetProduct);
-    await page.fill("#selling-points", CAMPAIGN.keySellingPoints);
-    await page.fill("#trend", CAMPAIGN.targetSearchTrend);
-    await page.fill("#referenceImage", CAMPAIGN.referenceImageUri);
+    await page.locator("#audience").fill(CAMPAIGN.targetAudience);
+    await page.locator("#product").fill(CAMPAIGN.targetProduct);
+    await page.locator("#selling-points").fill(CAMPAIGN.keySellingPoints);
+    await page.locator("#trend").fill(CAMPAIGN.targetSearchTrend);
+    await page.locator("#referenceImage").fill(CAMPAIGN.referenceImageUri);
     await page.locator("#referenceImage").blur();
     await page.getByRole("link", { name: "Google" }).first().waitFor();
     await settle(page, { pinHeader: false });
@@ -1116,7 +1132,7 @@ async function journey() {
     });
 
     await smp.fill("The only jackpot worth chasing is your own tone, and it fits in a gig bag.");
-    await page.waitForTimeout(200);
+    await painted(page);
     await frame(page, {
       phase: "Reviews",
       title: "Steer it with an edit",
@@ -1280,7 +1296,7 @@ async function journey() {
       const scroller = el.closest(".overflow-y-auto");
       scroller.scrollTop += el.getBoundingClientRect().top - scroller.getBoundingClientRect().top - 8;
     });
-    await page.waitForTimeout(300);
+    await painted(page);
     await frame(page, {
       phase: "Results",
       title: "Open a proof",
@@ -1299,7 +1315,7 @@ async function journey() {
     await dialog.locator("div.overflow-y-auto").first().evaluate((el) => {
       el.scrollTop = el.scrollHeight;
     });
-    await page.waitForTimeout(300);
+    await painted(page);
     await frame(page, {
       phase: "Results",
       title: "Rate it yourself",
@@ -1326,7 +1342,7 @@ async function journey() {
     await share.getByRole("checkbox").check();
     await share.getByRole("button", { name: "Create link" }).click();
     await share.getByRole("button", { name: "Copy link" }).waitFor();
-    await page.waitForTimeout(300);
+    await painted(page);
     await frame(page, {
       phase: "Results",
       title: "Share a link",
@@ -1601,12 +1617,12 @@ async function journeyExperiments() {
 
     // 10. Stop, with its help open (keyboard focus on the ⓘ).
     await page.evaluate(() => window.scrollTo(0, 0));
-    await page.waitForTimeout(200);
+    await painted(page);
     const about = page.getByRole("button", { name: "About stop" });
     await about.focus();
     const help = page.getByText("Stopping deletes the live endpoint");
     await help.waitFor();
-    await page.waitForTimeout(250);
+    await painted(page);
     await frame(page, {
       phase: "Stop",
       title: "Stop when you're done",
@@ -1678,7 +1694,7 @@ async function shiftShots(context) {
     const overview = await page.screenshot({ fullPage: true, clip: overviewClip });
     await page.getByRole("tab", { name: "Analysis" }).click();
     await page.getByRole("heading", { name: "Cumulative regret" }).waitFor();
-    await page.waitForTimeout(300);
+    await painted(page);
     const first = await clipOf(page, page.getByRole("heading", { name: "Cumulative average reward against the optimum" }).locator("../.."), 8);
     const optimal = await clipOf(page, page.getByRole("heading", { name: "Where the endpoint sends traffic" }).locator("../.."), 8);
     const chartsClip = { x: 0, y: first.y + 2, width: 1440, height: optimal.y + optimal.height - first.y + 12 };
@@ -1720,7 +1736,7 @@ async function continuousShot(context) {
   const overview = await page.screenshot({ fullPage: true, clip: top });
   await page.getByRole("tab", { name: "Analysis" }).click();
   await page.getByRole("heading", { name: "Cumulative regret" }).waitFor();
-  await page.waitForTimeout(300);
+  await painted(page);
   const first = await clipOf(page, page.getByRole("heading", { name: "Cumulative average reward against the optimum" }).locator("../.."), 8);
   const last = await clipOf(page, page.getByRole("heading", { name: "Where the endpoint sends traffic" }).locator("../.."), 8);
   const chartsClip = { x: 0, y: first.y + 2, width: 1440, height: last.y + last.height - first.y - 2 };
@@ -1780,7 +1796,7 @@ async function featureShots(context) {
     await dialog.getByRole("checkbox").check();
     await dialog.getByRole("button", { name: "Create link" }).click();
     await dialog.getByRole("button", { name: "Copy link" }).waitFor();
-    await page.waitForTimeout(300);
+    await painted(page);
     await shot(page, "22-share-dialog.png", { fullPage: false });
     await page.close();
   }
@@ -1851,14 +1867,14 @@ async function featureShots(context) {
       const scroller = el.closest(".overflow-y-auto");
       scroller.scrollTop += el.getBoundingClientRect().top - scroller.getBoundingClientRect().top - 8;
     });
-    await page.waitForTimeout(300);
+    await painted(page);
     await shot(page, "25-proof-checks.png", { fullPage: false });
 
     console.log("26-proof-rating-personalise");
     await pane.evaluate((el) => {
       el.scrollTop = el.scrollHeight;
     });
-    await page.waitForTimeout(300);
+    await painted(page);
     await shot(page, "26-proof-rating-personalise.png", { fullPage: false });
     await page.close();
   }
