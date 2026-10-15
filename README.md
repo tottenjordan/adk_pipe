@@ -73,7 +73,7 @@ Each root agent calls its ADK graph `Workflow`s as `NodeTool`s and its sub-agent
 |---|---|---|
 | <img src="docs/diagrams/trend_scout_architecture.png" alt="trend_scout agent architecture" width="280"> | <img src="docs/diagrams/creative_agent_architecture.png" alt="creative_agent agent architecture" width="280"> | <img src="docs/diagrams/interactive_creative_architecture.png" alt="interactive_creative agent architecture" width="280"> |
 
-For the step-by-step run order of each agent, see the [workflow diagrams](docs/diagrams/README.md#agent-workflow-diagrams). For the full agent composition, see [CLAUDE.md → Architecture](CLAUDE.md#architecture).
+For the step-by-step run order of each agent, see the [workflow diagrams](docs/diagrams/README.md#agent-workflow-diagrams). For the full agent composition, see [docs/reference/agent-composition.md](docs/reference/agent-composition.md).
 
 ## Example outputs
 
@@ -254,7 +254,7 @@ TRUST_CLIENT_USER_ID=1 SESSION_SERVICE_URI=memory:// ALLOW_ORIGINS=http://localh
 cd frontend && npm install && npm run dev   # http://localhost:3000
 ```
 
-For pages, design system and configuration, see the [frontend guide](frontend/README.md). For per-user authz and the Cloud Run deployment, see [CLAUDE.md](CLAUDE.md#frontend--frontend) and [deployment/README.md](deployment/README.md#frontend--api_server-on-cloud-run).
+For pages, design system and configuration, see the [frontend guide](frontend/README.md). For per-user authz and the Cloud Run deployment, see [docs/reference/frontend.md](docs/reference/frontend.md) and [deployment/README.md](deployment/README.md#frontend--api_server-on-cloud-run).
 
 ### Creative experiments (contextual bandit)
 
