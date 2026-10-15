@@ -15,6 +15,7 @@ from collections.abc import Mapping, Sequence
 from typing import Any
 
 from .claims import claims_allowed_text, unsupported_claims
+from .endorsement import endorsement_terms
 from .temporal_terms import temporal_terms
 from .text_match import (
     contains_phrase,
@@ -259,8 +260,9 @@ def check_brief(
     ``creative_agent.safer_angle``) ``trend_bridge.safer_angle`` must be set,
     ``trend_bridge.risks`` must list the event's harms, the safer angle may
     share no content word with the risks or ``avoid`` terms (the trend, brand
-    and product words excepted) and may carry no endorsement word; without it a
-    non-empty ``safer_angle`` is stray (see ``_safer_angle_issues``).
+    and product words excepted) and may carry no endorsement term
+    (``endorsement.endorsement_terms``); without it a non-empty
+    ``safer_angle`` is stray (see ``_safer_angle_issues``).
     """
     data = parse_brief(brief)
     if data is None:
@@ -432,19 +434,6 @@ def check_brief(
     return issues
 
 
-# Endorsement words a safer angle may not carry. A tiny local list on purpose:
-# PR A2's creative_agent/endorsement.py will be the canonical endorsement
-# lexicon (phrases, copy gate) and can replace it.
-_ENDORSEMENT_WORDS = (
-    "official",
-    "endorsed",
-    "endorsement",
-    "sponsored",
-    "partner",
-    "partnered",
-    "partnership",
-    "licensed",
-)
 # Words too common to signal an event leak when a safer angle shares them with
 # the risks ("his music" vs "his murder"); text_match.STOPWORDS are already out.
 _OVERLAP_IGNORED = frozenset(
@@ -532,12 +521,7 @@ def _safer_angle_issues(
             f"({', '.join(shared)}): build it on the subject's positive side, "
             "never the sensitive event."
         )
-    angle_words = words(angle)
-    if endorsed := [
-        term
-        for term in _ENDORSEMENT_WORDS
-        if any(same_word(term, w) for w in angle_words)
-    ]:
+    if endorsed := endorsement_terms(angle):
         issues.append(
             f"trend_bridge.safer_angle implies endorsement ({', '.join(endorsed)}): "
             "name the subject only as a respectful tribute or inspiration."
