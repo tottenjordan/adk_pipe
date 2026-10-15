@@ -104,7 +104,12 @@ class UnsafeReferenceURL(ValueError):
 
 
 def _is_public_ip(raw: str) -> bool:
-    """False for loopback/private/link-local/reserved/multicast/unspecified."""
+    """False for loopback/private/link-local/reserved/multicast/unspecified and
+    any other non-global address (e.g. 100.64.0.0/10 shared address space).
+
+    The explicit checks stay alongside ``is_global``: some special-purpose
+    addresses report ``is_global`` True (e.g. ``64:ff9b::a9fe:a9fe``, the NAT64
+    form of the metadata address, is caught only by ``is_reserved``)."""
     ip = ipaddress.ip_address(raw.split("%", 1)[0])  # drop an IPv6 zone id
     mapped = getattr(ip, "ipv4_mapped", None)
     if mapped is not None:
@@ -116,6 +121,7 @@ def _is_public_ip(raw: str) -> bool:
         or ip.is_reserved
         or ip.is_multicast
         or ip.is_unspecified
+        or not ip.is_global
     )
 
 
@@ -245,12 +251,17 @@ _IMAGE_GEN_MAX_DELAY_SECS = 90.0
 
 
 def _is_retryable_genai_error(exc: Exception) -> bool:
-    """True for transient/quota-paced genai errors: 5xx, 429, client timeouts."""
-    if isinstance(exc, httpx.TimeoutException):  # per-request timeout hit
+    """True for transient/quota-paced genai errors: 5xx, 408, 429, client
+    timeouts and connection failures (google-genai's own retry treats the same
+    ones as transient)."""
+    if isinstance(exc, (httpx.TimeoutException, httpx.ConnectError)):
         return True
     if isinstance(exc, genai_errors.ServerError):  # 5xx incl. 503 UNAVAILABLE
         return True
-    if isinstance(exc, genai_errors.ClientError) and getattr(exc, "code", None) == 429:
+    if isinstance(exc, genai_errors.ClientError) and getattr(exc, "code", None) in (
+        408,
+        429,
+    ):
         return True
     return False
 
