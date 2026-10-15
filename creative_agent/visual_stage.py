@@ -322,8 +322,11 @@ async def _render_images(ctx: Context) -> str:
     The node Context is the same class as ToolContext (state + save_artifact),
     so generate_image's writes (``_images_generated``, ``generated_images``,
     ``image_qa__issues``, ``person_reference_rejected``, …) land in the node's
-    state delta. Its ``_images_generated`` guard keeps a re-run a no-op;
-    transient infra exceptions are retried by the node's ``INFRA_RETRY`` and
+    state delta. ``_images_generated`` is the render fingerprint string
+    (``image_tools.render_fingerprint``: concept names, prompts, cast flags and
+    the person reference; a legacy ``True`` also counts), so a re-run with the
+    same concepts is a no-op while changed concepts render again; transient
+    infra exceptions are retried by the node's ``INFRA_RETRY`` and
     then propagate, as the agent's did. Looked up on the module at call time
     so tests can stub it.
     """
@@ -375,8 +378,9 @@ def images_ready(ctx: Context) -> str:
 
     A short confirmation, mirroring research_report_ready: the rendered image
     artifact keys live in state for save_creative_gallery_html and the eval
-    step. A non-empty notice if the render step left ``_images_generated``
-    unset (defensive: the deterministic node sets it or raises).
+    step. A non-empty notice if the render step left the
+    ``_images_generated`` fingerprint unset (defensive: the deterministic node
+    sets it or raises).
     """
     if is_populated(ctx.state.get("_images_generated")):
         keys = ctx.state.get("_generated_artifact_keys") or []
