@@ -332,7 +332,7 @@ def test_situation_prompts_use_only_known_tokens():
         "target_search_trends",
         "target_audience",
         "trend_situation_raw?",
-        "sources?",
+        "trend_situation_sources?",
     }
     assert "unknown" in TREND_SITUATION_SYNTHESIZER_INSTR
     assert "sensitive" in TREND_SITUATION_SYNTHESIZER_INSTR
