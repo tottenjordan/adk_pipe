@@ -27,8 +27,14 @@ from __future__ import annotations
 
 import json
 import re
-from collections.abc import Mapping
-from typing import Any
+from collections.abc import Mapping, Sequence
+from typing import TYPE_CHECKING, Any
+
+from .text_match import contains_phrase, content_tokens, same_word, words
+from .trend_tie import distinctive_trend_tokens, has_trend_tie, tie_terms
+
+if TYPE_CHECKING:  # run_policy imports this module
+    from .run_policy import RunPolicy
 
 MAX_REASON_CHARS = 120
 ACTIVE = "yes"
@@ -233,3 +239,179 @@ def clear_stray_safer_angle(brief: Mapping[str, Any]) -> dict[str, Any] | None:
     if not (isinstance(angle, str) and angle.strip()):
         return None
     return {**brief, "trend_bridge": {**bridge, "safer_angle": ""}}
+
+
+# --- the copy gate's safer-angle tie (called by copy_gate.gate_copies) --- #
+# Words a safer angle shares with any music / craft / feel-good tribute: they
+# never make a copy's tie specific ("Own the Spark of Golden-Era Soul" is not
+# tied to "Tupac Shakur's ... soulful, analog groove"), so only the angle's
+# other content words (plus the subject's name) count. Pronouns and filler
+# are here too (text_match.STOPWORDS are already out).
+GENERIC_SAFER_ANGLE_WORDS = frozenset(
+    {
+        "legacy", "enduring", "lasting", "artistic", "art", "artist", "artistry",
+        "soul", "soulful", "heart", "heartfelt", "spirit", "passion",
+        "music", "musical", "musician", "sound", "sounds", "song", "songs",
+        "studio", "analog", "analogue", "organic", "groove", "grooves",
+        "craft", "crafted", "craftsmanship", "handcrafted", "expression",
+        "expressive", "creative", "creativity", "inspiration", "inspired",
+        "inspiring", "tribute", "honor", "honour", "celebrated", "celebrating",
+        "celebration", "iconic", "icon", "legend", "legendary", "timeless",
+        "classic", "golden", "era", "culture", "cultural", "style", "story",
+        "vibe", "vibes", "energy", "spark", "magic", "rhythm", "driven",
+        "voice", "love", "life", "dream", "dreams", "chasing", "community",
+        "positive", "influence", "influential", "impact", "work", "works",
+        "known", "famous", "beloved", "generation", "generations",
+        "he", "she", "him", "his", "her", "hers", "they", "them", "you",
+        "your", "we", "our", "who", "that", "was", "were", "be", "been",
+        "has", "have", "had", "not", "no", "all", "after", "before",
+    }
+)  # fmt: skip
+SAFER_ANGLE_MIN_WORD_CHARS = 4
+_SHORT_ANGLE_WORDS = 8
+_MAX_SAFER_EXAMPLES = 3
+
+
+def safer_angle_tie_avoid(
+    trend: str,
+    *,
+    avoid: Sequence[str] = (),
+    risks: Sequence[str] = (),
+    safer_angle: str = "",
+) -> list[str]:
+    """``avoid`` plus the trend's distinctive tokens that a brief risk names
+    but the safer angle does not: the sensitive event's words ("murder",
+    "trial" in "tupac shakur murder trial") never count as a trend tie, while
+    the subject's name, which the safer angle uses, still does."""
+    extra = [
+        token
+        for token in distinctive_trend_tokens(trend, avoid)
+        if any(contains_phrase(risk, token) for risk in risks)
+        and not contains_phrase(safer_angle, token)
+    ]
+    return [*avoid, *extra]
+
+
+def named_subject_keys(
+    texts: Sequence[tuple[str, str]],
+    *,
+    trend_terms: str,
+    avoid: Sequence[str] = (),
+    risks: Sequence[str] = (),
+    safer_angle: str = "",
+) -> list[str]:
+    """The keys of the ``(key, text)`` pairs whose text names the trend's
+    subject: the trend phrase or one of its distinctive words, minus the
+    ``safer_angle_tie_avoid`` words (motifs do not count). [] without a
+    trend."""
+    if not words(trend_terms):
+        return []
+    tie_avoid = safer_angle_tie_avoid(
+        trend_terms, avoid=avoid, risks=risks, safer_angle=safer_angle
+    )
+    return [
+        key
+        for key, text in texts
+        if has_trend_tie(text, trend=trend_terms, avoid=tie_avoid)
+    ]
+
+
+def safer_angle_tie_words(
+    safer_angle: str,
+    *,
+    trend_terms: str = "",
+    target_product: str = "",
+    brand: str = "",
+    avoid: Sequence[str] = (),
+    risks: Sequence[str] = (),
+) -> list[str]:
+    """The safer angle's distinctive content words (folded, first occurrence
+    order): its ``content_tokens`` minus ``GENERIC_SAFER_ANGLE_WORDS``, words
+    under ``SAFER_ANGLE_MIN_WORD_CHARS`` characters, the trend's own words
+    (naming the subject is checked separately), the product / brand words and
+    the words of ``avoid`` / ``risks`` (singular/plural alike)."""
+    if not isinstance(safer_angle, str):
+        return []
+    excluded = [
+        w
+        for phrase in (trend_terms, target_product, brand, *avoid, *risks)
+        if isinstance(phrase, str)
+        for w in words(phrase)
+    ]
+    out: list[str] = []
+    for word in content_tokens(safer_angle):
+        if (
+            word in GENERIC_SAFER_ANGLE_WORDS
+            or len(word) < SAFER_ANGLE_MIN_WORD_CHARS
+            or word in out
+            or any(same_word(word, other) for other in excluded)
+        ):
+            continue
+        out.append(word)
+    return out
+
+
+def _short_angle(safer_angle: str) -> str:
+    parts = safer_angle.split()
+    if len(parts) <= _SHORT_ANGLE_WORDS:
+        return safer_angle.strip()
+    return " ".join(parts[:_SHORT_ANGLE_WORDS]).rstrip(",;:.") + "…"
+
+
+def untied_copy_issues(
+    texts: Sequence[tuple[str, str]], policy: RunPolicy, avoid: Sequence[str]
+) -> dict[str, str]:
+    """The safer-angle tie issue per untied copy key, when fewer than
+    ceil(n/2) of the ``(key, text)`` copies tie (name the subject, as
+    ``named_subject_keys``, or use a ``safer_angle_tie_words`` word); {}
+    otherwise or without a trend. ``avoid`` is the copy gate's filtered avoid
+    terms; the trend, product, brand, risks and angle come from ``policy``."""
+    trend_terms = policy.trend
+    risks = policy.risks
+    angle_text = policy.safer_angle_text
+    if not texts or not words(trend_terms):
+        return {}
+    named = set(
+        named_subject_keys(
+            texts,
+            trend_terms=trend_terms,
+            avoid=avoid,
+            risks=risks,
+            safer_angle=angle_text,
+        )
+    )
+    angle_words = safer_angle_tie_words(
+        angle_text,
+        trend_terms=trend_terms,
+        target_product=policy.target_product,
+        brand=policy.brand,
+        avoid=avoid,
+        risks=risks,
+    )
+    untied: list[str] = []
+    for key, text in texts:
+        text_words = words(text)
+        if key not in named and not any(
+            same_word(a, w) for a in angle_words for w in text_words
+        ):
+            untied.append(key)
+    need = -(-len(texts) // 2)
+    if len(texts) - len(untied) >= need:
+        return {}
+    tie_avoid = safer_angle_tie_avoid(
+        trend_terms, avoid=avoid, risks=risks, safer_angle=angle_text
+    )
+    examples = ", ".join(
+        [
+            *tie_terms(trend_terms, avoid=tie_avoid)[:1],
+            *(w.title() for w in angle_words),
+        ][:_MAX_SAFER_EXAMPLES]
+    )
+    angle = f" ({_short_angle(angle_text)})" if angle_text.strip() else ""
+    issue = (
+        f"not tied to the safer angle{angle}: name the subject in tribute or use "
+        "a distinctive part of its legacy, not just generic words"
+        + (f" (e.g. {examples})" if examples else "")
+        + f"; at least {need} of the {len(texts)} copies must."
+    )
+    return dict.fromkeys(untied, issue)

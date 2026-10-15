@@ -15,9 +15,9 @@ from creative_agent.copy_gate import (
     brief_safer_angle,
     gate_copies,
     safer_angle_named_copies,
-    safer_angle_tie_avoid,
 )
 from creative_agent.run_policy import RunPolicy
+from creative_agent.safer_angle import safer_angle_tie_avoid
 
 TREND = "tupac shakur murder trial"
 PRODUCT = "Hohner Clavinet D7"

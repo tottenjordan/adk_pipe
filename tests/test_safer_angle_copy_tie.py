@@ -9,8 +9,9 @@ untied copy is flagged. Inactive runs are unchanged.
 
 from __future__ import annotations
 
-from creative_agent.copy_gate import gate_copies, safer_angle_tie_words
+from creative_agent.copy_gate import gate_copies
 from creative_agent.run_policy import RunPolicy
+from creative_agent.safer_angle import safer_angle_tie_words
 
 TREND = "tupac shakur"
 PRODUCT = "Fender Rhodes Stage Piano"
