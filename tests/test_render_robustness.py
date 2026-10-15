@@ -209,3 +209,49 @@ def test_uploads_run_concurrently_bounded_and_records_stay_in_concept_order(
     assert calls == keys  # started in concept order
     assert list(run.ctx.state["generated_images"]) == names
     assert run.ctx.state["_generated_artifact_keys"] == keys
+
+
+# --- Nits: upload content type ------------------------------------------------------
+
+
+@pytest.mark.usefixtures("image_qa_off")
+def test_upload_content_type_follows_the_models_mime(monkeypatch):
+    """A JPEG from the image model is uploaded as image/jpeg (was always
+    image/png); a PNG keeps _save_to_gcs's image/png default."""
+    run = _Run(monkeypatch, [_concept("A"), _concept("B")])
+    mimes = iter(["image/jpeg", "image/png"])
+
+    async def render(contents, aspect_ratio, image_config=None):
+        return b"img", next(mimes)
+
+    seen: dict[str, str | None] = {}
+
+    def save(*, tool_context, image_bytes, filename, metadata=None, **kw):
+        seen[filename] = kw.get("content_type")
+        return f"gs://b/f/d/{filename}"
+
+    monkeypatch.setattr(image_tools, "_render_image", render)
+    monkeypatch.setattr(image_tools, "_save_to_gcs", save)
+    run.go()
+    assert seen == {"A.png": "image/jpeg", "B.png": None}
+
+
+def test_save_to_gcs_uploads_with_the_given_content_type(monkeypatch):
+    from types import SimpleNamespace
+
+    from creative_agent import gcs_tools
+
+    uploads = []
+
+    class _Blob:
+        metadata = None
+
+        def upload_from_string(self, data, content_type=None):
+            uploads.append(content_type)
+
+    client = SimpleNamespace(bucket=lambda _n: SimpleNamespace(blob=lambda _p: _Blob()))
+    monkeypatch.setattr(gcs_tools, "_get_gcs_client", lambda: client)
+    ctx = FakeToolContext({"gcs_folder": "f", "agent_output_dir": "d"})
+    gcs_tools._save_to_gcs(ctx, b"x", "a.png", content_type="image/jpeg")
+    gcs_tools._save_to_gcs(ctx, b"x", "b.png")
+    assert uploads == ["image/jpeg", "image/png"]

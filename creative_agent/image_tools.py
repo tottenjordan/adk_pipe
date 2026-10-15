@@ -406,7 +406,13 @@ async def _store_image(
     A cast render carries blob metadata ``consent_id`` (the consent revoke
     deletes only objects that carry it) and is not saved as an ADK artifact.
     """
-    extra = {"metadata": {"consent_id": consent_id}} if consent_id else {}
+    extra: dict[str, Any] = (
+        {"metadata": {"consent_id": consent_id}} if consent_id else {}
+    )
+    if mime_type and mime_type != "image/png":
+        # Only a non-default type is passed: _save_to_gcs defaults to image/png,
+        # so PNG uploads keep their historical call shape.
+        extra["content_type"] = mime_type
 
     def upload() -> str:
         if before_upload is not None:

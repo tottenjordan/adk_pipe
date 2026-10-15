@@ -123,8 +123,11 @@ def _save_to_gcs(
     image_bytes: bytes,
     filename: str,
     metadata: dict[str, str] | None = None,
+    content_type: str = "image/png",
 ):
     """Upload a rendered image under the run's folder → its gs:// URI.
+
+    ``content_type`` is the image model's mime type (``image/png`` default).
 
     ``metadata`` (blob custom metadata) marks renders made with a consented
     person photo (``{"consent_id": ...}``): revoking that consent deletes only
@@ -143,7 +146,7 @@ def _save_to_gcs(
         blob.metadata = dict(metadata)
 
     try:
-        blob.upload_from_string(image_bytes, content_type="image/png")
+        blob.upload_from_string(image_bytes, content_type=content_type)
         gcs_uri = f"gs://{gcs_bucket}/{gcs_blob_name}"
 
         return gcs_uri
