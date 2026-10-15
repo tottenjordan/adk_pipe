@@ -446,16 +446,11 @@ def _write_trend_rows(state: dict[str, Any], session_id: str) -> dict:
                 sql_query,
                 job_config=bigquery.QueryJobConfig(query_parameters=query_params),
             )
-            job.result()  # wait for job to complete
-            if job.errors:
-                logging.error(
-                    f"DML MERGE job for trend: '{trend}' failed: {job.errors}"
-                )
-                raise RuntimeError(f"BigQuery insert returned errors: {job.errors}")
-            else:
-                logging.info(
-                    f"DML MERGE job {job.job_id} for trend: `{trend}` completed; added {job.num_dml_affected_rows} rows."
-                )
+            # result() raises on a failed job (the except below logs + re-raises).
+            job.result()
+            logging.info(
+                f"DML MERGE job {job.job_id} for trend: `{trend}` completed; added {job.num_dml_affected_rows} rows."
+            )
         return {
             "status": "success",
             "trends": ", ".join(target_trends["target_search_trends"]),
