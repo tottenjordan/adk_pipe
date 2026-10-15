@@ -175,7 +175,11 @@ def test_inspect_image_sends_image_and_schema():
     (call,) = client.models.calls
     assert call["model"] == "qa-model"
     cfg = call["config"]
-    assert cfg.response_schema is ImageQAResult
+    # Without a safer angle the schema is the verdict without its field
+    # (byte-identical to the pre-safer-angle ImageQAResult schema).
+    assert cfg.response_schema is image_qa._ImageQAVerdict
+    assert "public_figure_likeness" not in cfg.response_schema.model_fields
+    assert isinstance(result, ImageQAResult)
     assert cfg.response_mime_type == "application/json"
     assert cfg.temperature == 0
     contents = call["contents"]

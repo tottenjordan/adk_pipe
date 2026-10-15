@@ -29,7 +29,7 @@ from typing import Any
 
 from google import genai
 from google.genai import types
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from agent_common import genai_retry
 from agent_common.locations import MODEL_LOCATION
@@ -43,6 +43,7 @@ __all__ = [
     "CRITICAL_RULES",
     "ISSUE_CHAR_CAP",
     "PROMPT_CHAR_CAP",
+    "SAFER_ANGLE_FIELDS",
     "ImageQAResult",
     "correction_text",
     "expected_text",
@@ -64,10 +65,19 @@ COMPOSITION_FIELDS = ("composition_changed", "composition_differences")
 # Person-casting verdict fields stored only for cast concepts (uncast renders
 # keep their record shape).
 CAST_ONLY_FIELDS = ("person_as_public_figure",)
+# Safer-angle verdict fields (a sensitive trend's safer angle is active): asked
+# and stored only then, so other renders keep their request and record shape.
+SAFER_ANGLE_FIELDS = ("public_figure_likeness",)
 
 
-class ImageQAResult(BaseModel):
+# The verdict fields asked on every render: the response schema of a run
+# without a safer angle, kept byte-identical to the pre-safer-angle
+# ImageQAResult (same title and docstring, which the JSON schema carries);
+# ImageQAResult adds the safer-angle field.
+class _ImageQAVerdict(BaseModel):
     """The vision model's verdict on one rendered image."""
+
+    model_config = ConfigDict(title="ImageQAResult")
 
     product_visible: bool = Field(
         description=(
@@ -202,6 +212,18 @@ class ImageQAResult(BaseModel):
     )
 
 
+class ImageQAResult(_ImageQAVerdict):
+    """The vision model's verdict on one rendered image."""
+
+    public_figure_likeness: bool = Field(
+        default=False,
+        description=(
+            "The image shows a recognisable likeness of a real public figure "
+            "(not the cast person); false when not asked."
+        ),
+    )
+
+
 def expected_text(concept: dict[str, Any]) -> list[str] | None:
     """The in-image text the concept's prompt asks for, or None — pure.
 
@@ -308,8 +330,17 @@ _PERSON_RULES: dict[str, str] = {
 # not critical. The phrase restates the edit's keep-everything instruction.
 COMPOSITION_RULE = "composition changed"
 COMPOSITION_PHRASE = "keep everything except the person exactly as in image 1"
+# Safer angle on a sensitive trend only (``inspect_image`` with
+# ``safer_angle_active``): critical, like unsafe content.
+PUBLIC_FIGURE_RULE = "real public figure likeness"
+PUBLIC_FIGURE_PHRASE = (
+    "show the theme through instruments, era and setting, never the real "
+    "person's likeness"
+)
 # Failures weighed first when choosing between attempts (image_tools).
-CRITICAL_RULES = frozenset({"unsafe content", "unrequested third-party logo"})
+CRITICAL_RULES = frozenset(
+    {"unsafe content", "unrequested third-party logo", PUBLIC_FIGURE_RULE}
+)
 
 
 def is_cast(concept: dict[str, Any]) -> bool:
@@ -362,6 +393,9 @@ def qa_failed_rules(
     # otherwise), so base renders are unaffected.
     if result.composition_changed:
         failed.append(COMPOSITION_RULE)
+    # Only ever true with a safer angle (inspect_image clears it otherwise).
+    if result.public_figure_likeness:
+        failed.append(PUBLIC_FIGURE_RULE)
     return failed
 
 
@@ -427,7 +461,10 @@ def correction_text(
         {name: phrase for _, name, phrase in _RULES}
         | _TEXT_RULES
         | _PERSON_RULES
-        | {COMPOSITION_RULE: COMPOSITION_PHRASE}
+        | {
+            COMPOSITION_RULE: COMPOSITION_PHRASE,
+            PUBLIC_FIGURE_RULE: PUBLIC_FIGURE_PHRASE,
+        }
     )
     if any(name in _TEXT_RULES for name in failed):
         items = [phrases[name] for name in failed]
@@ -443,6 +480,9 @@ def correction_text(
     # A composition change restates "keep everything" plus its differences.
     if COMPOSITION_RULE in failed:
         items += _composition_items(result)
+    # A public-figure likeness always restates the safer-angle instruction.
+    if PUBLIC_FIGURE_RULE in failed:
+        items.append(PUBLIC_FIGURE_PHRASE)
     items = list(dict.fromkeys(items))
     return (
         "Correct these issues from the previous attempt: "
@@ -500,6 +540,17 @@ PERSON_COMPARISON_LINE = (
 )
 
 
+# Safer angle on a sensitive trend: the trend's real person may be named in the
+# copy as a tribute, but never shown.
+PUBLIC_FIGURE_LINE = (
+    "public_figure_likeness: Does the image show a recognisable likeness of a "
+    "real public figure (not the cast person)? true only when a face or figure "
+    "is clearly recognisable as a specific real person (a celebrity, musician, "
+    "athlete or politician); generic or anonymous people, silhouettes, "
+    "instruments, era styling and settings are not."
+)
+
+
 # Personalised variant edits: the original ad is attached last, after this
 # label, and compared with the edit.
 ORIGINAL_LABEL = "Original ad (before the person was replaced):"
@@ -523,6 +574,7 @@ def _instruction(
     strictness: Sequence[str] = (),
     has_person_image: bool = False,
     has_original_image: bool = False,
+    safer_angle_active: bool = False,
 ) -> str:
     """The QA instruction for one concept (what to check, what was promised).
 
@@ -637,6 +689,9 @@ def _instruction(
     if has_original_image:
         # Only personalised variant edits: other renders keep the exact wording.
         lines.append(COMPOSITION_LINE)
+    if safer_angle_active:
+        # Only a sensitive trend's safer angle: other renders keep the wording.
+        lines.append(PUBLIC_FIGURE_LINE)
     lines.append(
         "issues: short problem statements in the form '[what is wrong] on/in "
         "[where]', one per problem found; empty if none."
@@ -676,6 +731,7 @@ def inspect_image(
     strictness: Sequence[str] = (),
     person_image: tuple[bytes, str] | None = None,
     original_image: tuple[bytes, str] | None = None,
+    safer_angle_active: bool = False,
 ) -> ImageQAResult:
     """One structured vision call → the image's ``ImageQAResult``.
 
@@ -684,6 +740,10 @@ def inspect_image(
     ``original_image`` (personalised variant edits only) is attached last,
     labelled ``ORIGINAL_LABEL``, with the composition question; without it the
     composition fields are always cleared (nothing was compared).
+    ``safer_angle_active`` (a sensitive trend's safer angle) adds the
+    public-figure likeness question and the field to the response schema;
+    without it both are left out (the request is unchanged) and the field is
+    always False.
     Synchronous (the genai sync client); call it via ``asyncio.to_thread``.
     Raises on any API/parse error — the caller fails open.
     """
@@ -707,6 +767,7 @@ def inspect_image(
                 strictness=strictness,
                 has_person_image=person_image is not None,
                 has_original_image=original_image is not None,
+                safer_angle_active=safer_angle_active,
             )
         )
     )
@@ -715,13 +776,17 @@ def inspect_image(
         contents=parts,
         config=types.GenerateContentConfig(
             response_mime_type="application/json",
-            response_schema=ImageQAResult,
+            response_schema=ImageQAResult if safer_angle_active else _ImageQAVerdict,
             temperature=0,
         ),
     )
     parsed = getattr(response, "parsed", None)
+    if isinstance(parsed, _ImageQAVerdict) and not isinstance(parsed, ImageQAResult):
+        parsed = ImageQAResult.model_validate(parsed.model_dump())
     if not isinstance(parsed, ImageQAResult):
         parsed = ImageQAResult.model_validate_json(response.text or "")
+    if not safer_angle_active and parsed.public_figure_likeness:
+        parsed = parsed.model_copy(update={"public_figure_likeness": False})
     if original_image is None and (
         parsed.composition_changed or parsed.composition_differences
     ):

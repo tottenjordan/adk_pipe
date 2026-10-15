@@ -233,3 +233,102 @@ def test_interactive_residual_applies_the_same_checks():
     off = cap_and_residual_copies(_state(*copies))
     assert off["ad_copy_critique__issues"] is None
     assert "safer_angle_named_copies" not in off
+
+
+# --- image QA: the public-figure likeness check ------------------------------
+from creative_agent import image_qa, image_tools  # noqa: E402
+from tests.test_image_qa import (  # noqa: E402
+    _CONCEPT,
+    _PRODUCT,
+    _Flow,
+    _QAClient,
+    _result,
+)
+
+
+def _inspect(*, safer_angle_active, payload=None):
+    client = _QAClient(payload or _result(public_figure_likeness=True).model_dump())
+    kwargs = {"safer_angle_active": True} if safer_angle_active else {}
+    result = image_qa.inspect_image(
+        b"x",
+        "image/png",
+        _CONCEPT,
+        brand="PRS",
+        target_product=_PRODUCT,
+        client=client,
+        model="m",
+        **kwargs,
+    )
+    (call,) = client.models.calls
+    text = " ".join(p.text for p in call["contents"] if getattr(p, "text", None))
+    return result, text, call["config"].response_schema
+
+
+def test_inspect_asks_the_public_figure_question_only_when_active():
+    result, text, schema = _inspect(safer_angle_active=True)
+    assert image_qa.PUBLIC_FIGURE_LINE in text
+    assert "recognisable likeness of a real public figure (not the cast person)" in text
+    assert schema is image_qa.ImageQAResult
+    assert result.public_figure_likeness is True
+
+    off, off_text, off_schema = _inspect(safer_angle_active=False)
+    assert "public_figure_likeness" not in off_text
+    assert "public_figure_likeness" not in off_schema.model_fields
+    # A stray verdict is cleared without the question.
+    assert off.public_figure_likeness is False
+
+
+def test_public_figure_rule_is_critical_with_its_correction():
+    result = _result(public_figure_likeness=True)
+    rules = image_qa.qa_failed_rules(result, _CONCEPT, target_product=_PRODUCT)
+    assert rules == ["real public figure likeness"]
+    assert "real public figure likeness" in image_qa.CRITICAL_RULES
+    text = image_qa.correction_text(result, _CONCEPT, target_product=_PRODUCT)
+    assert (
+        "show the theme through instruments, era and setting, never the real "
+        "person's likeness" in text
+    )
+    assert image_qa.qa_failed_rules(_result(), _CONCEPT, target_product=_PRODUCT) == []
+
+
+def test_public_figure_likeness_weighs_first_when_keeping_an_attempt():
+    # A likeness (1 critical) loses to two non-critical failures.
+    likeness = ["real public figure likeness"]
+    two_minor = ["malformed hands", "severe visual artifacts"]
+    assert image_tools._keep_retry(likeness, two_minor) is True
+    assert image_tools._keep_retry(two_minor, likeness) is False
+
+
+def _safer_flow(monkeypatch, verdicts, state):
+    flow = _Flow(monkeypatch, verdicts)
+    calls: list[dict] = []
+    queue = list(verdicts)
+
+    def fake_inspect(image_bytes, mime, concept, **kwargs):
+        calls.append(kwargs)
+        return queue.pop(0)
+
+    monkeypatch.setattr(image_qa, "inspect_image", fake_inspect)
+    flow.ctx.state.update(state)
+    flow.run()
+    return flow, calls
+
+
+def test_generate_image_plumbs_the_safer_angle_to_image_qa(monkeypatch):
+    likeness = _result(public_figure_likeness=True)
+    flow, calls = _safer_flow(
+        monkeypatch, [likeness, _result()], {"safer_angle_active": "yes"}
+    )
+    assert [c.get("safer_angle_active") for c in calls] == [True, True]
+    assert len(flow.models.calls) == 2  # re-rendered
+    retry_prompt = flow.models.calls[1]["contents"]
+    assert "never the real person's likeness" in retry_prompt
+    assert flow.record["qa"]["public_figure_likeness"] is False
+    assert flow.record["qa"]["passed"] is True
+
+
+@pytest.mark.parametrize("state", [{}, {"safer_angle_active": ""}])
+def test_generate_image_without_the_safer_angle_is_unchanged(monkeypatch, state):
+    flow, calls = _safer_flow(monkeypatch, [_result()], state)
+    assert all("safer_angle_active" not in c for c in calls)
+    assert "public_figure_likeness" not in flow.record["qa"]

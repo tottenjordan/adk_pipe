@@ -589,16 +589,22 @@ async def _inspect(
     strictness: Sequence[str] = (),
     person_image: tuple[bytes, str] | None = None,
     original_image: tuple[bytes, str] | None = None,
+    *,
+    safer_angle_active: bool = False,
 ) -> image_qa.ImageQAResult | None:
     """One QA call off the event loop → the verdict, or None (fail-open).
     ``person_image`` (cast concepts only) adds the likeness comparison;
-    ``original_image`` (personalised variant edits only) the composition check."""
+    ``original_image`` (personalised variant edits only) the composition check;
+    ``safer_angle_active`` (a sensitive trend's safer angle) the public-figure
+    likeness check."""
     image_bytes, mime = rendered
     extra: dict[str, Any] = {}
     if person_image is not None:
         extra["person_image"] = person_image
     if original_image is not None:
         extra["original_image"] = original_image
+    if safer_angle_active:
+        extra["safer_angle_active"] = True
     try:
         return await asyncio.to_thread(
             image_qa.inspect_image,
@@ -625,17 +631,22 @@ def _qa_record(
     entry: dict,
     product: str,
     compared_to_original: bool = False,
+    *,
+    safer_angle_active: bool = False,
 ) -> dict:
     """The stored verdict: the model's fields + the rule's passed/failures. The
     composition fields are stored only for a check against the original (a
-    personalised variant edit) and the cast-only person fields only for a cast
-    concept, so other renders keep their record shape."""
+    personalised variant edit), the cast-only person fields only for a cast
+    concept and ``public_figure_likeness`` only with a safer angle, so other
+    renders keep their record shape."""
     failures = image_qa.qa_failures(result, entry, target_product=product)
     exclude: set[str] = set()
     if not compared_to_original:
         exclude.update(image_qa.COMPOSITION_FIELDS)
     if not image_qa.is_cast(entry):
         exclude.update(image_qa.CAST_ONLY_FIELDS)
+    if not safer_angle_active:
+        exclude.update(image_qa.SAFER_ANGLE_FIELDS)
     return {
         **result.model_dump(exclude=exclude or None),
         "passed": not failures,
@@ -687,6 +698,7 @@ async def _inspect_and_rerender(
     strictness: Sequence[str] = (),
     person_image: tuple[bytes, str] | None = None,
     original_image: tuple[bytes, str] | None = None,
+    safer_angle_active: bool = False,
 ) -> tuple[tuple[bytes, str], int, dict | None, str | None]:
     """Inspect a render; re-render (bounded) while it fails; keep the best.
 
@@ -727,6 +739,7 @@ async def _inspect_and_rerender(
             strictness,
             person_image,
             original_image,
+            safer_angle_active=safer_angle_active,
         )
         if result is None:
             await my_turn()
@@ -773,6 +786,7 @@ async def _inspect_and_rerender(
                 strictness,
                 person_image,
                 original_image,
+                safer_angle_active=safer_angle_active,
             )
             if retry_result is None:
                 break
@@ -783,7 +797,11 @@ async def _inspect_and_rerender(
                 kept, kept_result, kept_rules = retry, retry_result, retry_rules
         await my_turn()
         record = _qa_record(
-            kept_result, entry, product, compared_to_original=original_image is not None
+            kept_result,
+            entry,
+            product,
+            compared_to_original=original_image is not None,
+            safer_angle_active=safer_angle_active,
         )
         issue = None
         if record["failures"]:
@@ -881,6 +899,9 @@ async def generate_image(
     brand = tool_context.state.get("brand") or ""
     # Opt-in rating learning: the run's check-backed fail-reason flags.
     strictness = strictness_flags(tool_context.state.get("rating_strictness"))
+    # A sensitive trend's safer angle: image QA also checks for a real public
+    # figure's likeness (critical).
+    safer_angle_active = tool_context.state.get("safer_angle_active") == "yes"
 
     # Optional consented person reference (consent-checked by the api at
     # kick-off). Only a gs:// URI under person-refs/ is used; the casting guard
@@ -956,6 +977,7 @@ async def generate_image(
                         references=references,
                         person=person_part,
                         strictness=strictness,
+                        safer_angle_active=safer_angle_active,
                         qa=config.image_qa_enabled,
                         brand=brand,
                         target_product=product,
