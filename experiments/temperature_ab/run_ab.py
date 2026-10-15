@@ -1,4 +1,4 @@
-"""Drive the Gemini 3 temperature A/B: serial, interleaved runs over two arms.
+"""Drive the Gemini 3 temperature A/B: serial, counterbalanced runs over two arms.
 
 Each arm is a tagged, no-traffic revision of the private ``trend-trawler-api``
 (same image, env ``GEMINI_TEMPERATURE_PROFILE=tuned|default``). For every planned
@@ -50,24 +50,33 @@ class Cell:
 
 
 def plan_cells(arms: list[str], apps: list[str], reps: int) -> list[Cell]:
-    """Execution order: per rep, per (app, campaign) block, every arm in turn.
+    """Execution order: counterbalanced ABBA pairs over (app, campaign) blocks.
 
-    Generalises ``quota_spread.run_doe.plan_cell_order`` (arms round-robined
-    inside each block, so no arm runs twice in a row: ABAB) with the blocks
-    interleaved inside each rep rather than grouped, so slow drift over a
-    multi-hour batch hits both apps, both campaigns and both arms alike. Every
-    arm gets each (app, campaign) exactly ``reps`` times. Deterministic.
+    Each rep visits every (app, campaign) block once; each visit is a pair that
+    runs every arm once. Pair ``k`` (counted over the whole plan) runs ``arms``
+    in the given order when ``k`` is even and reversed when odd (tuned→default,
+    default→tuned, …), so neither arm always goes first and an order /
+    quota-warm-up effect cancels instead of biasing the contrast. The block
+    order rotates by one each rep, so with an even number of blocks a given
+    (app, campaign) also alternates which arm goes first from rep to rep
+    (balanced for even ``reps``). Blocks alternate apps, so slow drift over a
+    multi-hour batch hits both apps, campaigns and arms alike. Every arm gets
+    each (app, campaign) exactly ``reps`` times. Deterministic: same inputs,
+    same order, and cell ids depend only on (app, campaign, rep, arm).
     """
     for app in apps:
         if app not in fixtures.APPS:
             raise ValueError(f"unsupported app {app!r}; expected {fixtures.APPS}")
     blocks = [(app, c.key) for c in fixtures.CAMPAIGNS for app in apps]
-    return [
-        Cell(arm=arm, app=app, campaign=campaign, rep=rep)
-        for rep in range(reps)
-        for app, campaign in blocks
-        for arm in arms
-    ]
+    cells: list[Cell] = []
+    k = 0
+    for rep in range(reps):
+        shift = rep % len(blocks)
+        for app, campaign in blocks[shift:] + blocks[:shift]:
+            order = arms if k % 2 == 0 else list(reversed(arms))
+            cells += [Cell(arm=a, app=app, campaign=campaign, rep=rep) for a in order]
+            k += 1
+    return cells
 
 
 def record_path(results_root: Path, cell: Cell) -> Path:

@@ -491,10 +491,16 @@ class TestPlan:
             ["tuned", "default"], ["creative_agent", "trend_scout"], reps=4
         )
         assert len(cells) == 2 * 2 * 2 * 4
-        # strict ABAB: no arm twice in a row
+        # counterbalanced ABBA: pair k is tuned→default for even k, else reversed
         arms_seq = [c.arm for c in cells]
-        assert all(a != b for a, b in zip(arms_seq, arms_seq[1:], strict=False))
-        assert arms_seq[0] == "tuned"
+        pairs = [arms_seq[i : i + 2] for i in range(0, len(arms_seq), 2)]
+        for k, pair in enumerate(pairs):
+            expected = ["tuned", "default"] if k % 2 == 0 else ["default", "tuned"]
+            assert pair == expected, (k, pair)
+        # each pair is one (app, campaign, rep) block run on both arms
+        for i in range(0, len(cells), 2):
+            a, b = cells[i], cells[i + 1]
+            assert (a.app, a.campaign, a.rep) == (b.app, b.campaign, b.rep)
         # each arm gets every (app, campaign) the same number of times
         for arm in ("tuned", "default"):
             combos = [(c.app, c.campaign) for c in cells if c.arm == arm]
@@ -509,6 +515,46 @@ class TestPlan:
                 ["tuned", "default"], ["creative_agent", "trend_scout"], reps=4
             )
         ]
+
+    @pytest.mark.parametrize(
+        ("apps", "reps"),
+        [
+            (["creative_agent", "trend_scout"], 4),
+            (["creative_agent", "trend_scout"], 5),
+            (["trend_scout"], 2),
+            (["creative_agent"], 10),
+        ],
+    )
+    def test_each_arm_goes_first_in_half_the_pairs(self, apps, reps):
+        cells = run_ab.plan_cells(["tuned", "default"], apps, reps=reps)
+        firsts = [cells[i].arm for i in range(0, len(cells), 2)]
+        assert firsts.count("tuned") == firsts.count("default") == len(firsts) // 2
+
+    def test_first_arm_balanced_within_each_block(self):
+        """Even reps: every (app, campaign) gets each arm first equally often."""
+        cells = run_ab.plan_cells(
+            ["tuned", "default"], ["creative_agent", "trend_scout"], reps=4
+        )
+        firsts: dict[tuple[str, str], list[str]] = {}
+        for i in range(0, len(cells), 2):
+            c = cells[i]
+            firsts.setdefault((c.app, c.campaign), []).append(c.arm)
+        assert len(firsts) == 4
+        for arms_first in firsts.values():
+            assert arms_first.count("tuned") == arms_first.count("default") == 2
+
+    def test_resume_set_independent_of_order(self):
+        """Cell ids name (app, campaign, rep, arm) only; reps extend the plan."""
+        small = {
+            c.cell_id
+            for c in run_ab.plan_cells(["tuned", "default"], ["trend_scout"], 1)
+        }
+        large = {
+            c.cell_id
+            for c in run_ab.plan_cells(["tuned", "default"], ["trend_scout"], 3)
+        }
+        assert small <= large
+        assert "trend_scout-anr-r00-default" in small
 
     def test_cell_id_and_path(self, tmp_path):
         cell = run_ab.plan_cells(["tuned", "default"], ["trend_scout"], reps=1)[0]
