@@ -7,8 +7,8 @@ the person (or their estate) endorses, sponsors or approves the product, and
 never speak for them ("would have wanted", "in his words", "RIP"). The copy
 gate flags any ad copy field with one of these terms.
 
-Matching mirrors ``claims.py``: whole-word, case- and accent-insensitive
-(``text_match.fold``), spaces and hyphens inside a term interchangeable
+Matching mirrors ``claims.py`` (the shared ``lexicon.Lexicon``): whole-word,
+case- and accent-insensitive (``text_match.fold``), spaces and hyphens inside a term interchangeable
 ("signature-model" == "signature model"); "in his own words" counts as
 "in his words".
 
@@ -30,7 +30,7 @@ from __future__ import annotations
 
 import re
 
-from .text_match import fold
+from .lexicon import Lexicon
 
 ENDORSEMENT_TERMS = (
     "official",
@@ -67,30 +67,20 @@ ENDORSEMENT_TERMS = (
     "in their words",
 )
 
-_IDIOMS = re.compile(
-    r"\bpartner(?:s|ed|ing)?[\s-]+up\b"
-    r"|\bpartners?[\s-]+in[\s-]+crime\b"
-    r"|\breal[\s-]+estate\b"
+_LEXICON = Lexicon(
+    (t for t in ENDORSEMENT_TERMS if t != "rip"),  # "rip": case-sensitive, below
+    idioms=("partner(?:s|ed|ing)? up", "partners? in crime", "real estate"),
+    # "in his own words" == "in his words".
+    rewrites=((r"\b(in[\s-]+(?:his|her|their))[\s-]+own[\s-]+(words)\b", r"\1 \2"),),
 )
-# "in his own words" == "in his words".
-_OWN_WORDS = re.compile(r"\b(in[\s-]+(?:his|her|their))[\s-]+own[\s-]+(words)\b")
 _RIP = re.compile(r"(?<![\w.])(?:RIP|R\.I\.P\.?)(?![\w])")
-
-
-def _pattern(term: str) -> re.Pattern[str]:
-    parts = (re.escape(p) for p in re.split(r"[\s-]+", term))
-    return re.compile(r"(?<!\w)" + r"[\s-]+".join(parts) + r"(?!\w)")
-
-
-_PATTERNS = {t: _pattern(t) for t in ENDORSEMENT_TERMS if t != "rip"}
 
 
 def endorsement_terms(text: str) -> list[str]:
     """The ``ENDORSEMENT_TERMS`` in ``text``, once each, in lexicon order."""
     if not text:
         return []
-    folded = _OWN_WORDS.sub(r"\1 \2", _IDIOMS.sub(" ", fold(text)))
-    found = {t for t, pattern in _PATTERNS.items() if pattern.search(folded)}
+    found = set(_LEXICON.find(text))
     if _RIP.search(text):
         found.add("rip")
     return [t for t in ENDORSEMENT_TERMS if t in found]

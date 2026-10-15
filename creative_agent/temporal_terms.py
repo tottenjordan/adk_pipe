@@ -7,16 +7,17 @@ creative must never state an outcome or a date it can't support. The concept
 guard and the copy gate flag an evergreen creative whose text contains one of
 these terms ("won", "tonight", "Oct 12", "Saturday", …) for a fix round.
 
-Matching is whole-word, case- and accent-insensitive (``text_match.fold``);
-spaces and hyphens inside a term are interchangeable ("game day" ==
+Matching (the shared ``lexicon.Lexicon``) is whole-word, case- and
+accent-insensitive (``text_match.fold``); spaces and hyphens inside a term are interchangeable ("game day" ==
 "game-day"). Explicit dates (month + day either way round, numeric
 ``10/12``) and weekday names count too. Common idioms ("win-win", "lose
 weight", "lost and found", "never miss a beat", "skin in the game", "24/7")
-are removed before matching; extend ``_IDIOMS`` as false positives appear.
+are removed before matching; extend the ``_LEXICON`` idioms as false positives appear.
 """
 
 import re
 
+from .lexicon import Lexicon
 from .text_match import fold
 
 TEMPORAL_TERMS = (
@@ -47,15 +48,20 @@ TEMPORAL_TERMS = (
     "championship",
 )
 
-_IDIOMS = re.compile(
-    r"\b(?:"
-    r"win[\s-]+win"
-    r"|lose[\s-]+weight|weight[\s-]+loss"
-    r"|lost[\s-]+and[\s-]+found"
-    r"|miss(?:es|ed)?[\s-]+a[\s-]+beat"
-    r"|skin[\s-]+in[\s-]+the[\s-]+game"
-    r")\b"
-    r"|\b24/7\b"
+_LEXICON = Lexicon(
+    TEMPORAL_TERMS,
+    idioms=(
+        "win win",
+        "lose weight",
+        "weight loss",
+        "lost and found",
+        "miss(?:es|ed)? a beat",
+        "skin in the game",
+        "24/7",
+    ),
+    boundary=r"\w-",  # "win" never inside "win-win", "post-win" or "win-wins"
+    # the hyphen form only ("kick off your day" is fine)
+    overrides={"kick-off": r"(?<!\w)kick-off(?!\w)"},
 )
 
 _MONTH = (
@@ -71,16 +77,6 @@ _DATES = re.compile(
 )
 
 
-def _pattern(term: str) -> re.Pattern[str]:
-    if term == "kick-off":  # the hyphen form only ("kick off your day" is fine)
-        return re.compile(r"(?<!\w)kick-off(?!\w)")
-    parts = (re.escape(p) for p in re.split(r"[\s-]+", term))
-    return re.compile(r"(?<![\w-])" + r"[\s-]+".join(parts) + r"(?![\w-])")
-
-
-_PATTERNS = {term: _pattern(term) for term in TEMPORAL_TERMS}
-
-
 def temporal_terms(text: str) -> list[str]:
     """The dated / outcome terms in ``text`` ([] = timeless).
 
@@ -89,11 +85,10 @@ def temporal_terms(text: str) -> list[str]:
     """
     if not text:
         return []
-    folded = fold(text)
-    if len(folded) != len(text):  # fold changed lengths: report folded spans
-        text = folded
-    cleaned = _IDIOMS.sub(lambda m: " " * len(m.group(0)), folded)
-    found = [term for term, pattern in _PATTERNS.items() if pattern.search(cleaned)]
+    cleaned = _LEXICON.clean(text)  # folded, idioms blanked: fold's length kept
+    if len(cleaned) != len(text):  # fold changed lengths: report folded spans
+        text = fold(text)
+    found = _LEXICON.matches(cleaned)
     for match in _DATES.finditer(cleaned):
         written = text[match.start() : match.end()]
         if written not in found:
