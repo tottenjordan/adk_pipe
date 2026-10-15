@@ -150,6 +150,7 @@ def test_progress_updates_are_column_level(run):
         assert json.loads(values["progress"]) == {
             "episodes_done": i,
             "episodes_total": E,
+            "rewards_rejected": 0,
         }
         assert values["experiment_id"] == EID
 
@@ -268,8 +269,8 @@ def test_main_dry_run_writes_jsonl(tmp_path):
     assert len(events) == 2 * T
     assert len(metrics) == 2 * len(POLICIES)
     assert [json.loads(p["params"]["progress"]) for p in progress] == [
-        {"episodes_done": 1, "episodes_total": 2},
-        {"episodes_done": 2, "episodes_total": 2},
+        {"episodes_done": 1, "episodes_total": 2, "rewards_rejected": 0},
+        {"episodes_done": 2, "episodes_total": 2, "rewards_rejected": 0},
     ]
     assert all(set(e) == set(bq.EVENT_COLUMN_TYPES) for e in events)
 

@@ -141,7 +141,11 @@ def test_progress_update_sql_sets_only_progress_and_updated_at():
         "WHERE experiment_id = @experiment_id"
     )
     assert params == [
-        ("progress", "STRING", '{"episodes_done":3,"episodes_total":10}'),
+        (
+            "progress",
+            "STRING",
+            '{"episodes_done":3,"episodes_total":10,"rewards_rejected":0}',
+        ),
         ("updated_at", "TIMESTAMP", "2026-10-02T12:00:00Z"),
         ("experiment_id", "STRING", "abc"),
     ]
@@ -157,13 +161,15 @@ def test_table_names_follow_env():
 
 
 class FakeClient:
-    def __init__(self, fail_times=0, errors=None):
+    def __init__(self, fail_times=0, errors=None, query_failures=()):
         self.fail_times = fail_times
         self.errors = errors or [{"index": 0, "errors": ["backendError"]}]
         self.calls = []
         self.queries = []
         self.insert_timeouts = []
         self.result_timeouts = []
+        # exceptions raised by successive progress UPDATEs (then success)
+        self.query_failures = list(query_failures)
 
     def insert_rows_json(self, table, rows, row_ids=None, timeout=None):
         self.calls.append((table, rows, row_ids))
@@ -179,6 +185,8 @@ class FakeClient:
 
     def result(self, timeout=None):
         self.result_timeouts.append(timeout)
+        if self.query_failures:
+            raise self.query_failures.pop(0)
         return []
 
 
@@ -186,6 +194,7 @@ TABLES = {"experiments": "p.d.x", "events": "p.d.ev", "metrics": "p.d.m"}
 
 
 def _writer(client, **kw):
+    kw.setdefault("sleep", lambda s: None)
     return bq.BigQueryWriter(
         TABLES,
         client_factory=lambda: client,
@@ -249,6 +258,57 @@ def test_writer_does_not_retry_permanent_row_errors(caplog):
     assert "no such field: surprise" in caplog.text
 
 
+# spelled out, not read from the constant, so dropping a reason fails here
+@pytest.mark.parametrize(
+    "reason", ["invalid", "invalidQuery", "notFound", "accessDenied"]
+)
+def test_every_permanent_reason_fails_fast(reason):
+    errors = [{"index": 0, "errors": [{"reason": reason, "message": "x"}]}]
+    client = FakeClient(fail_times=5, errors=errors)
+    sleeps = []
+    with pytest.raises(bq.BigQueryWriteError, match="permanent"):
+        _writer(client, attempts=3, sleep=sleeps.append).write_events([_event()])
+    assert len(client.calls) == 1 and sleeps == []
+
+
+class IndexedFailures(FakeClient):
+    """Fails the rows at the given positions of each successive insert call."""
+
+    def __init__(self, fail_indices):
+        super().__init__()
+        self.fail_indices = list(fail_indices)
+
+    def insert_rows_json(self, table, rows, row_ids=None, timeout=None):
+        self.calls.append((table, rows, row_ids))
+        idx = self.fail_indices.pop(0) if self.fail_indices else []
+        return [{"index": i, "errors": [{"reason": "backendError"}]} for i in idx]
+
+
+def test_writer_retries_only_the_failed_rows_with_their_insert_ids():
+    client = IndexedFailures([[1, 3], [1]])
+    sleeps = []
+    rows = [_event(request_id=f"r{i}") for i in range(5)]
+    _writer(client, attempts=3, sleep=sleeps.append).write_events(rows)
+    assert [ids for _, _, ids in client.calls] == [
+        ["r0", "r1", "r2", "r3", "r4"],
+        ["r1", "r3"],
+        ["r3"],
+    ]
+    assert [r["request_id"] for r in client.calls[2][1]] == ["r3"]
+    # jittered exponential backoff between the attempts
+    base = bq.INSERT_RETRY_BASE_DELAY
+    assert len(sleeps) == 2
+    assert 0.5 * base <= sleeps[0] <= base
+    assert base <= sleeps[1] <= 2 * base
+
+
+def test_writer_retries_the_whole_part_when_an_error_has_no_usable_index():
+    client = FakeClient(fail_times=1, errors=[{"errors": ["backendError"]}])
+    rows = [_event(request_id=f"r{i}") for i in range(3)]
+    _writer(client).write_events(rows)
+    assert [ids for _, _, ids in client.calls] == [["r0", "r1", "r2"]] * 2
+
+
 def test_writer_still_retries_transient_object_errors():
     transient = [{"index": 0, "errors": [{"reason": "backendError", "message": "x"}]}]
     client = FakeClient(fail_times=2, errors=transient)
@@ -264,8 +324,40 @@ def test_writer_progress_runs_parameterized_update():
     assert cfg["params"][0] == (
         "progress",
         "STRING",
-        '{"episodes_done":1,"episodes_total":4}',
+        '{"episodes_done":1,"episodes_total":4,"rewards_rejected":0}',
     )
+
+
+def test_progress_carries_rewards_rejected():
+    _, params = bq.build_progress_update_sql("t", "abc", 2, 4, NOW, rewards_rejected=7)
+    assert json.loads(params[0][2]) == {
+        "episodes_done": 2,
+        "episodes_total": 4,
+        "rewards_rejected": 7,
+    }
+
+
+class ConcurrentUpdate(Exception):
+    """Like BigQuery's 400 "Could not serialize access … concurrent update"."""
+
+    code = 400
+
+
+def test_writer_progress_retries_with_backoff():
+    client = FakeClient(query_failures=[ConcurrentUpdate("serialize")])
+    sleeps = []
+    _writer(client, sleep=sleeps.append).update_progress("abc", 1, 4)
+    assert len(client.queries) == 2 and len(sleeps) == 1
+
+
+def test_writer_progress_failure_is_a_warning_not_fatal(caplog):
+    # progress is advisory (the next episode rewrites it): a failed UPDATE after
+    # the retries logs a warning and the run goes on
+    client = FakeClient(query_failures=[ConcurrentUpdate("serialize")] * 10)
+    with caplog.at_level("WARNING", logger="bandit_traffic.bq"):
+        _writer(client, attempts=3).update_progress("abc", 1, 4)
+    assert len(client.queries) == 3
+    assert "progress update failed" in caplog.text
 
 
 def test_default_job_config_builds_scalar_parameters():

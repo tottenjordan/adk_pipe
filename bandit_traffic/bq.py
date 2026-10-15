@@ -17,9 +17,13 @@ import json
 import logging
 import math
 import os
+import random
+import time
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from pathlib import Path
 from typing import Any, Protocol
+
+from bandit_traffic.endpoint_client import call_with_retries
 
 log = logging.getLogger(__name__)
 
@@ -219,13 +223,22 @@ def build_progress_update_sql(
     episodes_done: int,
     episodes_total: int,
     now: dt.datetime | str,
+    *,
+    rewards_rejected: int = 0,
 ) -> tuple[str, list[QueryParam]]:
     """Column-level UPDATE of ``progress`` + ``updated_at`` only (pure).
 
     The api's MERGE upserts SET only the columns it changed, and this SETs only
-    the two the job owns, so neither side clobbers the other."""
+    the two the job owns, so neither side clobbers the other. ``progress`` also
+    carries ``rewards_rejected`` (the run's rewards the endpoint answered
+    ``accepted: false``, e.g. ``unknown request_id`` after a mid-run endpoint
+    restart), so that case is visible on the row."""
     progress = json.dumps(
-        {"episodes_done": int(episodes_done), "episodes_total": int(episodes_total)},
+        {
+            "episodes_done": int(episodes_done),
+            "episodes_total": int(episodes_total),
+            "rewards_rejected": int(rewards_rejected),
+        },
         separators=(",", ":"),
     )
     sql = (
@@ -250,7 +263,12 @@ class RowWriter(Protocol):
     def write_metrics(self, rows: Sequence[dict]) -> None: ...
 
     def update_progress(
-        self, experiment_id: str, episodes_done: int, episodes_total: int
+        self,
+        experiment_id: str,
+        episodes_done: int,
+        episodes_total: int,
+        *,
+        rewards_rejected: int = 0,
     ) -> None: ...
 
 
@@ -263,6 +281,11 @@ class BigQueryWriteError(RuntimeError):
 #: job's 1 h task timeout.
 INSERT_TIMEOUT_SECONDS = 30.0
 QUERY_TIMEOUT_SECONDS = 60.0
+#: First backoff (seconds) between insert retries of the failed rows, doubled
+#: per attempt with jitter (each sleep is 50-100% of the nominal delay).
+INSERT_RETRY_BASE_DELAY = 1.0
+#: First backoff between progress UPDATE attempts (same doubling and jitter).
+PROGRESS_RETRY_BASE_DELAY = 1.0
 
 #: insertAll row-error reasons a retry cannot fix (schema mismatch, bad value,
 #: missing table, no access). ``stopped`` marks the request's other rows, which
@@ -282,6 +305,21 @@ def is_permanent_insert_error(errors: Sequence[Any]) -> bool:
             if reason in PERMANENT_INSERT_REASONS:
                 return True
     return False
+
+
+def failed_row_indices(errors: Sequence[Any], n: int) -> list[int] | None:
+    """The positions (in the request just sent) of the rows ``errors`` names,
+    sorted; ``None`` when an entry has no usable ``index`` (then the caller
+    re-sends the whole request)."""
+    out: set[int] = set()
+    for entry in errors:
+        index = entry.get("index") if isinstance(entry, Mapping) else None
+        if isinstance(index, bool) or not isinstance(index, int):
+            return None
+        if not 0 <= index < n:
+            return None
+        out.add(index)
+    return sorted(out)
 
 
 def _utcnow() -> dt.datetime:
@@ -314,6 +352,7 @@ class BigQueryWriter:
         batch_rows: int = INSERT_BATCH_ROWS,
         attempts: int = 3,
         now: Callable[[], dt.datetime] = _utcnow,
+        sleep: Callable[[float], None] = time.sleep,
     ):
         self.tables = dict(tables or table_names())
         self._client_factory = client_factory
@@ -322,6 +361,7 @@ class BigQueryWriter:
         self.batch_rows = batch_rows
         self.attempts = attempts
         self.now = now
+        self.sleep = sleep
 
     def _bq(self) -> Any:
         if self._client is None:
@@ -336,9 +376,15 @@ class BigQueryWriter:
         return self._client
 
     def _insert(self, table: str, rows: Sequence[dict], row_ids: list[str]) -> None:
+        """Stream ``rows``; on transient row errors, retry only the rows the
+        errors name (by index, with their own insert ids) after a jittered
+        exponential backoff. The other rows were inserted, and re-sending them
+        would lean on best-effort ``insertId`` dedupe (the series SQL counts
+        rows without deduping)."""
+        rows, row_ids = list(rows), list(row_ids)
         for attempt in range(1, self.attempts + 1):
             errors = self._bq().insert_rows_json(
-                table, list(rows), row_ids=row_ids, timeout=INSERT_TIMEOUT_SECONDS
+                table, rows, row_ids=row_ids, timeout=INSERT_TIMEOUT_SECONDS
             )
             if not errors:
                 return
@@ -361,6 +407,14 @@ class BigQueryWriter:
                 self.attempts,
                 str(errors[:3])[:500],
             )
+            if attempt == self.attempts:
+                break
+            failed = failed_row_indices(errors, len(rows))
+            if failed is not None:
+                rows = [rows[i] for i in failed]
+                row_ids = [row_ids[i] for i in failed]
+            delay = INSERT_RETRY_BASE_DELAY * 2 ** (attempt - 1)
+            self.sleep(delay * (0.5 + random.random() / 2))
         raise BigQueryWriteError(f"insert into {table} failed after retries")
 
     def write_events(self, rows: Sequence[dict]) -> None:
@@ -376,18 +430,48 @@ class BigQueryWriter:
             )
 
     def update_progress(
-        self, experiment_id: str, episodes_done: int, episodes_total: int
+        self,
+        experiment_id: str,
+        episodes_done: int,
+        episodes_total: int,
+        *,
+        rewards_rejected: int = 0,
     ) -> None:
+        """The progress UPDATE, retried with backoff on any error (5xx,
+        timeouts, a serialization conflict with the api's MERGE on the same
+        row). Progress is advisory and the next episode rewrites it, so a final
+        failure is a warning, never fatal."""
         sql, params = build_progress_update_sql(
             self.tables["experiments"],
             experiment_id,
             episodes_done,
             episodes_total,
             self.now(),
+            rewards_rejected=rewards_rejected,
         )
-        self._bq().query(sql, job_config=self._job_config_factory(params)).result(
-            timeout=QUERY_TIMEOUT_SECONDS
-        )
+
+        def run() -> None:
+            self._bq().query(sql, job_config=self._job_config_factory(params)).result(
+                timeout=QUERY_TIMEOUT_SECONDS
+            )
+
+        try:
+            call_with_retries(
+                run,
+                attempts=self.attempts,
+                base_delay=PROGRESS_RETRY_BASE_DELAY,
+                sleep=self.sleep,
+                what="progress update",
+                retryable=lambda exc: True,
+            )
+        except Exception as exc:
+            log.warning(
+                "progress update failed after %d attempts (%s: %s); continuing, "
+                "the next episode rewrites it",
+                self.attempts,
+                type(exc).__name__,
+                str(exc)[:300],
+            )
 
 
 class JsonlWriter:
@@ -424,7 +508,12 @@ class JsonlWriter:
         self._append("metrics", rows)
 
     def update_progress(
-        self, experiment_id: str, episodes_done: int, episodes_total: int
+        self,
+        experiment_id: str,
+        episodes_done: int,
+        episodes_total: int,
+        *,
+        rewards_rejected: int = 0,
     ) -> None:
         sql, params = build_progress_update_sql(
             self.tables["experiments"],
@@ -432,6 +521,7 @@ class JsonlWriter:
             episodes_done,
             episodes_total,
             self.now(),
+            rewards_rejected=rewards_rejected,
         )
         self._append(
             "progress",
