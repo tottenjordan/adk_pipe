@@ -150,7 +150,7 @@ npm run build   # next build, which also type-checks everything in tsconfig's in
 There are 108 test files in `src/__tests__/` (plus `setup.ts`, `helpers.ts` and
 `fixtures/`), named after the module or component they cover (e.g. `poll-run.test.ts`,
 `user-scoping.test.ts`, `share-view.test.tsx`, `personalise-panel.test.tsx`). The
-grouping by feature is in the Testing section of [CLAUDE.md](../CLAUDE.md#testing).
+grouping by feature is in [docs/reference/testing.md](../docs/reference/testing.md).
 
 Vitest runs in the `node` environment by default (creating a jsdom for every
 file used to dominate the run). A test that needs a DOM (`window`, `document`,
