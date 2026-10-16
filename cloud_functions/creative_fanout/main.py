@@ -2,8 +2,8 @@
 
 This module holds the Cloud Run function entry points. One image
 (``cloud_functions/creative_fanout/Dockerfile``) runs as two Cloud Run
-services; each service's ``FUNCTION_TARGET`` (+ ``FUNCTION_SIGNATURE_TYPE``,
-default ``cloudevent``) picks its entry point:
+services; each service's ``FUNCTION_TARGET`` picks its entry point (the
+function's decorator, not ``FUNCTION_SIGNATURE_TYPE``, decides its signature):
 
 1. Orchestrator (``crf_entrypoint``): finds the unprocessed rows of the
    `trend_scout` agent's recommendations table
@@ -70,6 +70,9 @@ def crf_entrypoint(cloud_event: CloudEvent) -> None:
     Returns normally (ACK) for a message that is not work or is malformed;
     a BigQuery error raises (NACK, Pub/Sub redelivers).
     """
+    # functions-framework runs a CloudEvent function inside the Flask request
+    # that carried it, so the push request's trace header is readable here.
+    logs.bind_trace(flask.request.headers if flask.has_request_context() else {})
     # A trigger without data or without `bq_dataset` is not work (None): ACK.
     # A malformed one can never become valid on redelivery: log and ACK rather
     # than NACK into a redelivery loop.
@@ -126,7 +129,8 @@ def agent_worker_task(request: flask.Request) -> tuple[str, int]:
     Pub/Sub entry NACKs), retried under the queue's retry policy. The run
     deadline is taken here, at request start (``worker.run_deadline``).
     """
-    deadline = worker.run_deadline(worker._clock())
+    logs.bind_trace(request.headers)
+    deadline = worker.request_deadline()
     fields = _task_log_fields(request.headers)
     logger.info(
         f"Worker task received: {fields.get('cloud_tasks_task_name', '?')} "

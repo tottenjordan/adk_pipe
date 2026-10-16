@@ -30,6 +30,11 @@ def run_deadline(request_start: float) -> float:
     return request_start + config.WORKER_TIMEOUT_SECS - config.BUDGET_SAFETY_SECS
 
 
+def request_deadline() -> float:
+    """``run_deadline`` of now: what an entry point takes at request start."""
+    return run_deadline(_clock())
+
+
 # Session-state key ← message key. The campaign fields plus trend_scout's
 # detection date (`refresh_date` → `trend_detected_on`) and research context
 # (`trend_context` → `trend_scout_context`), which the creative agents read only
