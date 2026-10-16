@@ -32,7 +32,12 @@ from google.adk.cli.utils.service_factory import (
 from google.adk.runners import Runner
 
 from runserver import experiments, person_refs, ratings, shares, variants
-from runserver.async_runs import configure, get_root_agent, router
+from runserver.async_runs import (
+    configure,
+    get_root_agent,
+    install_runserver_marker_log_filter,
+    router,
+)
 from runserver.authz import (
     AuthzMode,
     UserAuthzMiddleware,
@@ -50,6 +55,9 @@ from runserver.shares_store import build_store_from_env as build_shares_store
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
 )
+# Resumes replay runserver's own __runserver__ marker events through ADK's agent
+# router, which warns about each as an unknown agent; drop only that record.
+install_runserver_marker_log_filter()
 
 _AGENTS_DIR = "agents"
 _SESSION_URI = os.getenv("SESSION_SERVICE_URI") or None
