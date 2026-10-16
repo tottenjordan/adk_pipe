@@ -78,7 +78,8 @@ class FakeGcloud:
     ``services update-traffic --to-revisions R=100`` moves the traffic.
     ``services describe`` / ``revisions describe`` answer JSON.
     ``tasks queues pause`` / ``resume`` succeed unless their verb is in
-    ``fail_queue`` (then they exit 1, like a gcloud error).
+    ``fail_queue`` (then they exit 1, like a gcloud error). ``tasks list``
+    answers ``tasks`` as JSON (exits 1 when "list" is in ``fail_queue``).
     """
 
     def __init__(self):
@@ -92,6 +93,7 @@ class FakeGcloud:
         self.latest = "creative-worker-crf-00022-old"
         self.traffic = [{"revisionName": self.latest, "percent": 100}]
         self.fail_queue: set[str] = set()
+        self.tasks: list[dict] = []
 
     def _traffic(self):
         if not self.pinned:
@@ -107,6 +109,10 @@ class FakeGcloud:
         if verb[:2] == ["tasks", "queues"]:
             if verb[2] in self.fail_queue:
                 raise subprocess.CalledProcessError(1, cmd)
+        elif verb[:2] == ["tasks", "list"]:
+            if "list" in self.fail_queue:
+                raise subprocess.CalledProcessError(1, cmd)
+            out = json.dumps(self.tasks)
         elif verb == ["run", "services", "update"]:
             env = cmd[cmd.index("--update-env-vars") + 1].split("=", 1)[1]
             n = len(self.revisions) + 22
@@ -166,7 +172,7 @@ class FakeGcloud:
 
     def queue(self):
         """The ``gcloud tasks queues`` calls, in order."""
-        return [c for c, _ in self.calls if c[1] == "tasks"]
+        return [c for c, _ in self.calls if c[1:3] == ["tasks", "queues"]]
 
 
 @pytest.fixture
@@ -207,6 +213,19 @@ def _queue_cmd(verb, queue="creative-worker-queue", location="us-central1"):
         "--location",
         location,
         "--quiet",
+    ]
+
+
+def _list_cmd(queue="creative-worker-queue", location="us-central1"):
+    return [
+        "gcloud",
+        "tasks",
+        "list",
+        "--queue",
+        queue,
+        "--location",
+        location,
+        "--format=json",
     ]
 
 
@@ -452,6 +471,7 @@ def test_queue_is_paused_before_the_check_and_resumed_after_the_update(
     assert cmds == [
         _queue_cmd("pause"),
         ["IDLE-CHECK"],
+        _list_cmd(),
         _expected_cmd(),
         _traffic_cmd(gcloud.latest),
         _queue_cmd("resume"),
@@ -544,3 +564,69 @@ def test_resume_failure_never_masks_an_unexpected_error(
     with pytest.raises(RuntimeError, match="bigquery down"):
         _apply(eh, path, env_file)
     assert "STILL PAUSED" in capsys.readouterr().out
+
+
+# --- in-flight tasks: a task dispatched before the pause may not be PROCESSING yet ---
+
+IN_FLIGHT = {
+    "name": "projects/p/locations/us-central1/queues/creative-worker-queue/tasks/1",
+    "dispatchCount": "1",
+    "responseCount": "0",
+    "lastAttempt": {
+        "scheduleTime": "2026-10-16T10:00:00Z",
+        "dispatchTime": "2026-10-16T10:00:01Z",
+    },
+}
+
+
+def test_a_task_in_flight_refuses_and_resumes(eh, ids, env_file, bq, gcloud, capsys):
+    gcloud.tasks = [IN_FLIGHT]
+    path = ids({"creative_agent": 11})
+    assert _apply(eh, path, env_file) != 0
+    assert [c for c, _ in gcloud.calls] == [
+        _queue_cmd("pause"),
+        _list_cmd(),
+        _queue_cmd("resume"),
+    ]
+    assert not gcloud.calls[1][1].get("shell")
+    assert gcloud.calls[1][1].get("check") is True
+    assert open(env_file).read() == ""
+    assert "1 task(s) in flight" in capsys.readouterr().out
+
+
+def test_answered_and_undispatched_tasks_do_not_block(eh, ids, env_file, bq, gcloud):
+    gcloud.tasks = [
+        # waiting to be retried: its last attempt got a response
+        {
+            "name": "t/2",
+            "lastAttempt": {
+                "dispatchTime": "2026-10-16T10:00:01Z",
+                "responseTime": "2026-10-16T10:00:09Z",
+                "responseStatus": {"code": 13},
+            },
+        },
+        # never dispatched (queued while paused)
+        {"name": "t/3", "scheduleTime": "2026-10-16T10:05:00Z"},
+    ]
+    path = ids({"creative_agent": 11})
+    assert _apply(eh, path, env_file) == 0
+    assert gcloud.mutating()[0] == _expected_cmd()
+
+
+def test_task_listing_failure_refuses_and_resumes(
+    eh, ids, env_file, bq, gcloud, capsys
+):
+    gcloud.fail_queue = {"list"}
+    path = ids({"creative_agent": 11})
+    assert _apply(eh, path, env_file) != 0
+    assert gcloud.mutating() == []
+    assert gcloud.calls[-1][0] == _queue_cmd("resume")
+    assert "can't list" in capsys.readouterr().out
+
+
+def test_force_skips_the_in_flight_check_too(eh, ids, env_file, bq, gcloud):
+    gcloud.tasks = [IN_FLIGHT]
+    path = ids({"creative_agent": 11})
+    argv = ["apply", "--ids", path, "--env-file", env_file, "--update-worker"]
+    assert eh.main([*argv, "--force"]) == 0
+    assert _list_cmd() not in [c for c, _ in gcloud.calls]

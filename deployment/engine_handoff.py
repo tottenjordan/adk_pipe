@@ -18,7 +18,8 @@ Each parallel deploy step of deployment/cloudbuild.agents.yaml writes one
            ``creative-worker-queue``, in ``CRF_TASKS_LOCATION`` else ``GCP_REGION``)
            is paused before the busy check and resumed afterwards, even on a
            refusal or an error, so no task starts between the check and the
-           rollout (``--force`` skips only the check, not the pause)
+           rollout; the check also refuses while a queued task's last attempt
+           is in flight (``--force`` skips the checks, not the pause)
 
     uv run python deployment/engine_handoff.py apply --ids engine_ids.json --env-file .env
     uv run python deployment/engine_handoff.py apply --ids engine_ids.json --update-worker
@@ -195,13 +196,20 @@ def processing_rows() -> int:
 
 
 def check_worker_idle() -> None:
-    """Raise WorkerUpdateError while a trends row is PROCESSING: updating the
-    worker rolls out a new revision, which kills the run in flight."""
+    """Raise WorkerUpdateError while a trends row is PROCESSING, or while the
+    (paused) queue has a task in flight that may not have locked its row yet:
+    updating the worker rolls out a new revision, which kills the run in flight."""
     busy = processing_rows()
     if busy:
         raise WorkerUpdateError(
             f"worker busy: {busy} row(s) PROCESSING; re-run once they finish "
             "(or pass --force, which kills the run in flight)"
+        )
+    dispatched = in_flight_tasks()
+    if dispatched:
+        raise WorkerUpdateError(
+            f"worker busy: {dispatched} task(s) in flight on the queue; re-run "
+            "once they finish (or pass --force, which kills the run in flight)"
         )
 
 
@@ -239,6 +247,36 @@ def pause_worker_queue() -> None:
         raise WorkerUpdateError(
             f"can't pause queue {cmd[4]} ({cmd[6]}): {e}; nothing was changed"
         ) from e
+
+
+def in_flight_tasks() -> int:
+    """How many of the queue's tasks have their latest attempt in flight
+    (``lastAttempt.dispatchTime`` set, no ``lastAttempt.responseTime``). Pausing
+    stops new dispatches only, and a task dispatched just before the pause may
+    not have marked its row PROCESSING yet. Raises WorkerUpdateError when the
+    tasks can't be listed.
+
+    https://cloud.google.com/sdk/gcloud/reference/tasks/list
+    https://cloud.google.com/tasks/docs/reference/rest/v2/projects.locations.queues.tasks#Attempt
+    """
+    queue, location = _worker_queue()
+    cmd = ["gcloud", "tasks", "list", "--queue", queue, "--location", location]
+    try:
+        out = subprocess.run(
+            [*cmd, "--format=json"], check=True, capture_output=True, text=True
+        )
+        tasks = json.loads(out.stdout or "[]")
+    except (subprocess.CalledProcessError, OSError, ValueError) as e:
+        raise WorkerUpdateError(
+            f"can't list the tasks of queue {queue} ({location}): {e} "
+            "(or pass --force to skip the check)"
+        ) from e
+    return sum(
+        1
+        for t in tasks
+        if (t.get("lastAttempt") or {}).get("dispatchTime")
+        and not (t.get("lastAttempt") or {}).get("responseTime")
+    )
 
 
 def resume_worker_queue() -> bool:
