@@ -25,9 +25,9 @@ LIB_DIRS = {
 
 # Bandit experimentation stack (never imported by runserver or the agents).
 BANDIT_DIRS = {
-    "bandit": REPO_ROOT / "bandit",
-    "bandit_serving": REPO_ROOT / "bandit_serving",
-    "bandit_traffic": REPO_ROOT / "bandit_traffic",
+    "bandit": REPO_ROOT / "bandit_stack" / "bandit",
+    "bandit_serving": REPO_ROOT / "bandit_stack" / "bandit_serving",
+    "bandit_traffic": REPO_ROOT / "bandit_stack" / "bandit_traffic",
 }
 
 # The packages that ship to Agent Engine (agents + libs).

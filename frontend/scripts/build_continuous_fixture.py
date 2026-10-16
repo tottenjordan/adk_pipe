@@ -29,7 +29,7 @@ It writes:
 
 Regenerate with (about 5 minutes, ~600 MB of JSONL under the work dir)::
 
-    GOOGLE_CLOUD_PROJECT=test-project PYTHONPATH="$PWD" \\
+    GOOGLE_CLOUD_PROJECT=test-project \\
         uv run python frontend/scripts/build_continuous_fixture.py [--work /tmp/tt-continuous]
 """
 

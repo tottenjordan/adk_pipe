@@ -1,6 +1,6 @@
 # Root build context of the api image (Dockerfile). The bandit image
-# (bandit_serving/Dockerfile, endpoint + traffic job) uses its own
-# bandit_serving/Dockerfile.dockerignore instead.
+# (bandit_stack/bandit_serving/Dockerfile, endpoint + traffic job) uses its own
+# bandit_stack/bandit_serving/Dockerfile.dockerignore instead.
 .git
 .venv
 **/__pycache__
@@ -22,7 +22,6 @@ tests
 experiments
 notebook-examples
 imgs
-bandit_serving
 bandit_stack
 cloud_functions
 # Build configs: editing them must not invalidate the api's source layer.

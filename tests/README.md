@@ -72,7 +72,7 @@ tests/
 ├── test_bandit_endpoint_lib.py      # deployment/bandit/endpoint.py vs a fake aiplatform (single-worker env, 1 replica, labels, find_* by label oldest-first)
 ├── test_bandit_cloudbuild.py        # the one bandit image (endpoint + traffic job) build: cloudbuild.bandit.yaml + Dockerfile, dependency layer cached apart from the code
 ├── test_create_bq_tables.py         # create_bq_tables.sh with a stub bq: bandit_* + creative_ratings + creative_shares + person_references + trend_digest (partitioned, 30-day expiry) schemas (ratings from deployment/bq_schemas/creative_ratings.json, REPEATED fail_reasons, vs RATING_COLUMN_TYPES), partitioning/clustering, idempotency
-├── test_bandit_*.py                 # JAX bandit core (bandit/): features, config, linear TS, baselines, environment, simulate+metrics+aggregate, notebook-parity figures (fixture data) + generation smoke, scripted shifts
+├── test_bandit_*.py                 # JAX bandit core (bandit_stack/bandit/): features, config, linear TS, baselines, environment, simulate+metrics+aggregate, notebook-parity figures (fixture data) + generation smoke, scripted shifts
 │                                    #   (also test_bandit_continuous.py: §11 continuous segments; test_bandit_endpoint_client.py: traffic endpoint clients/retries; test_bandit_traffic_bq.py: traffic row builders vs contracts §3)
 ├── test_brand_history.py            # agents/creative_agent/brand_history.py: parameterised creative_evals SELECT (no string-built brand), report reads limited to the configured bucket + size cap, aggregation (recent/strongest styles, recurring weak dimensions, runs with failed non-advisory gates), brace-free ≤120-word note, BQ/GCS/timeout fail-open, disabled knob → no query, shortlist re-draw unless a style preference is set, canonical style mapping (schema example phrasings), allowlisted tones/dimensions/gates only (injection strings never reach the note), GCS per-call timeouts + report-read deadline, failed-check denominator = readable reports
 ├── test_rating_signals.py          # agents/creative_agent/rating_signals.py: fail-reason enum == runserver copy, check-backed strictness subset, allowlisted aggregation (canonical styles, tone Literal, enum; injection strings dropped), style/reason minimums + 30% dominance, brace-free ≤80-word note, SELECT reads only allowlisted columns (never note), normalised @brand/@days params, 8 s job timeout, fail-open (None = unavailable)
@@ -178,7 +178,7 @@ tests/
 ├── test_retry_config.py             # scoped RetryConfig constants on infra agents
 ├── test_research_alignment.py       # research prompts, inputs and brief helpers agree with each agent's input and the deterministic gates (planner fallbacks, named tokens, source de-duplication, schema/doc wording)
 ├── test_safety_plugins.py           # opt-in Model Armor (agent_common.safety): env parsing, root-only scoping, every agent's App + canned-loader wiring
-├── test_scenario_presets_sync.py    # frontend scenario-presets.generated.json matches bandit/ (no JAX)
+├── test_scenario_presets_sync.py    # frontend scenario-presets.generated.json matches bandit_stack/bandit/ (no JAX)
 ├── test_sanitize.py                 # lone-surrogate scrubber (agent_common.sanitize)
 ├── test_schemas.py                  # Pydantic schemas in the creative_agent pipeline
 ├── test_schema_enums.py             # no model-facing creative_agent / creative_eval schema offers "" as an enum value (Vertex rejects empty enum strings with 400 INVALID_ARGUMENT; #321)

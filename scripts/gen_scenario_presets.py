@@ -4,7 +4,7 @@ The results-page Deploy panel's "Advanced" section (contracts §9) fills its
 sliders from the scenario presets and runs a noise-free port of
 ``bandit.environment.build_true_model`` for its live preview
 (``frontend/src/lib/scenario-preview.ts``). Both read this JSON, generated from
-``bandit/scenarios/*.yaml``, ``bandit.config.BASE_MARGINALS`` /
+``bandit_stack/bandit/scenarios/*.yaml``, ``bandit.config.BASE_MARGINALS`` /
 ``OVERRIDE_BOUNDS``, the scripted-shift constants (``SHIFT_KINDS``,
 ``SHIFT_BOUNDS``, ``MAX_SHIFTS``, ``SHIFT_MIN_WINDOW``; contracts §10) and the
 ``ctx-v1`` feature spec (``bandit.features``), so the frontend never hand-copies
@@ -25,8 +25,9 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parent.parent
-if str(ROOT) not in sys.path:  # run as a script: make the flat packages importable
-    sys.path.insert(0, str(ROOT))
+# run as a script without the editable install: make `bandit` importable
+if str(ROOT / "bandit_stack") not in sys.path:
+    sys.path.insert(0, str(ROOT / "bandit_stack"))
 
 from bandit import features  # noqa: E402
 from bandit.config import (  # noqa: E402

@@ -2107,7 +2107,7 @@ done
 in "1. IAM") for `bandit_experiments` and to read `bandit_episode_metrics`, and
 `roles/storage.objectAdmin` (already granted) to write `experiment.json`.
 
-### Traffic job (`bandit_traffic/`)
+### Traffic job (`bandit_stack/bandit_traffic/`)
 
 The Cloud Run Job `trend-trawler-bandit-traffic` drives synthetic users at the experiment's
 endpoint. For each episode it sends `reset`, then for each batch it draws users with the
@@ -2140,7 +2140,7 @@ Build, push and deploy (documentation only; run where GCP creds exist):
 #   us-central1-docker.pkg.dev/$PROJECT/cpr/trend-trawler-bandit:<SHORT_SHA>
 # which serves the CPR endpoint (default entrypoint) and runs the traffic job
 # (command override python -m bandit_traffic.main, set by deploy_traffic_job.sh).
-# --ignore-file uploads only bandit/, bandit_serving/ + bandit_traffic/ (not the whole repo)
+# --ignore-file uploads only bandit_stack/ (not the whole repo)
 SHORT_SHA=$(git rev-parse --short HEAD)
 gcloud builds submit --region us-central1 \
   --config deployment/bandit/cloudbuild.bandit.yaml \
@@ -2159,7 +2159,7 @@ BQ_DATASET_ID=trend_trawler deployment/bandit/deploy_traffic_job.sh <BANDIT_IMAG
 ```
 
 Local build + docker round-trip with no GCP: `uv run python deployment/bandit/build_image.py
---local-test` (builds `bandit_serving/Dockerfile` with local docker). To run the traffic job
+--local-test` (builds `bandit_stack/bandit_serving/Dockerfile` with local docker). To run the traffic job
 from that image, override the entrypoint (the config dir is bind-mounted read-only):
 
 ```bash
@@ -2177,7 +2177,7 @@ uv run python -m bandit_traffic.main --in-process --config /tmp/experiment.json 
 # or against a local CPR container: --local-url http://localhost:8080/predict
 ```
 
-The image installs `bandit_serving/requirements.txt` (JAX included; shared by the endpoint
+The image installs `bandit_stack/bandit_serving/requirements.txt` (JAX included; shared by the endpoint
 and the traffic job). The root `requirements.txt` stays JAX-free.
 
 ---

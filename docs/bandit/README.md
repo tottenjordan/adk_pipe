@@ -84,7 +84,7 @@ Deployment runbook (tables, env, IAM, traffic job): [deployment/README.md → Ba
 
 JAX runs only in the CPR image, the traffic image and the dev/test environment. The api image,
 the root `requirements.txt` and the Agent Engine bundles stay JAX-free: `runserver/` never
-imports `bandit/`. `runserver/experiments_metrics.py` does its own dependency-free aggregation,
+imports `bandit`. `runserver/experiments_metrics.py` does its own dependency-free aggregation,
 and `runserver/experiments.py` duplicates the noise-variance formula, with a test checking parity.
 
 ## User flow
@@ -130,7 +130,11 @@ list](../screenshots/11-experiments.png).
 
 ## Components and key files
 
-**Core (`bandit/`, JAX, dev group only):**
+The three bandit packages live under `bandit_stack/` (import names unchanged: `bandit`,
+`bandit_serving`, `bandit_traffic`; the editable install puts `bandit_stack/` on `sys.path`).
+The package file paths below are relative to `bandit_stack/`.
+
+**Core (`bandit_stack/bandit/`, JAX, dev group only):**
 - `bandit/config.py`: `ArmSpec`, `LinTSParams`, `ExperimentConfig`, `experiment.json` load/dump; re-exports the names below so the contracts §1 `bandit.config.*` paths stay valid.
 - `bandit/scenario.py`: scenario presets (`ScenarioConfig`, segments, drift, `BASE_MARGINALS`, `load_scenario`) and the §9 `ScenarioOverrides`.
 - `bandit/calibration.py`: calibrated `default_noise_var` / `scenario_noise_var`, discounts (incl. `default_shift_discount`), `reward_scale`, the endpoint's reward / reset-discount bounds, the shared `logit` / `sigmoid`.
@@ -142,11 +146,11 @@ list](../screenshots/11-experiments.png).
 - `bandit/simulate.py` / `bandit/metrics.py` / `bandit/aggregate.py`: offline simulator (common random numbers), per-episode metrics, cross-episode aggregation (stdlib only).
 - `bandit/cli.py`: `python -m bandit.cli simulate`.
 
-**Serving (`bandit_serving/`):**
-- `bandit_serving/predictor.py`: the CPR `BanditPredictor` (contracts §2 / §7). See [`bandit_serving/README.md`](../../bandit_serving/README.md).
+**Serving (`bandit_stack/bandit_serving/`):**
+- `bandit_serving/predictor.py`: the CPR `BanditPredictor` (contracts §2 / §7). See [`bandit_serving/README.md`](../../bandit_stack/bandit_serving/README.md).
 - `bandit_serving/instances.py` / `kernels.py` / `checkpoint.py` / `storage.py`: instance parsing + validation (pure), the jit kernels and padding buckets, `latest.json` (`CheckpointMeta`) + `.npz` snapshot/restore and the writer thread, local / GCS storage.
 
-**Traffic (`bandit_traffic/`):**
+**Traffic (`bandit_stack/bandit_traffic/`):**
 - `bandit_traffic/main.py`: Cloud Run Job entrypoint and local CLI.
 - `bandit_traffic/traffic.py`: the episode loop (reset → decision/reward batches → local baseline replay → rows).
 - `bandit_traffic/endpoint_client.py`: Vertex, local-URL and in-process endpoint clients (`LocalPredictorEndpoint`: the real predictor in-process, for `--in-process`).
@@ -161,7 +165,7 @@ list](../screenshots/11-experiments.png).
 - `runserver/authz.py`: user-scoping for `/experiments/{user}/…` (plus `authorize_body_user` on the create POST).
 
 **Deployment (`deployment/bandit/`):**
-- `bandit_serving/Dockerfile` (+ `requirements.txt`): the one bandit image (uv builder stage, dependency layer cached apart from the code). Its default entrypoint is the CPR model server; the traffic job runs it with the command `python -m bandit_traffic.main`.
+- `bandit_stack/bandit_serving/Dockerfile` (+ `requirements.txt`): the one bandit image (uv builder stage, dependency layer cached apart from the code). Its default entrypoint is the CPR model server; the traffic job runs it with the command `python -m bandit_traffic.main`.
 - `deployment/bandit/cloudbuild.bandit.yaml` (+ `bandit.gcloudignore`): cached Cloud Build of the image; prints its digest (`BANDIT_IMAGE=…`).
 - `deployment/bandit/build_image.py`: local build and docker round-trip test of the endpoint (`--image <digest>` tests a Cloud Build image).
 - `deployment/bandit/endpoint.py`: model upload and endpoint deploy/undeploy/delete (library plus manual CLI).
@@ -233,8 +237,8 @@ unknown levels raise `ValueError`, which the endpoint returns as a per-instance 
 ## Synthetic readers (simulated users)
 
 Every "user" in a bandit experiment is a **synthetic reader** of the trend's publisher page.
-Readers are **defined** in YAML and Python under `bandit/` and **generated** fresh for every
-batch by the traffic job (or the offline simulator). From the UI you can change *how many of
+Readers are **defined** in YAML and Python under `bandit_stack/bandit/` and **generated**
+fresh for every batch by the traffic job (or the offline simulator). From the UI you can change *how many of
 each kind* there are and how they behave over time, but not define new kinds of readers or
 change their attributes.
 
@@ -290,7 +294,7 @@ paired (common random numbers).
 ### What needs YAML or code changes
 
 - **Segment definitions:** adding, renaming or removing segments, or changing how many a
-  scenario has. Edit `bandit/scenarios/<scenario>.yaml`. The api duplicates the per-scenario
+  scenario has. Edit `bandit_stack/bandit/scenarios/<scenario>.yaml`. The api duplicates the per-scenario
   segment names and counts (`runserver/experiments.py` `SCENARIO_SEGMENT_NAMES`,
   `SCENARIO_SEGMENTS`) under parity tests, and the frontend preview reads
   `frontend/src/lib/scenario-presets.generated.json` (regenerate it with
@@ -307,7 +311,7 @@ preview) is listed under [Future work](#future-work).
 
 ## Scenarios
 
-Each scenario is a YAML preset in `bandit/scenarios/`. Ground truth is a logistic click model
+Each scenario is a YAML preset in `bandit_stack/bandit/scenarios/`. Ground truth is a logistic click model
 with a latent segment; arm effects come from the creatives' judge scores, and the base rate is
 calibrated to the scenario's target CTR.
 
@@ -511,7 +515,7 @@ api service (full table: [deployment/README.md → Bandit experiments](../../dep
 
 The CPR container's own variables (`BANDIT_CHECKPOINT_EVERY`, `BANDIT_CHECKPOINT_SECONDS`,
 `BANDIT_MAX_PENDING`, `BANDIT_MAX_SEEN`, `BANDIT_WARMUP*`) are in
-[`bandit_serving/README.md`](../../bandit_serving/README.md#environment); the traffic job's
+[`bandit_serving/README.md`](../../bandit_stack/bandit_serving/README.md#environment); the traffic job's
 (`EXPERIMENT_ID`, `CONFIG_URI`, `ENDPOINT_ID`, `EPISODES`, `HORIZON`, `SHIFTS_JSON`, `TRAFFIC_RUN`,
 `FORGET`, `ERROR_THRESHOLD`, …) are
 in the [deployment guide](../../deployment/README.md#traffic-job-bandit_traffic).
@@ -551,7 +555,7 @@ Set the **digest** as the api's endpoint image: `BANDIT_SERVING_IMAGE=<BANDIT_IM
 (`…/trend-trawler-bandit@sha256:…`, not a tag).
 
 Local development (no GCP): `uv run python deployment/bandit/build_image.py --local-test` builds
-the image from `bandit_serving/Dockerfile` with local docker and runs the endpoint round-trip.
+the image from `bandit_stack/bandit_serving/Dockerfile` with local docker and runs the endpoint round-trip.
 To run the traffic job from the same image, override the entrypoint:
 
 ```bash

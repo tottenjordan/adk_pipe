@@ -52,9 +52,9 @@ packages = [
     "agents/interactive_creative",
     "libs/agent_common",
     "libs/creative_eval",
-    "bandit",
-    "bandit_serving",
-    "bandit_traffic",
+    "bandit_stack/bandit",
+    "bandit_stack/bandit_serving",
+    "bandit_stack/bandit_traffic",
 ]
 
 [tool.uv]

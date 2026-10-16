@@ -30,9 +30,7 @@ docs/
 /notebook-examples/
 /imgs/
 /*.md
-# Not imported by the api (runserver never imports bandit/; the traffic job and
+# Not imported by the api (runserver never imports bandit_stack/; the traffic job and
 # CPR model have their own builds, the Cloud Functions their own deploys).
-/bandit/
-/bandit_serving/
-/bandit_traffic/
+/bandit_stack/
 /cloud_functions/

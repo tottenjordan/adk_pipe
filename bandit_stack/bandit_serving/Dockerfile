@@ -12,8 +12,10 @@
 # code change reuses the cached dependency layer.
 #
 # Build context = the repo root (Cloud Build: deployment/bandit/cloudbuild.bandit.yaml)
-# or the tree deployment/bandit/build_image.py stages (same layout). The context is
-# filtered by bandit_serving/Dockerfile.dockerignore.
+# or the tree deployment/bandit/build_image.py stages (same layout, so the COPY
+# sources carry the bandit_stack/ prefix in both). The context is filtered by
+# bandit_stack/bandit_serving/Dockerfile.dockerignore. The image layout stays flat
+# (/usr/app/bandit, /usr/app/bandit_serving, /usr/app/bandit_traffic).
 ARG BASE_IMAGE=python:3.13-slim
 # Pinned uv (same digest as _UV_IMAGE in deployment/cloudbuild.agents.yaml).
 ARG UV_IMAGE=ghcr.io/astral-sh/uv:0.12.19-python3.13-trixie-slim@sha256:aba5f865793af9275ceaa06d30935dfc6db8b81969c9fb099b0ebca6396b189e
@@ -25,7 +27,7 @@ FROM ${UV_IMAGE} AS uv
 FROM ${BASE_IMAGE} AS builder
 COPY --from=uv /usr/local/bin/uv /usr/local/bin/uv
 ENV UV_PYTHON_DOWNLOADS=never UV_LINK_MODE=copy
-COPY bandit_serving/requirements.txt /build/requirements.txt
+COPY bandit_stack/bandit_serving/requirements.txt /build/requirements.txt
 RUN uv venv /opt/venv --python /usr/local/bin/python3.13 \
  && uv pip install --python /opt/venv/bin/python --no-cache --compile-bytecode \
       -r /build/requirements.txt
@@ -47,9 +49,9 @@ RUN useradd --create-home --home-dir /home/app --uid 10001 app \
  && mkdir -m 1777 /tmp_cpr_local_model
 COPY --from=builder /opt/venv /opt/venv
 WORKDIR /usr/app
-COPY bandit/ /usr/app/bandit/
-COPY bandit_serving/*.py /usr/app/bandit_serving/
-COPY bandit_traffic/*.py /usr/app/bandit_traffic/
+COPY bandit_stack/bandit/ /usr/app/bandit/
+COPY bandit_stack/bandit_serving/*.py /usr/app/bandit_serving/
+COPY bandit_stack/bandit_traffic/*.py /usr/app/bandit_traffic/
 USER app
 EXPOSE 8080
 ENTRYPOINT ["python", "-m", "google.cloud.aiplatform.prediction.model_server"]

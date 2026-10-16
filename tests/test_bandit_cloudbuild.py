@@ -41,9 +41,9 @@ def test_dependencies_install_before_code():
     code = [i for i, a in copies if "--from" not in a and "requirements.txt" not in a]
     assert code and min(code) > installs[0]
     assert {ins[i][1].split()[0] for i in code} == {
-        "bandit/",
-        "bandit_serving/*.py",
-        "bandit_traffic/*.py",
+        "bandit_stack/bandit/",
+        "bandit_stack/bandit_serving/*.py",
+        "bandit_stack/bandit_traffic/*.py",
     }
 
 
@@ -91,7 +91,7 @@ def test_one_build_step_after_buildx_setup():
 
 def test_build_step_uses_registry_cache_and_prints_digest():
     script = _steps()["build-bandit"]["args"][-1]
-    assert "--file bandit_serving/Dockerfile" in script
+    assert "--file bandit_stack/bandit_serving/Dockerfile" in script
     assert "--cache-from type=registry,ref=${_BANDIT_IMAGE}:buildcache" in script
     assert "--cache-to type=registry,ref=${_BANDIT_IMAGE}:buildcache,mode=max" in script
     assert "--tag ${_BANDIT_IMAGE}:${SHORT_SHA}" in script
@@ -132,5 +132,5 @@ def test_ignore_file_uploads_only_the_bandit_sources():
     ]
     assert lines[0] == "/*"
     allowed = {ln for ln in lines if ln.startswith("!")}
-    assert allowed == {"!/bandit/", "!/bandit_serving/", "!/bandit_traffic/"}
+    assert allowed == {"!/bandit_stack/"}
     assert not any("frontend" in ln or ".env" in ln for ln in allowed)

@@ -1,0 +1,32 @@
+# Build-context filter for bandit_stack/bandit_serving/Dockerfile (BuildKit reads
+# <Dockerfile>.dockerignore instead of the root .dockerignore, which drops
+# the bandit sources for the api build). Deny everything, then allow exactly the
+# files deployment/bandit/build_image.py stages (tests/test_build_image.py
+# checks the two lists match): the endpoint's and the traffic job's sources.
+**
+!bandit_stack/bandit/__init__.py
+!bandit_stack/bandit/aggregate.py
+!bandit_stack/bandit/baselines.py
+!bandit_stack/bandit/calibration.py
+!bandit_stack/bandit/config.py
+!bandit_stack/bandit/environment.py
+!bandit_stack/bandit/features.py
+!bandit_stack/bandit/linear_ts.py
+!bandit_stack/bandit/metrics.py
+!bandit_stack/bandit/policies.py
+!bandit_stack/bandit/scenario.py
+!bandit_stack/bandit/scenarios/*.yaml
+!bandit_stack/bandit/shifts.py
+!bandit_stack/bandit/simulate.py
+!bandit_stack/bandit_serving/__init__.py
+!bandit_stack/bandit_serving/checkpoint.py
+!bandit_stack/bandit_serving/instances.py
+!bandit_stack/bandit_serving/kernels.py
+!bandit_stack/bandit_serving/predictor.py
+!bandit_stack/bandit_serving/storage.py
+!bandit_stack/bandit_serving/requirements.txt
+!bandit_stack/bandit_traffic/__init__.py
+!bandit_stack/bandit_traffic/bq.py
+!bandit_stack/bandit_traffic/endpoint_client.py
+!bandit_stack/bandit_traffic/main.py
+!bandit_stack/bandit_traffic/traffic.py
