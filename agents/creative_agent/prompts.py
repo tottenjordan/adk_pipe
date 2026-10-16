@@ -954,7 +954,7 @@ PERSON_CASTING_RULES = build_person_casting_rules(
 )
 
 
-# The timely slot (TREND_STATE_RESEARCH.md Ideas 3-4). Only runs whose trend
+# The timely slot (docs/research/TREND_STATE_RESEARCH.md Ideas 3-4). Only runs whose trend
 # situation validator found a timely moment see it: validate_trend_situation
 # writes it to state `timely_rules` (else ""), read as `{timely_rules?}` at the
 # end of the last instruction line of the art director, visual drafter, critic,

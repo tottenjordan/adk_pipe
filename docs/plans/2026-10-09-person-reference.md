@@ -4,7 +4,7 @@
 
 **Goal:** a user can register a consented photo of a person (by `gs://` URI) and use it in a creative run. The agents then *decide* per concept whether to cast that person as the hero. Any finished concept can also be re-rendered with a different consented photo, as a UI-only personalised variant that never reaches bandit traffic. Cast creatives can be shared publicly only when the person's consent covers it.
 
-**Architecture:** this implements `PERSON_REFERENCE_RESEARCH.md` §4, and is gated on a calibration spike.
+**Architecture:** this implements `docs/research/PERSON_REFERENCE_RESEARCH.md` §4, and is gated on a calibration spike.
 - **Consent:** a `person_references` consent registry in BigQuery, plus owner-scoped api routes, guards every use of a photo. Revoking cascades.
 - **Casting:** the visual agents mark `casts_person_reference` with a reason, and a deterministic guard enforces the rules.
 - **Render path:** person renders attach the photo as an extra reference part with `person_generation=ALLOW_ADULT`, using a typed fallback when a safety filter blocks the photo. Image QA gets a likeness check, and the judge gets a respectful-depiction gate.
@@ -16,7 +16,7 @@
 
 ## Context
 
-The user wants creatives to be able to feature a real person from their photo when a concept has a human hero, at the agent's discretion and not always. They also want to preview the same creative personalised with different people's photos, in the UI only and never in bandit traffic. The research (`PERSON_REFERENCE_RESEARCH.md`, verified findings F1–F4 and P1–P4) found this feasible on our current model path, with known likeness weaknesses and hard consent/safety constraints.
+The user wants creatives to be able to feature a real person from their photo when a concept has a human hero, at the agent's discretion and not always. They also want to preview the same creative personalised with different people's photos, in the UI only and never in bandit traffic. The research (`docs/research/PERSON_REFERENCE_RESEARCH.md`, verified findings F1–F4 and P1–P4) found this feasible on our current model path, with known likeness weaknesses and hard consent/safety constraints.
 
 **User decisions (2026-10-09):**
 - **Calibration:** spike first, as a **gate**. The user provides 2 or more consented adult test photos in GCS.

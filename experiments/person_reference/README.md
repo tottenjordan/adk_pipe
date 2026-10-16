@@ -4,7 +4,7 @@ Two spikes live here: `calibrate.py` (below) and `swap_compare.py`
 ([Person swap spike](#person-swap-spike-swap_comparepy)).
 
 PR 0 of [the person reference plan](../../docs/plans/2026-10-09-person-reference.md)
-(background: `PERSON_REFERENCE_RESEARCH.md` §5, phase 0). Before any product code
+(background: `docs/research/PERSON_REFERENCE_RESEARCH.md` §5, phase 0). Before any product code
 lets agents cast a real person from a photo, this spike measures, on our own image
 model (`config.image_gen_model`, `gemini-nano-banana-2.1` @ `global`):
 
