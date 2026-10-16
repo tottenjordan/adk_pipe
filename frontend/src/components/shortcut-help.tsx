@@ -74,7 +74,7 @@ export function ShortcutHelp() {
         Keyboard shortcuts <Kbd aria-hidden="true">?</Kbd>
       </button>
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle>Keyboard shortcuts</DialogTitle>
             <DialogDescription>
@@ -82,7 +82,7 @@ export function ShortcutHelp() {
               proof viewer, rating keys rate the visual unless focus is in the ad copy rating.
             </DialogDescription>
           </DialogHeader>
-          <div className="max-h-[60dvh] space-y-4 overflow-y-auto">
+          <div className="max-h-[70dvh] space-y-4 overflow-y-auto">
             {shortcutsByScope().map((group) => (
               <section key={group.scope} aria-labelledby={`shortcuts-${group.scope}`}>
                 <h3
@@ -95,7 +95,7 @@ export function ShortcutHelp() {
                   {group.items.map((s) => (
                     <div key={s.label} className="flex items-center justify-between gap-4 py-1.5">
                       <dt className="text-sm text-foreground">{s.label}</dt>
-                      <dd>
+                      <dd className="shrink-0">
                         <ShortcutKeys shortcut={s} />
                       </dd>
                     </div>

@@ -9,6 +9,7 @@ vi.mock("next/font/google", () => ({
   JetBrains_Mono: () => ({ variable: "font-mono" }),
 }));
 vi.mock("@/components/site-header", () => ({ SiteHeader: () => <header>header</header> }));
+vi.mock("@/components/shortcut-help", () => ({ ShortcutHelp: () => <footer>shortcuts</footer> }));
 vi.mock("@/app/globals.css", () => ({}));
 
 describe("SkipLink", () => {
@@ -33,5 +34,7 @@ describe("RootLayout", () => {
     expect(main?.tagName).toBe("MAIN");
     expect(main?.getAttribute("tabindex")).toBe("-1");
     expect(main?.textContent).toBe("page");
+    // the shortcut help (and its footer link) is mounted once, after the content
+    expect(main?.nextElementSibling?.tagName).toBe("FOOTER");
   });
 });
