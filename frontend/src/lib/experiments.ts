@@ -5,6 +5,7 @@
  * userId "me"; the proxy substitutes the IAP-verified caller (user-scoping.ts).
  */
 import { SELF_USER_ID } from "./api";
+import { apiFetch } from "./session-expired";
 import { downsampleIndices, formatInt, type Point } from "./chart";
 import { gcsProxyUrl, parseGsUri } from "./gcs";
 import { overridesFromValues, type TuneValues } from "./scenario-preview";
@@ -452,7 +453,7 @@ export async function createExperiment(
 
 /** `GET /experiments/{user}` → newest first. */
 export async function listExperiments(): Promise<ExperimentSummary[]> {
-  const res = await fetch(`${API_BASE}/experiments/${SELF_USER_ID}`);
+  const res = await apiFetch(`${API_BASE}/experiments/${SELF_USER_ID}`);
   if (!res.ok) return fail(res, "Couldn't load experiments");
   const data = await res.json();
   return Array.isArray(data?.experiments) ? data.experiments : [];
@@ -463,7 +464,7 @@ export async function getExperiment(
   experimentId: string,
   opts: { signal?: AbortSignal } = {}
 ): Promise<ExperimentSummary> {
-  const res = await fetch(experimentUrl(experimentId), { signal: opts.signal });
+  const res = await apiFetch(experimentUrl(experimentId), { signal: opts.signal });
   if (!res.ok) return fail(res, "Couldn't load the experiment");
   return res.json();
 }

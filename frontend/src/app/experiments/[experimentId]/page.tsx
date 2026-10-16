@@ -5,9 +5,11 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ExplainSwitch } from "@/components/explain";
-import { Button, buttonVariants } from "@/components/ui/button";
+import { Button } from "@/components/ui/button";
 import { FieldLabel } from "@/components/field-label";
 import { InfoTip } from "@/components/ui/info-tip";
+import { ErrorState } from "@/components/ui/error-state";
+import { SESSION_EXPIRED_MESSAGE } from "@/lib/session-expired";
 import { ExperimentStatusLabel, StatusHelp } from "@/components/experiment-status";
 import { CustomBadge, OverridesDisclosure } from "@/components/scenario-overrides";
 import { formatInt } from "@/lib/chart";
@@ -296,16 +298,28 @@ export default function ExperimentPage({ params }: PageProps<"/experiments/[expe
     return (
       <div className="mx-auto w-full max-w-6xl px-6 py-8">
         {loadError ? (
-          <div className="rounded-lg border border-border bg-card p-6">
-            <h1 className="text-lg font-semibold text-foreground">This experiment didn&apos;t load</h1>
-            <p className="mt-1 text-sm text-mark-fail">{loadError}</p>
-            <p className="mt-2 text-sm text-muted-foreground">
-              Check the link, or open it again from your experiments.
-            </p>
-            <Link href="/experiments" className={`${buttonVariants({ variant: "outline" })} mt-4`}>
-              Open experiments
-            </Link>
-          </div>
+          <>
+            <h1 className="sr-only">Experiment</h1>
+            <ErrorState
+              className="p-6"
+              title="This experiment didn't load"
+              message={
+                <>
+                  <p className="text-mark-fail">{loadError}</p>
+                  <p className="mt-1">Check the link, or open it again from your experiments.</p>
+                </>
+              }
+              {...(loadError === SESSION_EXPIRED_MESSAGE
+                ? { onRetry: () => window.location.reload(), retryLabel: "Reload" }
+                : {
+                    onRetry: () => {
+                      setLoadError(null);
+                      setPollKey((k) => k + 1);
+                    },
+                  })}
+              secondary={{ href: "/experiments", label: "Open experiments" }}
+            />
+          </>
         ) : (
           <p className="py-16 text-center text-sm text-muted-foreground" role="status">
             Loading experiment…
@@ -402,7 +416,10 @@ export default function ExperimentPage({ params }: PageProps<"/experiments/[expe
       </div>
 
       {/* Status + controls */}
-      <section aria-label="Experiment controls" className="mt-4 rounded-lg border border-border bg-card p-4">
+      <section aria-labelledby="experiment-controls-heading" className="mt-4 rounded-lg border border-border bg-card p-4">
+        <h2 id="experiment-controls-heading" className="sr-only">
+          Experiment controls
+        </h2>
         <StatusNote exp={exp} continuous={isContinuousRun(runs[runs.length - 1])} />
 
         {shiftCtx && (exp.status === "ready" || exp.status === "deploying" || exp.status === "running_traffic") && (

@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { ListSkeleton, LoadErrorState } from "@/components/load-states";
 import { RunList, useRunHistory } from "@/components/run-list";
 import type { RunRow } from "@/lib/run-history";
 
@@ -25,11 +26,14 @@ export function RecentRunsAside({ onDuplicate }: { onDuplicate: (row: RunRow) =>
         </Link>
       </div>
       {history.loading ? (
-        <p className="px-4 py-4 text-sm text-muted-foreground">Loading runs…</p>
+        <ListSkeleton label="Loading runs…" rows={RECENT_RUNS} columns={["w-28", "ml-auto w-14"]} />
       ) : history.error ? (
-        <p className="px-4 py-4 text-sm text-muted-foreground">
-          Couldn&apos;t load runs. Check your connection and reload.
-        </p>
+        <LoadErrorState
+          what="runs"
+          error={history.error}
+          onRetry={history.retry}
+          className="rounded-none border-0"
+        />
       ) : recentRows.length === 0 ? (
         <p className="px-4 py-4 text-sm text-muted-foreground">
           No runs yet. Fill in the brief to start your first one.

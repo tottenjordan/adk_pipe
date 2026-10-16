@@ -4,12 +4,13 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { buttonVariants } from "@/components/ui/button";
 import { JudgeAgreement } from "@/components/judge-agreement";
+import { ListSkeleton, LoadErrorState } from "@/components/load-states";
 import { RunList, RunListHeader, useRunHistory } from "@/components/run-list";
 import { stashDuplicateBrief, type RunRow } from "@/lib/run-history";
 
 export default function RunsPage() {
   const router = useRouter();
-  const { rows, loading, error, now } = useRunHistory();
+  const { rows, loading, error, now, retry } = useRunHistory();
 
   const duplicate = (row: RunRow) => {
     stashDuplicateBrief(row.brief);
@@ -35,11 +36,18 @@ export default function RunsPage() {
 
       <section aria-label="Run history" className="rounded-lg border border-border bg-card">
         {loading ? (
-          <p className="px-4 py-6 text-sm text-muted-foreground">Loading runs…</p>
+          <ListSkeleton
+            label="Loading runs…"
+            rows={6}
+            columns={["w-32", "w-48", "w-24", "w-20", "w-16"]}
+          />
         ) : error ? (
-          <p role="alert" className="px-4 py-6 text-sm text-mark-fail">
-            Couldn&apos;t load runs. Check your connection and reload.
-          </p>
+          <LoadErrorState
+            what="runs"
+            error={error}
+            onRetry={retry}
+            className="rounded-lg border-0"
+          />
         ) : rows.length === 0 ? (
           <p className="px-4 py-6 text-sm text-muted-foreground">
             No runs yet. Start one from{" "}

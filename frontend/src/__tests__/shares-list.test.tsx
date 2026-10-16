@@ -78,7 +78,7 @@ describe("SessionShares", () => {
       fireEvent.click(within(row).getByRole("button", { name: "Copy link to Acme x Trend" }));
     });
     expect(writeText).toHaveBeenCalledWith(A.url);
-    expect(screen.getByTestId("shares-copy-status")).toHaveTextContent("Link copied");
+    expect(within(row).getByText("Link copied")).toBeInTheDocument();
   });
 
   it("revokes after confirmation: calls DELETE and removes the row", async () => {

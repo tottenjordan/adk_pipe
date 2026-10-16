@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { listSessions, SELF_USER_ID } from "@/lib/api";
 import {
@@ -16,22 +16,29 @@ import { cn } from "@/lib/utils";
 export interface RunHistory {
   rows: RunRow[];
   loading: boolean;
-  error: boolean;
+  /** Why the last load failed (e.g. lib/session-expired), or null. */
+  error: Error | null;
   /** Reference time the rows' statuses and relative dates were computed at. */
   now: number;
+  /** Load the runs again (after a failure). */
+  retry: () => void;
 }
 
+type HistoryState = Omit<RunHistory, "retry">;
+
 /**
- * Load the caller's runs once. All apps share one session store, so a single
- * `listSessions` call (under any app name) returns every run.
+ * Load the caller's runs once (and again on `retry`). All apps share one
+ * session store, so a single `listSessions` call (under any app name) returns
+ * every run.
  */
 export function useRunHistory(): RunHistory {
-  const [history, setHistory] = useState<RunHistory>({
+  const [history, setHistory] = useState<HistoryState>({
     rows: [],
     loading: true,
-    error: false,
+    error: null,
     now: 0,
   });
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -39,17 +46,24 @@ export function useRunHistory(): RunHistory {
       .then((sessions) => {
         if (cancelled) return;
         const now = Date.now();
-        setHistory({ rows: buildRunRows(sessions, now), loading: false, error: false, now });
+        setHistory({ rows: buildRunRows(sessions, now), loading: false, error: null, now });
       })
-      .catch(() => {
-        if (!cancelled) setHistory((h) => ({ ...h, loading: false, error: true }));
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        const error = err instanceof Error ? err : new Error(String(err));
+        setHistory((h) => ({ ...h, loading: false, error }));
       });
     return () => {
       cancelled = true;
     };
+  }, [attempt]);
+
+  const retry = useCallback(() => {
+    setHistory((h) => ({ ...h, loading: true, error: null }));
+    setAttempt((n) => n + 1);
   }, []);
 
-  return history;
+  return { ...history, retry };
 }
 
 const DOT: Record<RunStatus, string> = {

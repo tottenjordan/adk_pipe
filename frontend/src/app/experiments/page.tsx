@@ -5,6 +5,7 @@ import Link from "next/link";
 import { buttonVariants } from "@/components/ui/button";
 import { ExperimentStatusLabel, StatusHelp } from "@/components/experiment-status";
 import { InfoTip } from "@/components/ui/info-tip";
+import { ListSkeleton, LoadErrorState } from "@/components/load-states";
 import { CustomBadge } from "@/components/scenario-overrides";
 import { formatRunTime } from "@/lib/run-history";
 import {
@@ -23,8 +24,9 @@ const COLUMNS =
 export default function ExperimentsPage() {
   const [rows, setRows] = useState<ExperimentSummary[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(false);
+  const [error, setError] = useState<unknown>(null);
   const [now, setNow] = useState(0);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -35,18 +37,27 @@ export default function ExperimentsPage() {
         setNow(Date.now());
         setLoading(false);
       })
-      .catch(() => {
+      .catch((err: unknown) => {
         if (cancelled) return;
-        setError(true);
+        setError(err ?? new Error("Couldn't load experiments"));
         setLoading(false);
       });
-    // Keep TTL countdowns current without refetching.
-    const t = setInterval(() => setNow(Date.now()), 30_000);
     return () => {
       cancelled = true;
-      clearInterval(t);
     };
+  }, [attempt]);
+
+  // Keep TTL countdowns current without refetching.
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 30_000);
+    return () => clearInterval(t);
   }, []);
+
+  const retry = () => {
+    setError(null);
+    setLoading(true);
+    setAttempt((n) => n + 1);
+  };
 
   return (
     <div className="mx-auto w-full max-w-6xl px-6 py-8">
@@ -61,13 +72,18 @@ export default function ExperimentsPage() {
 
       <section aria-label="Experiments" className="rounded-lg border border-border bg-card">
         {loading ? (
-          <p className="px-4 py-6 text-sm text-muted-foreground" role="status">
-            Loading experiments…
-          </p>
+          <ListSkeleton
+            label="Loading experiments…"
+            rows={4}
+            columns={["w-32", "w-56", "w-20", "w-16", "w-20"]}
+          />
         ) : error ? (
-          <p role="alert" className="px-4 py-6 text-sm text-mark-fail">
-            Couldn&apos;t load experiments. Check your connection and reload.
-          </p>
+          <LoadErrorState
+            what="experiments"
+            error={error}
+            onRetry={retry}
+            className="rounded-lg border-0"
+          />
         ) : rows.length === 0 ? (
           <div className="px-4 py-6 text-sm text-muted-foreground">
             <p>No experiments yet.</p>
