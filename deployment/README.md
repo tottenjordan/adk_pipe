@@ -38,11 +38,11 @@ Cloud Run Functions, which do **not** read `.env`). All vars are documented in
 | Variable | Used by | Required? | Default |
 |---|---|---|---|
 | `GOOGLE_CLOUD_PROJECT` | CRF orchestrator + worker, `deploy_agent.py`, `test_deployment.py`, `integration_test.py`, `create_session_engine.py` | **Yes** — the CRFs raise `RuntimeError` at first use if unset (imports stay side-effect-free) | none |
-| `GOOGLE_CLOUD_PROJECT_NUMBER` | CRF orchestrator (worker topic path; the default Cloud Tasks invoker SA) + worker (Reasoning Engine path); `deploy_agent.py --delete` | CRFs: optional; deploy scripts: yes | CRFs fall back to `GOOGLE_CLOUD_PROJECT` (both APIs accept the ID) |
+| `GOOGLE_CLOUD_PROJECT_NUMBER` | CRF orchestrator (the default Cloud Tasks invoker SA when `CRF_TASKS_INVOKER_SA` is unset) + worker (Reasoning Engine path); `deploy_agent.py --delete` | Worker: **yes** — unset, the engine id resolves to unset with an ERROR and every row stays `QUEUED`; orchestrator: only without `CRF_TASKS_INVOKER_SA`; deploy scripts: yes | none |
 | `GCP_REGION` | CRFs (Agent Engine client), all deploy scripts | No | `us-central1` |
 | `CRF_WORKER_URL` | CRF orchestrator: the worker's `https://` Cloud Run URL (task target + OIDC audience). Cloud Tasks is the only transport: unset or not `https://` (or no invoker SA) → one ERROR per trigger and nothing dispatched, rows keep their status | **Yes** | none |
 | `CRF_TASKS_QUEUE` / `CRF_TASKS_LOCATION` | CRF orchestrator, `tasks` transport | No | `creative-worker-queue` / `GCP_REGION` |
-| `CRF_TASKS_INVOKER_SA` | CRF orchestrator, `tasks` transport: the identity of the tasks' OIDC token (needs `run.invoker` on the worker) | No | `<GOOGLE_CLOUD_PROJECT_NUMBER>-compute@developer.gserviceaccount.com` |
+| `CRF_TASKS_INVOKER_SA` | CRF orchestrator: the identity of the tasks' OIDC token (needs `run.invoker` on the worker; the orchestrator's SA needs `iam.serviceAccountUser` on it). Deployed as `tt-crf-invoker-sa@<project>.iam.gserviceaccount.com`, see [§1](#1-grant-service-account-required-permissions) | No (the deploy sets it) | `<GOOGLE_CLOUD_PROJECT_NUMBER>-compute@developer.gserviceaccount.com` |
 | `CRF_TASK_DISPATCH_DEADLINE_SECS` | CRF orchestrator, `tasks` transport: how long Cloud Tasks waits for the worker's response | No | `CRF_WORKER_TIMEOUT_SECS` (1800), clamped 15–1800 |
 | `CREATIVE_AGENT_ENGINE_ID` | CRF worker (the creative engine it runs: the full `projects/<number>/locations/<GCP_REGION>/reasoningEngines/<id>` name, as `.env` stores it, or the bare id; another project/region or a malformed value is ignored with an ERROR); also `test_deployment.py` / `integration_test.py` (see below) | Worker: **yes** — while unset or invalid it logs an ERROR per message and leaves the row `QUEUED` (no lock taken). Set by `engine_handoff.py apply --update-worker` | none |
 | `AGENT_WORKER_USER_ID` | CRF worker (Agent Engine session owner, `<id>_<hash(uuid, target_trend)>`, else `<id>_<row index>`) | No | `crf_worker` |
@@ -427,7 +427,7 @@ Each Cloud Run function service runs exactly one entry point, so you **deploy th
 ### 1. Grant service account required permissions
 
 
-*The orchestrator's Eventarc trigger runs as `$SERVICE_ACCOUNT` (here the default compute SA): it needs the Eventarc Event Receiver role and permission to invoke the orchestrator. The worker is reached by Cloud Tasks instead; its IAM (`cloudtasks.enqueuer`, `iam.serviceAccountUser`, `run.invoker`) is in [§3.4](#3-deploy-the-functions-the-orchestrator-trigger-and-the-cloud-tasks-queue).*
+*Four identities. The orchestrator's Eventarc trigger keeps its own identity, `$SERVICE_ACCOUNT` (here the default compute SA): it needs the Eventarc Event Receiver role and permission to invoke the orchestrator. The two services and the Cloud Tasks OIDC token each run as a dedicated least-privilege SA (below, since 2026-10-16; before that both services ran as the default compute SA, a project Owner). The grants that need the queue or the worker to exist (`cloudtasks.enqueuer`, `run.invoker`) are in [§3.4](#3-deploy-the-functions-the-orchestrator-trigger-and-the-cloud-tasks-queue).*
 
 
 ```bash
@@ -448,6 +448,61 @@ gcloud projects add-iam-policy-binding $GOOGLE_CLOUD_PROJECT \
 gcloud services enable run.googleapis.com eventarc.googleapis.com \
   pubsub.googleapis.com cloudtasks.googleapis.com
 ```
+
+**Dedicated service accounts.** What each one touches:
+
+| SA | Runs | Roles |
+|---|---|---|
+| `tt-crf-orchestrator-sa` | orchestrator `$CREATIVE_CRF_NAME` | `roles/bigquery.jobUser` (project); `roles/bigquery.dataEditor` on the table `trend_trawler.target_trends_crf`; `roles/cloudtasks.enqueuer` on the queue `creative-worker-queue` (§3.4); `roles/iam.serviceAccountUser` on `tt-crf-invoker-sa` (to put its OIDC token on a task) |
+| `tt-crf-invoker-sa` | the Cloud Tasks OIDC token (`CRF_TASKS_INVOKER_SA`) | `roles/run.invoker` on the worker service `$CREATIVE_WORKER_CRF_NAME` only (§3.4) |
+| `tt-crf-worker-sa` | worker `$CREATIVE_WORKER_CRF_NAME` | `roles/aiplatform.user` (project; Agent Engine sessions + stream queries); `roles/bigquery.jobUser` (project); `roles/bigquery.dataEditor` on the table `trend_trawler.target_trends_crf` |
+
+Both services only read and write `target_trends_crf`, so `dataEditor` is
+granted on that **table**, not the dataset. A trigger that names another table
+(`bq_dataset` / `bq_table` in the message, allow-listed through
+`CRF_EXTRA_ALLOWED_TABLES`, e.g. `trend_trawler_eval.target_trends_crf`) needs
+the same table grant for both SAs, or its queries fail with 403. Table-level
+grants use `bq add-iam-policy-binding` ([Control access to resources with IAM → Grant access to a table or view](https://docs.cloud.google.com/bigquery/docs/control-access-to-resources-iam);
+the `bq` form takes `--table=true` / a `project:dataset.table` reference; that
+page documents it for tables and views only: dataset grants go through
+`GRANT … ON SCHEMA` or `bq update --source`, which **overwrites** the dataset's
+whole access list). `roles/bigquery.jobUser` must be project-level (jobs run in
+a project, not in a dataset).
+
+```bash
+ORCH_SA=tt-crf-orchestrator-sa@$GOOGLE_CLOUD_PROJECT.iam.gserviceaccount.com
+INVOKER_SA=tt-crf-invoker-sa@$GOOGLE_CLOUD_PROJECT.iam.gserviceaccount.com
+WORKER_SA=tt-crf-worker-sa@$GOOGLE_CLOUD_PROJECT.iam.gserviceaccount.com
+
+gcloud iam service-accounts create tt-crf-orchestrator-sa \
+  --display-name="Trend Trawler CRF orchestrator"
+gcloud iam service-accounts create tt-crf-invoker-sa \
+  --display-name="Trend Trawler CRF Cloud Tasks invoker"
+gcloud iam service-accounts create tt-crf-worker-sa \
+  --display-name="Trend Trawler CRF worker"
+
+# Project level: BigQuery jobs for both services, Agent Engine for the worker.
+for SA in $ORCH_SA $WORKER_SA; do
+  gcloud projects add-iam-policy-binding $GOOGLE_CLOUD_PROJECT \
+    --member=serviceAccount:$SA --role=roles/bigquery.jobUser --condition=None
+done
+gcloud projects add-iam-policy-binding $GOOGLE_CLOUD_PROJECT \
+  --member=serviceAccount:$WORKER_SA --role=roles/aiplatform.user --condition=None
+
+# Table level: the CRF status table only (repeat for any other table a trigger names).
+for SA in $ORCH_SA $WORKER_SA; do
+  bq add-iam-policy-binding --member=serviceAccount:$SA \
+    --role=roles/bigquery.dataEditor \
+    $GOOGLE_CLOUD_PROJECT:trend_trawler.target_trends_crf
+done
+
+# The orchestrator acts as the invoker SA when it creates a task (OIDC token).
+gcloud iam service-accounts add-iam-policy-binding $INVOKER_SA \
+  --member=serviceAccount:$ORCH_SA --role=roles/iam.serviceAccountUser
+```
+
+The deployer needs `iam.serviceAccounts.actAs` on the orchestrator and worker SAs
+to deploy a service with `--service-account` (an Owner has it).
 
 <details>
   <summary> Optional: grant yourself admin access to ignore IAM best practices</summary>
@@ -743,27 +798,59 @@ api/web ones; pin each new revision afterwards. `--no-traffic` can only update a
 existing service, which always has its target set.) First-time creation uses the
 full commands below.
 
+**One-time switch to the dedicated SAs** (an existing project whose CRF services
+still run as the default compute SA; the SAs and grants of [§1](#1-grant-service-account-required-permissions)
+and §3.4 come first). A service-account change is a new revision, which kills an
+in-flight worker run, so pause the queue and check that no row is `PROCESSING`
+first; both services are traffic-pinned, so move traffic to each new revision:
+
+```bash
+gcloud tasks queues pause creative-worker-queue --location=us-central1
+# (idle check: no PROCESSING rows in target_trends_crf)
+gcloud run deploy $CREATIVE_WORKER_CRF_NAME --image $CRF_IMAGE --region $GCP_REGION \
+  --service-account tt-crf-worker-sa@$GOOGLE_CLOUD_PROJECT.iam.gserviceaccount.com --no-traffic
+gcloud run deploy $CREATIVE_CRF_NAME --image $CRF_IMAGE --region $GCP_REGION \
+  --service-account tt-crf-orchestrator-sa@$GOOGLE_CLOUD_PROJECT.iam.gserviceaccount.com \
+  --cpu 1 --memory 1Gi --concurrency 1 \
+  --update-env-vars CRF_TASKS_INVOKER_SA=tt-crf-invoker-sa@$GOOGLE_CLOUD_PROJECT.iam.gserviceaccount.com \
+  --remove-env-vars CREATIVE_WORKER_TOPIC_NAME,CRF_WORKER_TRANSPORT --no-traffic
+# then, for each service: gcloud run services update-traffic <service> --region $GCP_REGION --to-revisions <new>=100
+gcloud tasks queues resume creative-worker-queue --location=us-central1
+```
+
+Rollback: redeploy each service at its previous revision's image with
+`--service-account $GOOGLE_CLOUD_PROJECT_NUMBER-compute@developer.gserviceaccount.com`
+(note the revisions and digests before switching).
+
 **3.1 Creative Agent Orchestrator:** cloud run function
 
 ```bash
 gcloud run deploy $CREATIVE_CRF_NAME \
   --image $CRF_IMAGE \
   --region $GCP_REGION \
-  --memory 8Gi \
-  --cpu 4 \
+  --service-account tt-crf-orchestrator-sa@$GOOGLE_CLOUD_PROJECT.iam.gserviceaccount.com \
+  --memory 1Gi \
+  --cpu 1 \
   --min-instances 0 \
-  --concurrency=100 \
+  --concurrency=1 \
   --timeout=600s \
   --no-allow-unauthenticated \
-  --set-env-vars "FUNCTION_TARGET=$CRF_ENTRYPOINT,GOOGLE_CLOUD_PROJECT=$GOOGLE_CLOUD_PROJECT,GOOGLE_CLOUD_PROJECT_NUMBER=$GOOGLE_CLOUD_PROJECT_NUMBER,GCP_REGION=$GCP_REGION,CRF_WORKER_TRANSPORT=tasks,CRF_WORKER_URL=$WORKER_URL,CRF_TASKS_QUEUE=creative-worker-queue" \
+  --set-env-vars "FUNCTION_TARGET=$CRF_ENTRYPOINT,GOOGLE_CLOUD_PROJECT=$GOOGLE_CLOUD_PROJECT,GOOGLE_CLOUD_PROJECT_NUMBER=$GOOGLE_CLOUD_PROJECT_NUMBER,GCP_REGION=$GCP_REGION,CRF_WORKER_URL=$WORKER_URL,CRF_TASKS_QUEUE=creative-worker-queue,CRF_TASKS_INVOKER_SA=tt-crf-invoker-sa@$GOOGLE_CLOUD_PROJECT.iam.gserviceaccount.com" \
   --labels agent-workflow=trend-trawler,function=creative-orchestrator
 
-  # High concurrency since it's just dispatching
+  # --service-account: the dedicated orchestrator SA (§1), not the compute SA.
+  # --cpu 1 --memory 1Gi --concurrency=1: the orchestrator only runs a few
+  #   BigQuery statements and creates up to CRF_MAX_ROWS_PER_RUN tasks per trigger.
+  #   functions-framework serves it with gunicorn, 1 worker x (cpu x 4) threads
+  #   (functions_framework/_http/gunicorn.py:31-41, functions-framework 3.10.2),
+  #   so 1 CPU is plenty; concurrency 1 also keeps a Pub/Sub redelivery of a
+  #   trigger from overlapping the delivery still being handled on the same
+  #   instance (it queues, or starts a second instance that finds the rows QUEUED).
   # CRF_WORKER_URL: the worker's URL (create the worker first, §3.3, then
   #   WORKER_URL=$(gcloud run services describe $CREATIVE_WORKER_CRF_NAME \
   #     --region $GCP_REGION --format='value(status.url)')).
-  #   On the pubsub rollback transport pass CRF_WORKER_TRANSPORT=pubsub and
-  #   CREATIVE_WORKER_TOPIC_NAME=$CREATIVE_WORKER_TOPIC_NAME instead.
+  # CRF_TASKS_INVOKER_SA: the tasks' OIDC identity (§1, §3.4). Cloud Tasks is the
+  #   only transport: CRF_WORKER_TRANSPORT and CREATIVE_WORKER_TOPIC_NAME were removed.
   # --set-env-vars: FUNCTION_TARGET and GOOGLE_CLOUD_PROJECT are REQUIRED (the function reads no .env);
   #   see "Required environment" above. --set-env-vars REPLACES the env, so any
   #   other overrides (e.g. CRF_EXTRA_ALLOWED_TABLES) must be in the same list.
@@ -781,14 +868,17 @@ gcloud eventarc triggers create $CREATIVE_TRIGGER_NAME  \
   --service-account=$SERVICE_ACCOUNT
 ```
 
-Raise the trigger subscription's ack deadline from the Eventarc default (10s).
-Otherwise a cold start longer than 10s gets the message redelivered, and the
-orchestrator re-dispatches the rows it just marked QUEUED:
+Raise the trigger subscription's ack deadline from the Eventarc default (10s)
+to 300 s. One delivery can run up to about 3 BigQuery statements (reap, select,
+mark QUEUED), each bounded by `CRF_BQ_QUERY_TIMEOUT_SECS` (60 s), plus the task
+creation (≤ 30 s per task) and a cold start; with a shorter deadline Pub/Sub
+redelivers a trigger that is still being handled (the previous 60 s did not
+cover that worst case):
 
 ```bash
 ORCH_SUB=$(gcloud eventarc triggers describe $CREATIVE_TRIGGER_NAME --location=$GCP_REGION \
   --format='value(transport.pubsub.subscription)')
-gcloud pubsub subscriptions update $ORCH_SUB --ack-deadline=60
+gcloud pubsub subscriptions update $ORCH_SUB --ack-deadline=300
 ```
 
 Then give it the dead-letter policy (max 5 deliveries → `creative-crf-dead-letter`;
@@ -806,6 +896,7 @@ gcloud run deploy $CREATIVE_WORKER_CRF_NAME \
   --concurrency=1 \
   --memory 8Gi \
   --cpu 4 \
+  --service-account tt-crf-worker-sa@$GOOGLE_CLOUD_PROJECT.iam.gserviceaccount.com \
   --no-allow-unauthenticated \
   --set-env-vars "FUNCTION_TARGET=agent_worker_task,FUNCTION_SIGNATURE_TYPE=http,GOOGLE_CLOUD_PROJECT=$GOOGLE_CLOUD_PROJECT,GOOGLE_CLOUD_PROJECT_NUMBER=$GOOGLE_CLOUD_PROJECT_NUMBER,GCP_REGION=$GCP_REGION,AGENT_WORKER_USER_ID=${AGENT_WORKER_USER_ID:-crf_worker},CREATIVE_AGENT_ENGINE_ID=$CREATIVE_AGENT_ENGINE_ID" \
   --labels agent-workflow=trend-trawler,function=creative-worker
@@ -813,9 +904,13 @@ gcloud run deploy $CREATIVE_WORKER_CRF_NAME \
   # Note:
   # FUNCTION_TARGET=agent_worker_task + FUNCTION_SIGNATURE_TYPE=http: the Cloud Tasks
   #   entry point (200 = task done, 503 = Cloud Tasks retries it). No Eventarc trigger.
-  # --set-env-vars: FUNCTION_TARGET, GOOGLE_CLOUD_PROJECT and CREATIVE_AGENT_ENGINE_ID are
-  #   REQUIRED (the function reads no .env). CREATIVE_AGENT_ENGINE_ID is the creative engine
-  #   (full resource name from .env or bare id); without it every row stays QUEUED. After an
+  # --service-account: the dedicated worker SA (§1); --no-allow-unauthenticated keeps
+  #   it private: only tt-crf-invoker-sa (the tasks' OIDC token) may invoke it (§3.4).
+  # --set-env-vars: FUNCTION_TARGET, GOOGLE_CLOUD_PROJECT, GOOGLE_CLOUD_PROJECT_NUMBER and
+  #   CREATIVE_AGENT_ENGINE_ID are REQUIRED (the function reads no .env). The worker builds
+  #   the Reasoning Engine path from GOOGLE_CLOUD_PROJECT_NUMBER; without it, or without
+  #   CREATIVE_AGENT_ENGINE_ID (the creative engine: full resource name from .env or bare
+  #   id), it logs an ERROR and every row stays QUEUED. After an
   #   engine redeploy, update it with `engine_handoff.py apply --update-worker`.
   #   see "Required environment" above. --set-env-vars REPLACES the env, so any
   #   other overrides (e.g. CRF_EXTRA_ALLOWED_TABLES) must be in the same list.
@@ -858,24 +953,24 @@ gcloud tasks queues create creative-worker-queue --location=us-central1 \
   --max-concurrent-dispatches=1 --max-dispatches-per-second=1 \
   --max-attempts=5 --min-backoff=60s --max-backoff=600s --max-doublings=3
 
-ORCH_SA=$(gcloud run services describe $CREATIVE_CRF_NAME --region $GCP_REGION \
-  --format='value(spec.template.spec.serviceAccountName)')
-INVOKER_SA=$GOOGLE_CLOUD_PROJECT_NUMBER-compute@developer.gserviceaccount.com  # CRF_TASKS_INVOKER_SA
+ORCH_SA=tt-crf-orchestrator-sa@$GOOGLE_CLOUD_PROJECT.iam.gserviceaccount.com
+INVOKER_SA=tt-crf-invoker-sa@$GOOGLE_CLOUD_PROJECT.iam.gserviceaccount.com  # CRF_TASKS_INVOKER_SA
 
 # The orchestrator creates tasks ...
 gcloud tasks queues add-iam-policy-binding creative-worker-queue --location=us-central1 \
   --member=serviceAccount:$ORCH_SA --role=roles/cloudtasks.enqueuer
-# ... that carry an OIDC token of the invoker SA (actAs) ...
+# ... that carry an OIDC token of the invoker SA (actAs; also in §1) ...
 gcloud iam service-accounts add-iam-policy-binding $INVOKER_SA \
   --member=serviceAccount:$ORCH_SA --role=roles/iam.serviceAccountUser
-# ... which may invoke the (private) worker.
+# ... which may invoke the (private) worker, and nothing else.
 gcloud run services add-iam-policy-binding $CREATIVE_WORKER_CRF_NAME --region $GCP_REGION \
   --member=serviceAccount:$INVOKER_SA --role=roles/run.invoker
 ```
 
-Today both SAs are the default compute SA (a project Owner, so these grants are
-already implied); grant them explicitly anyway so a dedicated minimal SA can take
-over later. The Cloud Tasks service agent mints the OIDC token; its
+These three grants are resource-level (the queue, the invoker SA, the worker
+service), never project-level: the orchestrator can enqueue only on
+`creative-worker-queue`, and the invoker SA can invoke only the worker. The
+Cloud Tasks service agent mints the OIDC token; its
 `roles/cloudtasks.serviceAgent` grant is automatic.
 
 **How a task maps to the row** (`orchestrator._send_tasks`, `main.agent_worker_task`):
