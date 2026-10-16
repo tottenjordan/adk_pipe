@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { CreativeBrief, CreativeBriefOutput } from "@/components/creative-brief";
 import { parseCreativeBrief } from "@/lib/creative-brief";
@@ -63,18 +63,21 @@ describe("CreativeBrief", () => {
 });
 
 describe("CreativeBriefOutput", () => {
-  it("shows the proposition and expands to the full brief", () => {
+  it("shows the proposition and expands to the full brief, then collapses", async () => {
     render(<CreativeBriefOutput brief={brief} />);
     expect(screen.getByText(brief.singleMindedProposition)).toBeInTheDocument();
     expect(screen.queryByText("Trend fit")).not.toBeInTheDocument();
     const toggle = screen.getByRole("button", { name: /show the full brief/i });
     expect(toggle).toHaveAttribute("aria-expanded", "false");
-    const panel = document.getElementById(toggle.getAttribute("aria-controls")!);
-    expect(panel).not.toBeNull();
-    expect(panel).not.toBeVisible();
     fireEvent.click(toggle);
     expect(toggle).toHaveAttribute("aria-expanded", "true");
-    expect(screen.getByText("Trend fit")).toBeInTheDocument();
+    expect(toggle).toHaveAccessibleName(/hide the full brief/i);
+    const panel = document.getElementById(toggle.getAttribute("aria-controls")!);
+    expect(panel).not.toBeNull();
     expect(panel).toBeVisible();
+    expect(within(panel!).getByText("Trend fit")).toBeInTheDocument();
+    fireEvent.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    await waitFor(() => expect(screen.queryByText("Trend fit")).not.toBeInTheDocument());
   });
 });

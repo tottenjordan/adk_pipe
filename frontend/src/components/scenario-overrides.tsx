@@ -1,6 +1,7 @@
 "use client";
 
-import { ChevronRight } from "lucide-react";
+import { DisclosureChevron, DisclosurePanel, DisclosureTrigger } from "@/components/quiet-disclosure";
+import { Collapsible } from "@/components/ui/collapsible";
 import { InfoTip } from "@/components/ui/info-tip";
 import { hasOverrides, type ScenarioOverrides } from "@/lib/experiments";
 import { TUNE_HELP } from "@/lib/experiment-help";
@@ -35,26 +36,30 @@ export function OverridesDisclosure({
   const lines = describeOverrides(scenario, overrides);
   if (!lines.length) return null;
   return (
-    <details open={defaultOpen} className="group mt-2 max-w-2xl">
-      <summary className="inline-flex cursor-pointer list-none items-center gap-1 rounded-sm text-sm text-foreground outline-hidden select-none focus-visible:ring-3 focus-visible:ring-ring/50 [&::-webkit-details-marker]:hidden">
-        <ChevronRight aria-hidden className="size-3.5 text-muted-foreground transition-transform group-open:rotate-90 motion-reduce:transition-none" />
-        Tuned reader settings
-        <span className="text-muted-foreground tabular-nums">({lines.length})</span>
+    <Collapsible defaultOpen={defaultOpen} className="mt-2 max-w-2xl">
+      <div className="inline-flex items-center gap-1">
+        <DisclosureTrigger className="inline-flex items-center gap-1 rounded-sm text-sm text-foreground outline-hidden select-none focus-visible:ring-3 focus-visible:ring-ring/50">
+          <DisclosureChevron direction="right" className="size-3.5" />
+          Tuned reader settings
+          <span className="text-muted-foreground tabular-nums">({lines.length})</span>
+        </DisclosureTrigger>
         <InfoTip label="About tuned reader settings" align="start">
           {TUNE_HELP.custom}
         </InfoTip>
-      </summary>
-      <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-6 gap-y-1.5 border-l-2 border-border pl-4 text-sm">
-        {lines.map((l) => (
-          <div key={l.label} className="contents">
-            <dt className="text-muted-foreground">{l.label}</dt>
-            <dd className="text-foreground">
-              {l.value}
-              <span className="block text-xs text-muted-foreground">Scenario default: {l.preset}</span>
-            </dd>
-          </div>
-        ))}
-      </dl>
-    </details>
+      </div>
+      <DisclosurePanel>
+        <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-6 gap-y-1.5 border-l-2 border-border pl-4 text-sm">
+          {lines.map((l) => (
+            <div key={l.label} className="contents">
+              <dt className="text-muted-foreground">{l.label}</dt>
+              <dd className="text-foreground">
+                {l.value}
+                <span className="block text-xs text-muted-foreground">Scenario default: {l.preset}</span>
+              </dd>
+            </div>
+          ))}
+        </dl>
+      </DisclosurePanel>
+    </Collapsible>
   );
 }

@@ -1,8 +1,10 @@
 "use client";
 
-import { useId, useState } from "react";
-import { BanIcon, CheckIcon, ChevronDownIcon } from "lucide-react";
+import { useState } from "react";
+import { BanIcon, CheckIcon } from "lucide-react";
 import { FieldLabel } from "@/components/field-label";
+import { DisclosureChevron, DisclosurePanel, DisclosureTrigger } from "@/components/quiet-disclosure";
+import { Collapsible } from "@/components/ui/collapsible";
 import { fitModeLabel, type CreativeBrief as Brief } from "@/lib/creative-brief";
 import type { ReportSources } from "@/lib/research-report";
 import { cn } from "@/lib/utils";
@@ -239,26 +241,25 @@ export function CreativeBriefOutput({
   className?: string;
 }) {
   const [open, setOpen] = useState(false);
-  const panelId = useId();
   return (
-    <div className={cn("rounded-lg border border-border bg-card px-4 py-3", className)}>
+    <Collapsible
+      open={open}
+      onOpenChange={setOpen}
+      className={cn("rounded-lg border border-border bg-card px-4 py-3", className)}
+    >
       <FieldLabel as="p">Creative brief</FieldLabel>
       <p className="mt-0.5 text-sm font-semibold text-balance text-foreground">
         {brief.singleMindedProposition}
       </p>
-      <button
-        type="button"
-        aria-expanded={open}
-        aria-controls={panelId}
-        onClick={() => setOpen((o) => !o)}
-        className="mt-1.5 inline-flex items-center gap-1 rounded-sm text-sm font-medium text-primary hover:underline focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden"
-      >
+      <DisclosureTrigger className="mt-1.5 inline-flex items-center gap-1 rounded-sm text-sm font-medium text-primary hover:underline focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-hidden">
         {open ? "Hide the full brief" : "Show the full brief"}
-        <ChevronDownIcon aria-hidden="true" className={cn("size-4 transition-transform", open && "rotate-180")} />
-      </button>
-      <div id={panelId} hidden={!open} className="mt-3 border-t border-border pt-4">
-        {open && <CreativeBrief brief={brief} sources={sources} />}
-      </div>
-    </div>
+        <DisclosureChevron className="size-4 text-current" />
+      </DisclosureTrigger>
+      <DisclosurePanel>
+        <div className="mt-3 border-t border-border pt-4">
+          <CreativeBrief brief={brief} sources={sources} />
+        </div>
+      </DisclosurePanel>
+    </Collapsible>
   );
 }
