@@ -2,6 +2,7 @@
 
 import { Badge } from "@/components/ui/badge";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { ProcessingDots } from "@/app/run/[sessionId]/stage-spine";
 import type { AgentEvent } from "@/lib/types";
 import { useEffect, useRef } from "react";
 
@@ -116,7 +117,9 @@ export function EventLog({
   const bottomRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    // Jump instead of gliding under reduced motion.
+    const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    bottomRef.current?.scrollIntoView({ behavior: reduce ? "auto" : "smooth" });
   }, [events.length]);
 
   return (
@@ -124,12 +127,8 @@ export function EventLog({
       <div className="p-4">
         {events.length === 0 && (
           <div className="flex flex-col items-center justify-center py-12 text-muted-foreground">
-            <div className="mb-3 flex space-x-1">
-              <div className="h-2 w-2 rounded-full bg-primary animate-bounce" style={{ animationDelay: "0ms" }} />
-              <div className="h-2 w-2 rounded-full bg-primary/70 animate-bounce" style={{ animationDelay: "150ms" }} />
-              <div className="h-2 w-2 rounded-full bg-primary/40 animate-bounce" style={{ animationDelay: "300ms" }} />
-            </div>
-            <p className="text-sm">Waiting for events...</p>
+            <ProcessingDots className="mb-3" />
+            <p className="text-sm">Waiting for events…</p>
           </div>
         )}
         {events.map((event, i) => (

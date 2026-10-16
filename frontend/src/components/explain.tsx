@@ -26,9 +26,9 @@ export function ExplainSwitch({
     >
       <span
         aria-hidden
-        className="relative h-[18px] w-8 shrink-0 rounded-full bg-control-off transition-colors duration-200 group-aria-checked:bg-primary"
+        className="relative h-[18px] w-8 shrink-0 rounded-full bg-control-off transition-colors duration-(--dur-dialog) ease-(--ease-out) group-aria-checked:bg-primary"
       >
-        <span className="absolute top-[3px] left-[3px] size-3 rounded-full bg-white transition-transform duration-200 group-aria-checked:translate-x-3.5" />
+        <span className="absolute top-[3px] left-[3px] size-3 rounded-full bg-white transition-transform duration-(--dur-dialog) ease-(--ease-out) group-aria-checked:translate-x-3.5 motion-reduce:transition-none" />
       </span>
       Explain
     </button>
@@ -59,7 +59,7 @@ export function ExplainPanel({
       inert={!open}
       data-open={open || undefined}
       className={cn(
-        "grid grid-rows-[0fr] opacity-0 transition-[grid-template-rows,opacity] duration-300 ease-out data-open:grid-rows-[1fr] data-open:opacity-100 motion-reduce:transition-none",
+        "grid grid-rows-[0fr] opacity-0 transition-[grid-template-rows,opacity] duration-(--dur-dialog) ease-(--ease-out) data-open:grid-rows-[1fr] data-open:opacity-100 motion-reduce:transition-none",
         className
       )}
     >
