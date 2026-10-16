@@ -828,9 +828,9 @@ opentelemetry-instrumentation==0.66b1 \
     # via
     #   opentelemetry-instrumentation-google-genai
     #   opentelemetry-util-genai
-opentelemetry-instrumentation-google-genai==0.7b1 \
-    --hash=sha256:b7b3cda48efc9b9550dee76e4437a2f5e3b6877abffc4a6c336966eceb00f8b8 \
-    --hash=sha256:dc81249eb8a01184e2b3e0eb207864158e7147e3307b018dc9625b23973457a5
+opentelemetry-instrumentation-google-genai==1.2b0 \
+    --hash=sha256:6bd5e0e7fde7aa75d2f2c5b821dc960d83d5c3a0466ffef4bda5568863436004 \
+    --hash=sha256:892e24b44698026201348de71c077c2f75c4f48c24ee5d9048b0c6793115e53c
     # via google-cloud-agentplatform
 opentelemetry-proto==1.45.1 \
     --hash=sha256:79e0fb95e4616691a469439238aa9224d75779b3e108e895d1aa125ab29ca77c \
