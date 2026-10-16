@@ -41,20 +41,53 @@ def test_dependencies_install_once_before_code():
     ins = _instructions(DOCKERFILE)
     installs = [i for i, (k, a) in enumerate(ins) if k == "RUN" and "pip install" in a]
     assert len(installs) == 1, installs
-    assert "-r /build/requirements.txt" in ins[installs[0]][1]
+    # The hashed lock, never the loose requirements.txt (C15).
+    assert "--require-hashes -r /build/requirements.lock.txt" in ins[installs[0]][1]
     copies = [(i, a) for i, (k, a) in enumerate(ins) if k == "COPY"]
     before = [a for i, a in copies if i < installs[0] and "--from" not in a]
     assert before == [
-        "cloud_functions/creative_fanout/requirements.txt /build/requirements.txt"
+        "cloud_functions/creative_fanout/requirements.lock.txt"
+        " /build/requirements.lock.txt"
     ]
-    code = [i for i, a in copies if "--from" not in a and "requirements.txt" not in a]
+    code = [i for i, a in copies if "--from" not in a and "requirements" not in a]
     assert code and min(code) > installs[0]
+
+
+def test_base_image_is_one_literal_digest_pinned_from():
+    """Dependabot skips ``FROM ${ARG}``: the base is one literal tag + digest
+    FROM, and the builder and final stages both build on it."""
+    ins = _instructions(DOCKERFILE)
+    assert not [a for k, a in ins if k == "ARG" and a.startswith("BASE_IMAGE")]
+    froms = [a for k, a in ins if k == "FROM"]
+    bases = [a for a in froms if a.startswith("python:")]
+    assert len(bases) == 1, froms
+    assert re.fullmatch(r"python:3\.13\.\d+-slim@sha256:[0-9a-f]{64} AS base", bases[0])
+    assert froms[-2:] == ["base AS builder", "base"], froms
+
+
+def test_lock_pins_every_requirement_with_hashes():
+    """Every requirements.txt pin is in the lock at the same version, and every
+    locked package carries hashes (``--require-hashes`` needs both)."""
+    lock = (CRF_DIR / "requirements.lock.txt").read_text()
+    entries = re.findall(r"^([A-Za-z0-9_.\-]+)==(\S+)", lock, re.MULTILINE)
+    assert entries
+    locked = {name.lower().replace("_", "-"): ver for name, ver in entries}
+    for line in (CRF_DIR / "requirements.txt").read_text().splitlines():
+        if not line.strip() or line.startswith("#"):
+            continue
+        name, _, ver = line.partition("==")
+        name = name.split("[")[0].lower().replace("_", "-")
+        assert locked.get(name) == ver.strip(), (name, locked.get(name))
+    blocks = re.split(r"^(?=[A-Za-z0-9])", lock, flags=re.MULTILINE)
+    for block in blocks:
+        if "==" in block.split("\n", 1)[0]:
+            assert "--hash=sha256:" in block, block.split("\n", 1)[0]
 
 
 def test_multi_stage_uv_venv_non_root():
     ins = _instructions(DOCKERFILE)
     froms = [a for k, a in ins if k == "FROM"]
-    assert len(froms) == 3, froms  # uv, builder, final
+    assert len(froms) == 4, froms  # uv, base, builder, final
     assert ("COPY", "--from=builder /opt/venv /opt/venv") in ins
     last_from = max(i for i, (k, _) in enumerate(ins) if k == "FROM")
     users = [a for k, a in ins[last_from:] if k == "USER"]
@@ -147,12 +180,12 @@ def test_dockerignore_allowlists_exactly_the_function_files():
         "cloud_functions/creative_fanout/session.py",
         "cloud_functions/creative_fanout/status_store.py",
         "cloud_functions/creative_fanout/worker.py",
-        "cloud_functions/creative_fanout/requirements.txt",
+        "cloud_functions/creative_fanout/requirements.lock.txt",
     }
     shipped = {
         p.relative_to(REPO_ROOT).as_posix()
         for p in CRF_DIR.iterdir()
-        if p.suffix == ".py" or p.name == "requirements.txt"
+        if p.suffix == ".py" or p.name == "requirements.lock.txt"
     }
     assert allowed == shipped
 
@@ -257,5 +290,6 @@ def test_upload_filter_keeps_only_the_crf_function_dir():
     # Re-excluded inside, then only the build's files (never a local message.json).
     assert "/cloud_functions/creative_fanout/*" in lines
     assert "!/cloud_functions/creative_fanout/*.py" in lines
+    assert "!/cloud_functions/creative_fanout/requirements.lock.txt" in lines
     assert "/cloud_functions/" not in lines
     assert "__pycache__/" in lines

@@ -14,4 +14,4 @@
 !cloud_functions/creative_fanout/session.py
 !cloud_functions/creative_fanout/status_store.py
 !cloud_functions/creative_fanout/worker.py
-!cloud_functions/creative_fanout/requirements.txt
+!cloud_functions/creative_fanout/requirements.lock.txt

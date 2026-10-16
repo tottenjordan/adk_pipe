@@ -6,26 +6,31 @@
 # Built from the repo root by the root cloudbuild.yaml (build-crf step), or locally:
 #   docker build -f cloud_functions/creative_fanout/Dockerfile -t crf .
 # Dependencies are installed once, in a builder stage that sees only
-# requirements.txt, so a code change reuses the cached dependency layer.
-# Unlike the old `--source --base-image python313` buildpack deploys, this image
-# gets no automatic base-image (OS/runtime) updates: rebuild to pick them up.
-ARG BASE_IMAGE=python:3.13-slim
+# requirements.lock.txt (every transitive pin, hash-checked), so a code change
+# reuses the cached dependency layer. Unlike the old `--source --base-image
+# python313` buildpack deploys, this image gets no automatic base-image
+# (OS/runtime) updates: Dependabot (docker ecosystem) bumps the pinned base tag +
+# digest below, and a rebuild picks it up.
 # Pinned uv (same digest as _UV_IMAGE in deployment/cloudbuild.agents.yaml).
 ARG UV_IMAGE=ghcr.io/astral-sh/uv:0.12.19-python3.13-trixie-slim@sha256:aba5f865793af9275ceaa06d30935dfc6db8b81969c9fb099b0ebca6396b189e
 
 FROM ${UV_IMAGE} AS uv
 
+# Base: Debian trixie slim (as the uv image), pinned by multi-arch index digest.
+# A literal FROM, not an ARG, so Dependabot can bump it.
+FROM python:3.13.16-slim@sha256:70729b46c69b4f1e97c4822c1af3df53a1476cf5ddc6c087c0c10bc3a5678c2f AS base
+
 # The builder uses the final base image so the venv's interpreter symlink
 # (/usr/local/bin/python3.13) exists unchanged in the final stage.
-FROM ${BASE_IMAGE} AS builder
+FROM base AS builder
 COPY --from=uv /usr/local/bin/uv /usr/local/bin/uv
 ENV UV_PYTHON_DOWNLOADS=never UV_LINK_MODE=copy
-COPY cloud_functions/creative_fanout/requirements.txt /build/requirements.txt
+COPY cloud_functions/creative_fanout/requirements.lock.txt /build/requirements.lock.txt
 RUN uv venv /opt/venv --python /usr/local/bin/python3.13 \
  && uv pip install --python /opt/venv/bin/python --no-cache --compile-bytecode \
-      -r /build/requirements.txt
+      --require-hashes -r /build/requirements.lock.txt
 
-FROM ${BASE_IMAGE}
+FROM base
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PATH=/opt/venv/bin:$PATH
