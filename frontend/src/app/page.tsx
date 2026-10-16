@@ -1,41 +1,33 @@
 "use client";
 
 import { Suspense, useState, useEffect, useRef, useTransition } from "react";
-import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { FieldLabel } from "@/components/field-label";
-import { Textarea } from "@/components/ui/textarea";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { LearnFromRatingsToggle } from "@/components/learn-from-ratings-toggle";
 import { PersonSelect } from "@/components/person-select";
 import { SAFER_ANGLE_ADVICE, SaferAngleToggle } from "@/components/safer-angle-toggle";
 import { SENSITIVE_TREND_ADVICE } from "@/components/sensitive-chip";
-import { RunList, useRunHistory } from "@/components/run-list";
+import { CampaignFields } from "@/components/new-run/campaign-fields";
+import { RecentRunsAside } from "@/components/new-run/recent-runs-aside";
+import {
+  ReferenceImagesFieldset,
+  newReferenceRow,
+} from "@/components/new-run/reference-images-fieldset";
+import {
+  VisualDirectionFieldset,
+  hasVisualDirection,
+} from "@/components/new-run/visual-direction-fieldset";
 import { createSession, SELF_USER_ID } from "@/lib/api";
 import { AGENTS, isAgentId, isCreativeAgent, submitLabel } from "@/lib/agents";
 import { isFormValid } from "@/lib/form-validation";
 import { buildInitialState } from "@/lib/initial-state";
-import { MAX_REFERENCE_IMAGES, invalidReferenceUris, isReferenceUri } from "@/lib/reference-images";
+import { invalidReferenceUris } from "@/lib/reference-images";
 import { takeDuplicateBrief, type Brief, type RunRow } from "@/lib/run-history";
 import { sanitizeTrendContext } from "@/lib/trend-context";
 import { contextSensitivity } from "@/lib/trend-flags";
-import type { CampaignInput, ReferenceImageInput, ReferenceRowInput } from "@/lib/types";
-import {
-  BRAND_PRESETS,
-  AUDIENCE_PRESETS,
-  PRODUCT_PRESETS,
-  SELLING_POINTS_PRESETS,
-} from "@/lib/presets";
-
-const RECENT_RUNS = 5;
+import type { CampaignInput } from "@/lib/types";
 
 const EMPTY_FORM: CampaignInput = {
   agent: "trend_scout",
@@ -58,125 +50,11 @@ const EMPTY_FORM: CampaignInput = {
   visualAspectRatio: "",
 };
 
-const VISUAL_FIELDS = [
-  "visualIntent",
-  "brandColors",
-  "visualStylePreference",
-  "visualAvoid",
-  "visualAspectRatio",
-] as const;
-
-function hasVisualDirection(values: Partial<CampaignInput>): boolean {
-  return VISUAL_FIELDS.some((f) => Boolean(values[f]?.trim()));
-}
-
 export default function Home() {
   return (
     <Suspense>
       <HomeContent />
     </Suspense>
-  );
-}
-
-/** Quiet "use example" buttons for a textarea, where a datalist can't apply. */
-function ExampleButtons({
-  examples,
-  onPick,
-}: {
-  examples: readonly string[];
-  onPick: (value: string) => void;
-}) {
-  return (
-    <div className="flex flex-wrap items-baseline gap-x-3 gap-y-1 text-xs">
-      <span className="text-muted-foreground">Use example:</span>
-      {examples.map((ex) => (
-        <button
-          key={ex}
-          type="button"
-          title={ex}
-          aria-label={`Use example: ${ex}`}
-          onClick={() => onPick(ex)}
-          className="max-w-[16rem] truncate rounded-sm text-muted-foreground underline decoration-border underline-offset-2 hover:text-foreground hover:decoration-foreground"
-        >
-          {ex}
-        </button>
-      ))}
-    </div>
-  );
-}
-
-// Client-only React keys for the extra reference rows (stable across
-// edits/removals, unlike the array index).
-let referenceRowSeq = 0;
-function newReferenceRow(row: ReferenceImageInput = { uri: "", role: "" }): ReferenceRowInput {
-  referenceRowSeq += 1;
-  return { ...row, id: `ref-row-${referenceRowSeq}` };
-}
-
-/** One reference-image row: URI input + (once a URI is set) a role select. */
-function ReferenceRow({
-  id,
-  index,
-  value,
-  onChange,
-  onRemove,
-}: {
-  id: string;
-  index: number;
-  value: ReferenceImageInput;
-  onChange: (value: ReferenceImageInput) => void;
-  onRemove?: () => void;
-}) {
-  const invalid = Boolean(value.uri.trim()) && !isReferenceUri(value.uri);
-  const hintId = `${id}-hint`;
-  return (
-    <div className="space-y-1.5">
-      <div className="flex items-center gap-2">
-        <Input
-          id={id}
-          aria-label={index > 1 ? `Reference image ${index} URL` : undefined}
-          aria-invalid={invalid || undefined}
-          aria-describedby={invalid ? hintId : undefined}
-          placeholder="gs://bucket/product.png or https://…"
-          value={value.uri}
-          onChange={(e) => onChange({ ...value, uri: e.target.value })}
-        />
-        {onRemove && (
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            onClick={onRemove}
-            aria-label={`Remove reference image ${index}`}
-          >
-            Remove
-          </Button>
-        )}
-      </div>
-      {invalid && (
-        <p id={hintId} className="text-xs text-mark-fail">
-          Use a gs://bucket/object or http(s):// URL.
-        </p>
-      )}
-      {value.uri.trim() && (
-        <Select
-          value={value.role || ""}
-          onValueChange={(v) => v && onChange({ ...value, role: v })}
-        >
-          <SelectTrigger
-            aria-label={`How to use reference image ${index}`}
-            className="w-full hover:border-foreground/30 transition-colors"
-          >
-            <SelectValue placeholder="How to use the reference image (default: product)..." />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="product">Product — reproduce this exact product</SelectItem>
-            <SelectItem value="logo">Logo — place this brand logo, small and legible</SelectItem>
-            <SelectItem value="style">Style — match its palette, texture and lighting</SelectItem>
-          </SelectContent>
-        </Select>
-      )}
-    </div>
   );
 }
 
@@ -191,7 +69,6 @@ function HomeContent() {
   const [form, setForm] = useState<CampaignInput>(EMPTY_FORM);
   const [visualOpen, setVisualOpen] = useState(false);
   const [duplicated, setDuplicated] = useState(false);
-  const history = useRunHistory();
 
   const applyBrief = (brief: Brief) => {
     setForm({
@@ -246,11 +123,6 @@ function HomeContent() {
 
   const isCreative = isCreativeAgent(form.agent);
   const isValid = isFormValid(form);
-  const extraReferences = form.extraReferenceImages ?? [];
-  const canAddReference =
-    Boolean(form.referenceImageUri?.trim()) &&
-    1 + extraReferences.length < MAX_REFERENCE_IMAGES &&
-    extraReferences.every((r) => r.uri.trim());
 
   // Runs inside the startRun transition, so `starting` stays true until
   // router.push lands (push is itself a transition) or the start fails.
@@ -312,7 +184,6 @@ function HomeContent() {
   // trend_scout flagged the carried-over trend as a sensitive event (cleared
   // with the context when the trend is edited).
   const sensitivity = contextSensitivity(form.trendContext);
-  const recentRows = history.rows.slice(0, RECENT_RUNS);
 
   return (
     <div className="mx-auto grid w-full max-w-6xl gap-6 px-6 py-8 lg:grid-cols-[minmax(0,1fr)_22rem] lg:items-start">
@@ -419,87 +290,7 @@ function HomeContent() {
             </label>
           )}
 
-          <div className="grid gap-5 sm:grid-cols-2">
-            <div className="space-y-1.5">
-              <FieldLabel as="label" htmlFor="brand">
-                Brand name
-              </FieldLabel>
-              <Input
-                id="brand"
-                list="brand-presets"
-                autoComplete="off"
-                placeholder='e.g., "Paul Reed Smith (PRS)"'
-                value={form.brand}
-                onChange={(e) => setForm({ ...form, brand: e.target.value })}
-              />
-              <datalist id="brand-presets">
-                {BRAND_PRESETS.map((b) => (
-                  <option key={b} value={b} />
-                ))}
-              </datalist>
-            </div>
-
-            <div className="space-y-1.5">
-              <FieldLabel as="label" htmlFor="product">
-                Target product
-              </FieldLabel>
-              <Input
-                id="product"
-                list="product-presets"
-                autoComplete="off"
-                placeholder='e.g., "PRS SE CE24 Electric Guitar"'
-                value={form.targetProduct}
-                onChange={(e) =>
-                  setForm({ ...form, targetProduct: e.target.value })
-                }
-              />
-              <datalist id="product-presets">
-                {PRODUCT_PRESETS.map((p) => (
-                  <option key={p} value={p} />
-                ))}
-              </datalist>
-            </div>
-          </div>
-
-          <div className="space-y-1.5">
-            <FieldLabel as="label" htmlFor="audience">
-              Target audience
-            </FieldLabel>
-            <Textarea
-              id="audience"
-              placeholder="Who are they? Include psychographics, lifestyle, hobbies..."
-              rows={2}
-              value={form.targetAudience}
-              onChange={(e) =>
-                setForm({ ...form, targetAudience: e.target.value })
-              }
-              className="resize-y"
-            />
-            <ExampleButtons
-              examples={AUDIENCE_PRESETS}
-              onPick={(v) => setForm({ ...form, targetAudience: v })}
-            />
-          </div>
-
-          <div className="space-y-1.5">
-            <FieldLabel as="label" htmlFor="selling-points">
-              Key selling points
-            </FieldLabel>
-            <Textarea
-              id="selling-points"
-              placeholder="What's the core benefit? Why will the audience care?"
-              rows={2}
-              value={form.keySellingPoints}
-              onChange={(e) =>
-                setForm({ ...form, keySellingPoints: e.target.value })
-              }
-              className="resize-y"
-            />
-            <ExampleButtons
-              examples={SELLING_POINTS_PRESETS}
-              onPick={(v) => setForm({ ...form, keySellingPoints: v })}
-            />
-          </div>
+          <CampaignFields form={form} setForm={setForm} />
 
           {isCreative && (
             <div className="grid gap-5 sm:grid-cols-2">
@@ -526,67 +317,7 @@ function HomeContent() {
                 />
               </div>
 
-              <div className="space-y-1.5">
-                <FieldLabel as="label" htmlFor="referenceImage">
-                  Reference images (optional, up to {MAX_REFERENCE_IMAGES})
-                </FieldLabel>
-                <ReferenceRow
-                  id="referenceImage"
-                  index={1}
-                  value={{
-                    uri: form.referenceImageUri ?? "",
-                    role: form.referenceImageRole ?? "",
-                  }}
-                  onChange={(ref) =>
-                    setForm({
-                      ...form,
-                      referenceImageUri: ref.uri,
-                      referenceImageRole: ref.role,
-                    })
-                  }
-                />
-                {extraReferences.map((ref, i) => (
-                  <ReferenceRow
-                    key={ref.id ?? i}
-                    id={`referenceImage${i + 2}`}
-                    index={i + 2}
-                    value={ref}
-                    onChange={(next) =>
-                      setForm({
-                        ...form,
-                        extraReferenceImages: extraReferences.map((r, j) =>
-                          j === i ? next : r,
-                        ),
-                      })
-                    }
-                    onRemove={() =>
-                      setForm({
-                        ...form,
-                        extraReferenceImages: extraReferences.filter((_, j) => j !== i),
-                      })
-                    }
-                  />
-                ))}
-                {canAddReference && (
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setForm({
-                        ...form,
-                        extraReferenceImages: [...extraReferences, newReferenceRow()],
-                      })
-                    }
-                    className="text-xs text-primary underline-offset-4 hover:underline"
-                  >
-                    Add another reference image
-                  </button>
-                )}
-                {form.referenceImageUri?.trim() && (
-                  <p className="text-xs text-muted-foreground">
-                    Any text in a reference image is ignored.
-                  </p>
-                )}
-              </div>
+              <ReferenceImagesFieldset form={form} setForm={setForm} />
 
               <PersonSelect
                 value={form.personReference}
@@ -606,109 +337,12 @@ function HomeContent() {
           )}
 
           {isCreative && (
-            <details
+            <VisualDirectionFieldset
+              form={form}
+              setForm={setForm}
               open={visualOpen}
-              onToggle={(e) => setVisualOpen(e.currentTarget.open)}
-              className="group rounded-md border border-border bg-background"
-            >
-              <summary className="flex cursor-pointer list-none items-center gap-2 rounded-md px-3 py-2.5 text-sm font-medium text-foreground [&::-webkit-details-marker]:hidden">
-                <span
-                  aria-hidden
-                  className="inline-block text-muted-foreground transition-transform group-open:rotate-90"
-                >
-                  ›
-                </span>
-                Visual direction (all optional)
-                {!visualOpen && hasVisualDirection(form) && (
-                  <span className="text-xs font-normal text-muted-foreground">(set)</span>
-                )}
-              </summary>
-
-              <div className="grid gap-4 border-t border-border p-3 sm:grid-cols-2">
-                <div className="space-y-1.5 sm:col-span-2">
-                  <FieldLabel as="label" htmlFor="visualIntent">
-                    Art direction
-                  </FieldLabel>
-                  <Textarea
-                    id="visualIntent"
-                    placeholder="e.g., moody film-noir look, dramatic lighting, close-up on the product"
-                    rows={2}
-                    value={form.visualIntent}
-                    onChange={(e) =>
-                      setForm({ ...form, visualIntent: e.target.value })
-                    }
-                    className="resize-y"
-                  />
-                </div>
-
-                <div className="space-y-1.5">
-                  <FieldLabel as="label" htmlFor="brandColors">
-                    Brand colors
-                  </FieldLabel>
-                  <Input
-                    id="brandColors"
-                    placeholder="e.g., deep charcoal #1a1a1a with warm gold accents"
-                    value={form.brandColors}
-                    onChange={(e) =>
-                      setForm({ ...form, brandColors: e.target.value })
-                    }
-                  />
-                </div>
-
-                <div className="space-y-1.5">
-                  <FieldLabel as="label" htmlFor="visualStyle">
-                    Preferred style
-                  </FieldLabel>
-                  <Input
-                    id="visualStyle"
-                    placeholder="e.g., cinematic, flat vector, 3D character, watercolor"
-                    value={form.visualStylePreference}
-                    onChange={(e) =>
-                      setForm({ ...form, visualStylePreference: e.target.value })
-                    }
-                  />
-                </div>
-
-                <div className="space-y-1.5">
-                  <FieldLabel as="label" htmlFor="visualAvoid">
-                    Avoid
-                  </FieldLabel>
-                  <Input
-                    id="visualAvoid"
-                    placeholder="e.g., busy backgrounds, crowds"
-                    value={form.visualAvoid}
-                    onChange={(e) =>
-                      setForm({ ...form, visualAvoid: e.target.value })
-                    }
-                  />
-                </div>
-
-                <div className="space-y-1.5">
-                  <FieldLabel as="label" htmlFor="aspectRatio">
-                    Aspect ratio
-                  </FieldLabel>
-                  <Select
-                    value={form.visualAspectRatio || ""}
-                    onValueChange={(v) =>
-                      v &&
-                      setForm({ ...form, visualAspectRatio: v === "auto" ? "" : v })
-                    }
-                  >
-                    <SelectTrigger id="aspectRatio" className="w-full hover:border-foreground/30 transition-colors">
-                      <SelectValue placeholder="Auto (let AI choose)" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="auto">Auto (let AI choose)</SelectItem>
-                      <SelectItem value="9:16">9:16 — vertical reel / story</SelectItem>
-                      <SelectItem value="1:1">1:1 — square feed</SelectItem>
-                      <SelectItem value="4:5">4:5 — portrait feed</SelectItem>
-                      <SelectItem value="3:4">3:4 — portrait</SelectItem>
-                      <SelectItem value="16:9">16:9 — landscape</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-            </details>
+              onOpenChange={setVisualOpen}
+            />
           )}
 
           {error && (
@@ -751,32 +385,7 @@ function HomeContent() {
         </form>
       </section>
 
-      <aside
-        aria-labelledby="recent-runs-heading"
-        className="rounded-lg border border-border bg-card"
-      >
-        <div className="flex items-center justify-between border-b border-border px-4 py-3">
-          <h2 id="recent-runs-heading" className="text-sm font-semibold text-foreground">
-            Recent runs
-          </h2>
-          <Link href="/runs" className="text-xs text-primary underline-offset-4 hover:underline">
-            See all runs
-          </Link>
-        </div>
-        {history.loading ? (
-          <p className="px-4 py-4 text-sm text-muted-foreground">Loading runs…</p>
-        ) : history.error ? (
-          <p className="px-4 py-4 text-sm text-muted-foreground">
-            Couldn&apos;t load runs. Check your connection and reload.
-          </p>
-        ) : recentRows.length === 0 ? (
-          <p className="px-4 py-4 text-sm text-muted-foreground">
-            No runs yet. Fill in the brief to start your first one.
-          </p>
-        ) : (
-          <RunList rows={recentRows} now={history.now} onDuplicate={duplicateHere} compact />
-        )}
-      </aside>
+      <RecentRunsAside onDuplicate={duplicateHere} />
     </div>
   );
 }

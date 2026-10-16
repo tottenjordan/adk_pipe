@@ -29,7 +29,7 @@ const TRANSFORM_PROP = /\b(?:transform|scale|translate|rotate)\b/;
  */
 const ALLOWLIST: Record<string, string[]> = {
   // PR-4 (page states and the home form)
-  "app/page.tsx": ["transform-without-motion-reduce"],
+  "components/new-run/visual-direction-fieldset.tsx": ["transform-without-motion-reduce"],
 };
 
 type Violation = { file: string; rule: string };
