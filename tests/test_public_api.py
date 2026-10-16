@@ -5,9 +5,10 @@ import subprocess
 import sys
 import types
 import warnings
-from pathlib import Path
 
 import pytest
+
+from tests.repo_layout import PACKAGE_DIRS, REPO_ROOT, package_dir
 
 
 def test_facade_exposes_reusable_pipelines_and_schema():
@@ -108,7 +109,6 @@ def test_facade_all_is_complete_and_importable():
 # SequentialAgent / ParallelAgent / LoopAgent containers (and the retired
 # RunIfAgent / RetryUntilKeyAgent wrappers) must not come back.
 
-_REPO_ROOT = Path(__file__).resolve().parent.parent
 _AGENT_MODULES = (
     "trend_scout.agent",
     "creative_agent.agent",
@@ -133,7 +133,7 @@ def _import_fresh(*modules: str) -> subprocess.CompletedProcess[str]:
     # time); reloading in-process would rebuild agent objects other tests hold.
     return subprocess.run(
         [sys.executable, "-c", _IMPORT_UNDER_ERROR, _LEGACY_AGENT_WARNING, *modules],
-        cwd=_REPO_ROOT,
+        cwd=REPO_ROOT,
         capture_output=True,
         text=True,
         timeout=300,
@@ -168,21 +168,15 @@ def test_legacy_agent_deprecation_filter_actually_fires():
 _LEGACY_NAMES = re.compile(
     r"\b(SequentialAgent|ParallelAgent|LoopAgent|RunIfAgent|RetryUntilKeyAgent)\b"
 )
-_GUARDED_PACKAGES = (
-    "agent_common",
-    "creative_agent",
-    "creative_eval",
-    "interactive_creative",
-    "trend_scout",
-)
+_GUARDED_PACKAGES = sorted(PACKAGE_DIRS)
 
 
 def test_no_legacy_agent_containers_in_agent_packages():
     """No agent package (or agent_common) references a legacy container."""
     hits = [
-        f"{path.relative_to(_REPO_ROOT)}:{lineno}: {line.strip()}"
+        f"{path.relative_to(REPO_ROOT)}:{lineno}: {line.strip()}"
         for pkg in _GUARDED_PACKAGES
-        for path in sorted((_REPO_ROOT / pkg).rglob("*.py"))
+        for path in sorted(package_dir(pkg).rglob("*.py"))
         for lineno, line in enumerate(path.read_text().splitlines(), start=1)
         if _LEGACY_NAMES.search(line)
     ]

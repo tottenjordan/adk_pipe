@@ -339,22 +339,13 @@ def test_aggregate_is_jax_free():
 
 
 def test_bandit_not_imported_by_runserver_or_agents():
-    from pathlib import Path
+    from tests.repo_layout import PACKAGE_DIRS, REPO_ROOT
 
-    root = Path(__file__).resolve().parents[1]
-    pkgs = [
-        "runserver",
-        "creative_agent",
-        "trend_scout",
-        "interactive_creative",
-        "creative_eval",
-        "agent_common",
-        "deployment",
-    ]
+    dirs = [REPO_ROOT / "runserver", REPO_ROOT / "deployment", *PACKAGE_DIRS.values()]
     offenders = [
         str(p)
-        for pkg in pkgs
-        for p in (root / pkg).rglob("*.py")
+        for d in dirs
+        for p in d.rglob("*.py")
         if re.search(r"^\s*(from|import)\s+bandit\b", p.read_text(), re.MULTILINE)
     ]
     assert offenders == []

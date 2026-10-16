@@ -1,11 +1,12 @@
-"""Every repo-root package an agent imports must be bundled into its engine.
+"""Every first-party package an agent imports must be bundled into its engine.
 
 ``deployment/deploy_agent.py`` ``AGENT_EXTRA_PACKAGES`` is maintained by hand. An
 agent module that starts importing another repo-root package (say
 ``creative_eval`` importing ``runserver``) would deploy fine and then fail to
 start in Agent Engine with ``No module named ...`` (the creative_eval incident).
-Each agent module is imported in a fresh interpreter, and the repo-root packages
-left in ``sys.modules`` must be a subset of its bundle.
+Each agent module is imported in a fresh interpreter, and the first-party packages
+left in ``sys.modules`` (those in ``tests/repo_layout.py`` plus any package at the
+repo root) must be a subset of its bundle, compared by import name (folder name).
 """
 
 from __future__ import annotations
@@ -15,24 +16,27 @@ import os
 import subprocess
 import sys
 import textwrap
-from pathlib import Path
+from pathlib import PurePosixPath
 
 import pytest
 
 from deployment.deploy_agent import AGENT_DEPLOY_SPECS, AGENT_EXTRA_PACKAGES
+from tests.repo_layout import BANDIT_DIRS, PACKAGE_DIRS, REPO_ROOT
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
-
+# argv[2]: the known first-party package names (from tests/repo_layout.py).
 _SCRIPT = """
     import importlib, json, sys
     from pathlib import Path
 
     root = Path.cwd()
+    known = set(json.loads(sys.argv[2]))
     importlib.import_module(sys.argv[1])
     tops = {name.split(".")[0] for name in list(sys.modules)}
     local = sorted(
         t for t in tops
-        if (root / t / "__init__.py").is_file() or (root / f"{t}.py").is_file()
+        if t in known
+        or (root / t / "__init__.py").is_file()
+        or (root / f"{t}.py").is_file()
     )
     print("LOCAL", json.dumps(local))
 """
@@ -41,7 +45,13 @@ _SCRIPT = """
 def repo_root_imports(module: str) -> set[str]:
     env = {**os.environ, "GOOGLE_CLOUD_PROJECT": "test-project"}
     result = subprocess.run(
-        [sys.executable, "-c", textwrap.dedent(_SCRIPT), module],
+        [
+            sys.executable,
+            "-c",
+            textwrap.dedent(_SCRIPT),
+            module,
+            json.dumps(sorted({**PACKAGE_DIRS, **BANDIT_DIRS})),
+        ],
         cwd=REPO_ROOT,
         env=env,
         capture_output=True,
@@ -57,7 +67,7 @@ def repo_root_imports(module: str) -> set[str]:
 @pytest.mark.subprocess
 @pytest.mark.parametrize("agent", sorted(AGENT_DEPLOY_SPECS))
 def test_agent_imports_only_bundled_packages(agent):
-    bundled = {p.removeprefix("./") for p in AGENT_EXTRA_PACKAGES[agent]}
+    bundled = {PurePosixPath(p).name for p in AGENT_EXTRA_PACKAGES[agent]}
     imported = repo_root_imports(AGENT_DEPLOY_SPECS[agent]["module"])
     assert agent in imported  # sanity: the probe sees repo-root packages
     unbundled = imported - bundled

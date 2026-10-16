@@ -40,3 +40,12 @@ def test_session_uri_not_a_cli_flag():
     cmd = _run({"SESSION_SERVICE_URI": uri})
     assert "--session_service_uri" not in cmd
     assert "uvicorn deployment.async_app:app" in cmd
+
+
+def test_image_never_syncs_at_container_start():
+    # The project is an editable install (`[tool.uv] package = true`) but the image
+    # syncs with --no-install-project. Without UV_NO_SYNC the entrypoint's `uv run`
+    # would try to build the project at startup (fetching hatchling from PyPI).
+    dockerfile = (SCRIPT.parent.parent / "Dockerfile").read_text()
+    assert "uv sync --frozen --no-dev --no-install-project" in dockerfile
+    assert "ENV UV_NO_SYNC=1" in dockerfile.splitlines()

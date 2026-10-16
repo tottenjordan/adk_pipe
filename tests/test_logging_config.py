@@ -8,9 +8,8 @@ installs a default INFO handler on the first run, only when none exists.
 import logging
 import subprocess
 import sys
-from pathlib import Path
 
-REPO = Path(__file__).resolve().parent.parent
+from tests.repo_layout import PACKAGE_DIRS, REPO_ROOT
 
 
 def test_importing_trend_scout_and_agent_common_adds_no_root_handlers():
@@ -25,7 +24,7 @@ def test_importing_trend_scout_and_agent_common_adds_no_root_handlers():
     )
     result = subprocess.run(
         [sys.executable, "-c", code],
-        cwd=REPO,
+        cwd=REPO_ROOT,
         capture_output=True,
         text=True,
         timeout=120,
@@ -64,7 +63,7 @@ def test_importing_the_creative_apps_adds_no_root_handlers():
     )
     result = subprocess.run(
         [sys.executable, "-c", code],
-        cwd=REPO,
+        cwd=REPO_ROOT,
         capture_output=True,
         text=True,
         timeout=180,
@@ -80,17 +79,10 @@ def test_no_agent_package_calls_basicconfig():
 
     scripts = {"creative_eval/run_eval_test.py"}
 
-    packages = (
-        "agent_common",
-        "creative_agent",
-        "creative_eval",
-        "interactive_creative",
-        "trend_scout",
-    )
     offenders = []
-    for package in packages:
-        for path in sorted((REPO / package).rglob("*.py")):
-            name = str(path.relative_to(REPO))
+    for package, pkg_dir in sorted(PACKAGE_DIRS.items()):
+        for path in sorted(pkg_dir.rglob("*.py")):
+            name = f"{package}/{path.relative_to(pkg_dir).as_posix()}"
             if name in scripts:
                 continue
             tree = ast.parse(path.read_text())

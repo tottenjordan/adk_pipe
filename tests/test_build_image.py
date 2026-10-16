@@ -9,6 +9,7 @@ import pytest
 
 from bandit.config import load_experiment_config
 from deployment.bandit import build_image as bi
+from tests.repo_layout import BANDIT_DIRS
 
 pytestmark = [pytest.mark.slow, pytest.mark.subprocess]
 
@@ -64,11 +65,11 @@ def test_staged_traffic_files_mirror_the_package():
     """One image serves the endpoint AND runs the traffic job: every
     ``bandit_serving`` and ``bandit_traffic`` module ships, and every ``bandit/``
     module except the CLI."""
-    serving = sorted(p.name for p in (bi.REPO_ROOT / "bandit_serving").glob("*.py"))
+    serving = sorted(p.name for p in BANDIT_DIRS["bandit_serving"].glob("*.py"))
     assert list(bi.SERVING_FILES) == serving
-    pkg = sorted(p.name for p in (bi.REPO_ROOT / "bandit_traffic").glob("*.py"))
+    pkg = sorted(p.name for p in BANDIT_DIRS["bandit_traffic"].glob("*.py"))
     assert list(bi.TRAFFIC_FILES) == pkg
-    core = sorted(p.name for p in (bi.REPO_ROOT / "bandit").glob("*.py"))
+    core = sorted(p.name for p in BANDIT_DIRS["bandit"].glob("*.py"))
     assert sorted(bi.BANDIT_RUNTIME_FILES) == [n for n in core if n != "cli.py"]
 
 
@@ -89,7 +90,7 @@ def _instructions(path):
     return out
 
 
-SERVING_DOCKERFILE = bi.REPO_ROOT / "bandit_serving" / "Dockerfile"
+SERVING_DOCKERFILE = BANDIT_DIRS["bandit_serving"] / "Dockerfile"
 
 
 def _final_stage(instructions):
@@ -135,7 +136,7 @@ def test_serving_dockerfile_matches_cpr_sdk_contract():
 
 
 def test_serving_requirements_pin_cpr_server():
-    reqs = (bi.REPO_ROOT / "bandit_serving" / "requirements.txt").read_text()
+    reqs = (BANDIT_DIRS["bandit_serving"] / "requirements.txt").read_text()
     lines = {ln.strip() for ln in reqs.splitlines()}
     assert "google-cloud-aiplatform[prediction]==2.4.0" in lines
     assert "protobuf==6.33.6" in lines
@@ -147,8 +148,8 @@ def test_serving_requirements_pin_cpr_server():
 def test_single_bandit_dockerfile():
     """The traffic job runs the serving image with a command override; there is
     no second Dockerfile or requirements file to drift."""
-    assert not (bi.REPO_ROOT / "bandit_traffic" / "Dockerfile").exists()
-    assert not (bi.REPO_ROOT / "bandit_traffic" / "requirements.txt").exists()
+    assert not (BANDIT_DIRS["bandit_traffic"] / "Dockerfile").exists()
+    assert not (BANDIT_DIRS["bandit_traffic"] / "requirements.txt").exists()
     final = _final_stage(_instructions(SERVING_DOCKERFILE))
     copies = [a for k, a in final if k == "COPY" and "--from" not in a]
     assert "bandit_traffic/*.py /usr/app/bandit_traffic/" in copies
@@ -158,7 +159,7 @@ def test_dockerignore_allowlists_exactly_the_staged_sources(tmp_path):
     """The per-Dockerfile ignore file is the only filter on the repo-root (Cloud
     Build) context; it must let through exactly what stage_src_dir copies."""
     src = bi.stage_src_dir(tmp_path / "src")
-    ignore = (bi.REPO_ROOT / "bandit_serving" / "Dockerfile.dockerignore").read_text()
+    ignore = (BANDIT_DIRS["bandit_serving"] / "Dockerfile.dockerignore").read_text()
     allowed = sorted(
         ln[1:] for ln in ignore.splitlines() if ln.startswith("!") and "*" not in ln
     )

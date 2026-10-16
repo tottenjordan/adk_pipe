@@ -2,8 +2,9 @@
 
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
-DOCKERFILE = REPO_ROOT / "bandit_serving" / "Dockerfile"
+from tests.repo_layout import BANDIT_DIRS, REPO_ROOT
+
+DOCKERFILE = BANDIT_DIRS["bandit_serving"] / "Dockerfile"
 DEPLOY_JOB = REPO_ROOT / "deployment" / "bandit" / "deploy_traffic_job.sh"
 
 
@@ -25,11 +26,9 @@ def _instructions(path: Path) -> list[tuple[str, str]]:
 
 
 def test_only_one_bandit_dockerfile():
-    assert sorted(
-        p.relative_to(REPO_ROOT).as_posix()
-        for d in ("bandit", "bandit_serving", "bandit_traffic")
-        for p in (REPO_ROOT / d).glob("Dockerfile")
-    ) == ["bandit_serving/Dockerfile"]
+    assert sorted(p for d in BANDIT_DIRS.values() for p in d.glob("Dockerfile")) == [
+        DOCKERFILE
+    ]
 
 
 def test_dependencies_install_before_code():

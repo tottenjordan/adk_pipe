@@ -30,9 +30,10 @@ WORKDIR /app
 # Dependency layer first: it only changes when pyproject.toml / uv.lock change, so a
 # source-only change reuses it from the registry cache (and never re-pushes it). The uv
 # cache lives in a BuildKit cache mount, not in the image (copy mode, since the mount is
-# a different filesystem than the venv). `[tool.uv] package = false`: the project itself
-# is never installed, so this is the whole sync (a second post-COPY `uv sync` would be a
-# no-op that forces the dependency layer to be unpacked on every source change).
+# a different filesystem than the venv). `--no-install-project`: the project itself is
+# never installed (locally it is an editable install, `[tool.uv] package = true`; here
+# PYTHONPATH below does that job), so this is the whole sync (a post-COPY `uv sync`
+# would force the dependency layer to be unpacked on every source change).
 COPY pyproject.toml uv.lock ./
 RUN --mount=type=cache,target=/root/.cache/uv \
     UV_LINK_MODE=copy uv sync --frozen --no-dev --no-install-project
@@ -43,6 +44,10 @@ ENV PORT=8080
 # The entrypoint's `uv run` would otherwise sync the dev group (pytest/ruff/ty) at
 # container start; the image is built with --no-dev, so keep runtime in sync with it.
 ENV UV_NO_DEV=1
+# Never sync at container start: with `package = true` the entrypoint's `uv run` would
+# otherwise build and install the project (fetching hatchling from PyPI) on every boot.
+# The venv is complete from the build-time sync above.
+ENV UV_NO_SYNC=1
 # Serve from `agents/` (relative symlinks to the three runnable agents) rather than `.`
 # so `GET /list-apps` returns only those three instead of every top-level dir. The
 # loader only puts `agents/` on sys.path, so PYTHONPATH=/app keeps each agent's

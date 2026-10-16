@@ -100,8 +100,11 @@ resource, target `GCP_REGION`.
 - **Root `requirements.txt`** — the Agent Engine deploy's `requirements` input
   (`deployment/deploy_agent.py`). It is *generated* from `uv.lock`; never edit it by hand.
   Regenerate after dependency changes with
-  `uv export --format requirements-txt --no-hashes --no-dev -o requirements.txt`
-  (the exact command recorded in its header).
+  `uv export --format requirements-txt --no-hashes --no-dev --no-emit-project -o requirements.txt`
+  (the exact command recorded in its header). `--no-emit-project` matters: the project
+  itself is an editable install (`[tool.uv] package = true`), and without the flag the
+  export starts with `-e .`, which Agent Engine cannot install
+  (`tests/test_dependency_groups.py` rejects any `-e` / `file:` line).
 - **`cloud_functions/creative_fanout/requirements.txt`** + **`requirements.lock.txt`** — the
   Cloud Function image's direct pins and their fully hashed lock (the Dockerfile installs the
   lock with `--require-hashes`). The function deliberately ships a small, separately pinned

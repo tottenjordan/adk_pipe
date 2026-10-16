@@ -347,21 +347,29 @@ def _ignore_local_only(_dir: str, names: list[str]) -> set[str]:
 def stage_extra_packages(
     packages: list[str], dest_root: str, src_root: str = project_root
 ) -> list[str]:
-    """Copy each package dir into ``dest_root`` minus local-only files.
+    """Copy each package dir flat into ``dest_root``, minus local-only files.
 
-    Keeps each package's relative path (``./creative_agent`` →
-    ``<dest_root>/creative_agent``) — the SDK's tar arcname is the path as given,
-    and the flat layout needs it as the import path. Returns the same relative
-    names, to be passed to the SDK with ``dest_root`` as the working directory.
+    The SDK tars each entry with ``tar.add(path)`` and no arcname, so the path it
+    is given becomes the import path inside the engine. Each package is therefore
+    staged under its own folder name, whatever its repo path (``./agents/x`` →
+    ``<dest_root>/x``, ``./libs/y`` → ``<dest_root>/y``), and the returned
+    ``["./x", "./y"]`` are passed to the SDK with ``dest_root`` as the cwd. A
+    package's import name is its folder name, so two entries sharing a basename
+    raise ``ValueError`` (before anything is copied).
     """
-    for pkg in packages:
-        rel = os.path.normpath(pkg)
+    names = [os.path.basename(os.path.normpath(pkg)) for pkg in packages]
+    dupes = sorted({n for n in names if names.count(n) > 1})
+    if dupes:
+        raise ValueError(
+            f"extra_packages share a folder name (= import name): {dupes} in {packages}"
+        )
+    for pkg, name in zip(packages, names, strict=True):
         shutil.copytree(
-            os.path.join(src_root, rel),
-            os.path.join(dest_root, rel),
+            os.path.join(src_root, os.path.normpath(pkg)),
+            os.path.join(dest_root, name),
             ignore=_ignore_local_only,
         )
-    return list(packages)
+    return [f"./{name}" for name in names]
 
 
 def assert_no_local_data(root: str) -> None:
@@ -532,7 +540,8 @@ def deploy_agent(
             staged = stage_extra_packages(extra_packages, staging_root)
             assert_no_local_data(staging_root)
             # The SDK tars the relative extra_packages paths from the cwd: run it
-            # from the filtered staging copy, never the checkout.
+            # from the filtered, flat staging copy (./<pkg> per package), never
+            # the checkout.
             with contextlib.chdir(staging_root):
                 remote_agent = _get_client().runtimes.create(
                     agent=adk_app,

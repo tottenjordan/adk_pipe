@@ -31,8 +31,36 @@ dependencies = [
     "tzdata>=2026.4",
 ]
 
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build]
+# Editable install (`uv sync`): hatchling's dev mode writes a `.pth` that puts
+# these directories on sys.path, so the first-party packages import by their bare
+# names from any cwd (scripts, tests, `adk eval`) with no PYTHONPATH or sys.path
+# hacks. Missing dirs are skipped by Python. https://hatch.pypa.io/latest/config/build/
+dev-mode-dirs = [".", "agents", "libs", "bandit_stack"]
+
+[tool.hatch.build.targets.wheel]
+# Never built for distribution (Agent Engine gets requirements.txt, exported with
+# --no-emit-project, plus extra_packages; the api image syncs --no-install-project).
+# Listed so the wheel/editable build has explicit package roots.
+packages = [
+    "trend_scout",
+    "creative_agent",
+    "interactive_creative",
+    "agent_common",
+    "creative_eval",
+    "bandit",
+    "bandit_serving",
+    "bandit_traffic",
+]
+
 [tool.uv]
-package = false
+# The project is installed editable (see [tool.hatch.build]). requirements.txt is
+# exported with --no-emit-project, so it never contains `-e .`.
+package = true
 # No override-dependencies: only google-adk's `eval` extra caps
 # google-cloud-aiplatform <2 (policy, adk fe30c015), and the `eval` group below
 # lists that extra's packages itself instead of requesting google-adk[eval].

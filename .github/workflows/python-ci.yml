@@ -52,7 +52,9 @@ jobs:
       # alone, which CI (installing from uv.lock) would otherwise never exercise.
       - name: requirements.txt matches uv.lock export
         run: |
-          uv export --format requirements-txt --no-hashes --no-dev -o requirements.txt
+          # --no-emit-project: the project is an editable install (package = true);
+          # Agent Engine must never get a `-e .` line.
+          uv export --format requirements-txt --no-hashes --no-dev --no-emit-project -o requirements.txt
           git diff --exit-code requirements.txt
 
       - name: Ruff lint
