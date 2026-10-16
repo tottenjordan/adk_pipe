@@ -42,7 +42,7 @@ export function VisualDirectionFieldset({
       <summary className="flex cursor-pointer list-none items-center gap-2 rounded-md px-3 py-2.5 text-sm font-medium text-foreground [&::-webkit-details-marker]:hidden">
         <span
           aria-hidden
-          className="inline-block text-muted-foreground transition-transform group-open:rotate-90"
+          className="inline-block text-muted-foreground transition-transform duration-(--dur-dialog) ease-(--ease-out) group-open:rotate-90 motion-reduce:transition-none"
         >
           ›
         </span>

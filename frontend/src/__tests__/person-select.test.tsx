@@ -36,20 +36,36 @@ beforeEach(() => {
   listPersonRefs.mockReset();
 });
 
+/** The Base UI select's trigger (a combobox showing the chosen label). */
+const trigger = () => screen.getByRole("combobox", { name: /Person \(optional\)/ });
+
+/** Open the select (once the list loaded) and pick the option named `name`. */
+async function choose(name: string) {
+  await waitFor(() => expect(trigger()).not.toHaveAttribute("data-disabled"));
+  fireEvent.click(trigger());
+  const option = await screen.findByRole("option", { name });
+  // Base UI commits a mouse click only when the press started on the item.
+  fireEvent.pointerDown(option);
+  fireEvent.click(option);
+}
+
 describe("PersonSelect", () => {
   it("lists active consents and reports the chosen person", async () => {
     listPersonRefs.mockResolvedValue({ personRefs: REFS, prefix: null });
     const onChange = vi.fn();
     render(<PersonSelect value={null} onChange={onChange} />);
-    const select = await screen.findByRole("combobox", { name: /Person \(optional\)/ });
-    await waitFor(() => expect(screen.getByRole("option", { name: "Sam" })).toBeInTheDocument());
-    expect(screen.getByRole("option", { name: "No person" })).toBeInTheDocument();
-    fireEvent.change(select, { target: { value: "consent-5678" } });
+    await screen.findByRole("combobox", { name: /Person \(optional\)/ });
+    expect(trigger()).toHaveTextContent("No person");
+    // The shared ui/select (like every other picker), not a native <select>.
+    expect(trigger().tagName).not.toBe("SELECT");
+    expect(trigger()).toHaveAttribute("data-slot", "select-trigger");
+    expect(trigger()).toHaveAccessibleDescription(/The agents decide per concept/);
+    await choose("Sam");
     expect(onChange).toHaveBeenLastCalledWith({
       uri: "gs://b/person-refs/a-1/sam.png",
       consentId: "consent-5678",
     });
-    fireEvent.change(select, { target: { value: "" } });
+    await choose("No person");
     expect(onChange).toHaveBeenLastCalledWith(null);
     expect(screen.getByRole("link", { name: /Manage people/ })).toHaveAttribute("href", "/people");
   });
@@ -73,9 +89,7 @@ describe("PersonSelect", () => {
         onChange={() => {}}
       />,
     );
-    await waitFor(() =>
-      expect(screen.getByRole("combobox")).toHaveValue("consent-1234"),
-    );
+    await waitFor(() => expect(trigger()).toHaveTextContent("Me"));
   });
 
   it("drops a duplicated person whose consent is no longer active", async () => {
@@ -101,7 +115,7 @@ describe("PersonSelect", () => {
     rerender(<PersonSelect value={gone} onChange={(v) => onChange(v)} />);
     rerender(<PersonSelect value={gone} onChange={(v) => onChange(v)} />);
     expect(onChange).toHaveBeenCalledTimes(1);
-    expect(screen.getByRole("combobox")).toHaveValue("");
+    expect(trigger()).toHaveTextContent("No person");
   });
 
   it("drops a stale person set before the list loads, once it loads", async () => {
@@ -126,7 +140,7 @@ describe("PersonSelect", () => {
     listPersonRefs.mockResolvedValue({ personRefs: REFS, prefix: null });
     const onChange = vi.fn();
     const { rerender } = render(<PersonSelect value={null} onChange={onChange} />);
-    await waitFor(() => expect(screen.getByRole("option", { name: "Sam" })).toBeInTheDocument());
+    await waitFor(() => expect(trigger()).not.toHaveAttribute("data-disabled"));
     // "Duplicate here" on the runs list: the brief's person was since revoked.
     rerender(
       <PersonSelect
@@ -143,14 +157,14 @@ describe("PersonSelect", () => {
     const onChange = vi.fn();
     const me = { uri: "gs://b/person-refs/a-1/me.jpg", consentId: "consent-1234" };
     const { rerender } = render(<PersonSelect value={me} onChange={onChange} />);
-    await waitFor(() => expect(screen.getByRole("combobox")).toHaveValue("consent-1234"));
+    await waitFor(() => expect(trigger()).toHaveTextContent("Me"));
     rerender(
       <PersonSelect
         value={{ uri: "gs://b/person-refs/a-1/sam.png", consentId: "consent-5678" }}
         onChange={onChange}
       />,
     );
-    expect(screen.getByRole("combobox")).toHaveValue("consent-5678");
+    expect(trigger()).toHaveTextContent("Sam");
     expect(onChange).not.toHaveBeenCalled();
   });
 

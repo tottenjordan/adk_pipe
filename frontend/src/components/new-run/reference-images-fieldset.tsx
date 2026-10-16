@@ -78,7 +78,7 @@ function ReferenceRow({
             aria-label={`How to use reference image ${index}`}
             className="w-full hover:border-foreground/30 transition-colors"
           >
-            <SelectValue placeholder="How to use the reference image (default: product)..." />
+            <SelectValue placeholder="Use as: product (default)" />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="product">Product — reproduce this exact product</SelectItem>

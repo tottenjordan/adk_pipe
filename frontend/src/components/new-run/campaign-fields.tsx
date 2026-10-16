@@ -9,6 +9,7 @@ import {
   PRODUCT_PRESETS,
   SELLING_POINTS_PRESETS,
 } from "@/lib/presets";
+import { FieldError, requiredProps, type FieldErrors, type RequiredField } from "./required-fields";
 import type { FormSectionProps } from "./types";
 
 /** Quiet "use example" buttons for a textarea, where a datalist can't apply. */
@@ -39,7 +40,17 @@ function ExampleButtons({
 }
 
 /** The four campaign fields every agent needs: brand, product, audience, selling points. */
-export function CampaignFields({ form, setForm }: FormSectionProps) {
+export function CampaignFields({
+  form,
+  setForm,
+  errors,
+  onLeave,
+}: FormSectionProps & {
+  /** Messages for the missing fields to flag (see required-fields). */
+  errors: FieldErrors;
+  /** A required field lost focus (its message may show from now on). */
+  onLeave: (field: RequiredField) => void;
+}) {
   return (
     <>
       <div className="grid gap-5 sm:grid-cols-2">
@@ -54,7 +65,10 @@ export function CampaignFields({ form, setForm }: FormSectionProps) {
             placeholder='e.g., "Paul Reed Smith (PRS)"'
             value={form.brand}
             onChange={(e) => setForm({ ...form, brand: e.target.value })}
+            onBlur={() => onLeave("brand")}
+            {...requiredProps("brand", errors.brand)}
           />
+          <FieldError field="brand" error={errors.brand} />
           <datalist id="brand-presets">
             {BRAND_PRESETS.map((b) => (
               <option key={b} value={b} />
@@ -75,7 +89,10 @@ export function CampaignFields({ form, setForm }: FormSectionProps) {
             onChange={(e) =>
               setForm({ ...form, targetProduct: e.target.value })
             }
+            onBlur={() => onLeave("targetProduct")}
+            {...requiredProps("targetProduct", errors.targetProduct)}
           />
+          <FieldError field="targetProduct" error={errors.targetProduct} />
           <datalist id="product-presets">
             {PRODUCT_PRESETS.map((p) => (
               <option key={p} value={p} />
@@ -96,8 +113,11 @@ export function CampaignFields({ form, setForm }: FormSectionProps) {
           onChange={(e) =>
             setForm({ ...form, targetAudience: e.target.value })
           }
+          onBlur={() => onLeave("targetAudience")}
+          {...requiredProps("targetAudience", errors.targetAudience)}
           className="resize-y"
         />
+        <FieldError field="targetAudience" error={errors.targetAudience} />
         <ExampleButtons
           examples={AUDIENCE_PRESETS}
           onPick={(v) => setForm({ ...form, targetAudience: v })}
@@ -116,8 +136,11 @@ export function CampaignFields({ form, setForm }: FormSectionProps) {
           onChange={(e) =>
             setForm({ ...form, keySellingPoints: e.target.value })
           }
+          onBlur={() => onLeave("keySellingPoints")}
+          {...requiredProps("keySellingPoints", errors.keySellingPoints)}
           className="resize-y"
         />
+        <FieldError field="keySellingPoints" error={errors.keySellingPoints} />
         <ExampleButtons
           examples={SELLING_POINTS_PRESETS}
           onPick={(v) => setForm({ ...form, keySellingPoints: v })}

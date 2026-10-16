@@ -4,13 +4,23 @@ import { Suspense, useState, useEffect, useRef, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Kbd } from "@/components/ui/kbd";
 import { FieldLabel } from "@/components/field-label";
 import { LearnFromRatingsToggle } from "@/components/learn-from-ratings-toggle";
 import { PersonSelect } from "@/components/person-select";
 import { SAFER_ANGLE_ADVICE, SaferAngleToggle } from "@/components/safer-angle-toggle";
 import { SENSITIVE_TREND_ADVICE } from "@/components/sensitive-chip";
 import { CampaignFields } from "@/components/new-run/campaign-fields";
+import { NewRunSkeleton } from "@/components/new-run/new-run-skeleton";
 import { RecentRunsAside } from "@/components/new-run/recent-runs-aside";
+import {
+  FIELD_IDS,
+  FieldError,
+  fieldErrors,
+  missingRequired,
+  requiredProps,
+  type RequiredField,
+} from "@/components/new-run/required-fields";
 import {
   ReferenceImagesFieldset,
   newReferenceRow,
@@ -52,7 +62,7 @@ const EMPTY_FORM: CampaignInput = {
 
 export default function Home() {
   return (
-    <Suspense>
+    <Suspense fallback={<NewRunSkeleton />}>
       <HomeContent />
     </Suspense>
   );
@@ -69,6 +79,11 @@ function HomeContent() {
   const [form, setForm] = useState<CampaignInput>(EMPTY_FORM);
   const [visualOpen, setVisualOpen] = useState(false);
   const [duplicated, setDuplicated] = useState(false);
+  // Required fields whose "missing" message may show: left by the user, or all
+  // of them after a blocked Ctrl/⌘+Enter.
+  const [shownErrors, setShownErrors] = useState<ReadonlySet<RequiredField>>(new Set());
+  const leaveField = (field: RequiredField) =>
+    setShownErrors((prev) => (prev.has(field) ? prev : new Set(prev).add(field)));
 
   const applyBrief = (brief: Brief) => {
     setForm({
@@ -123,6 +138,7 @@ function HomeContent() {
 
   const isCreative = isCreativeAgent(form.agent);
   const isValid = isFormValid(form);
+  const errors = fieldErrors(form, shownErrors);
 
   // Runs inside the startRun transition, so `starting` stays true until
   // router.push lands (push is itself a transition) or the start fails.
@@ -167,10 +183,19 @@ function HomeContent() {
   };
 
   // Cmd/Ctrl+Enter submits from anywhere in the form (including textareas).
+  // Blocked by a missing field, it flags every missing field and moves focus
+  // to the first, so the reason is announced where it can be fixed.
   const handleKeyDown = (e: React.KeyboardEvent<HTMLFormElement>) => {
     if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
-      if (isValid && !starting) formRef.current?.requestSubmit();
+      if (isValid && !starting) {
+        formRef.current?.requestSubmit();
+        return;
+      }
+      const missing = missingRequired(form);
+      if (missing.length === 0) return;
+      setShownErrors(new Set(missing));
+      document.getElementById(FIELD_IDS[missing[0]])?.focus();
     }
   };
 
@@ -290,7 +315,7 @@ function HomeContent() {
             </label>
           )}
 
-          <CampaignFields form={form} setForm={setForm} />
+          <CampaignFields form={form} setForm={setForm} errors={errors} onLeave={leaveField} />
 
           {isCreative && (
             <div className="grid gap-5 sm:grid-cols-2">
@@ -314,10 +339,11 @@ function HomeContent() {
                       saferAngle: false,
                     })
                   }
+                  onBlur={() => leaveField("targetSearchTrend")}
+                  {...requiredProps("targetSearchTrend", errors.targetSearchTrend)}
                 />
+                <FieldError field="targetSearchTrend" error={errors.targetSearchTrend} />
               </div>
-
-              <ReferenceImagesFieldset form={form} setForm={setForm} />
 
               <PersonSelect
                 value={form.personReference}
@@ -325,6 +351,10 @@ function HomeContent() {
                   setForm((prev) => ({ ...prev, personReference }))
                 }
               />
+
+              <div className="sm:col-span-2">
+                <ReferenceImagesFieldset form={form} setForm={setForm} />
+              </div>
             </div>
           )}
 
@@ -357,6 +387,7 @@ function HomeContent() {
               size="lg"
               className="h-10 px-5 text-sm font-semibold"
               disabled={!isValid || starting}
+              aria-describedby="submit-hint"
             >
               {starting ? (
                 <span className="flex items-center gap-2">
@@ -367,11 +398,10 @@ function HomeContent() {
                 submitLabel(form.agent)
               )}
             </Button>
-            <span className="text-xs text-muted-foreground">
+            <span id="submit-hint" aria-live="polite" className="text-xs text-muted-foreground">
               {isValid ? (
                 <>
-                  or press <kbd className="font-mono">Ctrl</kbd>/<kbd className="font-mono">⌘</kbd>{" "}
-                  + <kbd className="font-mono">Enter</kbd>
+                  or press <Kbd>Ctrl</Kbd>/<Kbd>⌘</Kbd> + <Kbd>Enter</Kbd>
                 </>
               ) : isCreative && invalidReferenceUris(form).length ? (
                 "Fix the reference image URL to start."

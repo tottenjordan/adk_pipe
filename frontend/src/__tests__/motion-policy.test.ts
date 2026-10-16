@@ -28,8 +28,6 @@ const TRANSFORM_PROP = /\b(?:transform|scale|translate|rotate)\b/;
  * (no longer violating) fails the test, so the list only shrinks.
  */
 const ALLOWLIST: Record<string, string[]> = {
-  // PR-4 (page states and the home form)
-  "components/new-run/visual-direction-fieldset.tsx": ["transform-without-motion-reduce"],
 };
 
 type Violation = { file: string; rule: string };
