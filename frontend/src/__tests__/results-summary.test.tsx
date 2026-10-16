@@ -69,3 +69,30 @@ describe("ResultsSummary run notes", () => {
     expect(screen.queryAllByRole("status")).toHaveLength(0);
   });
 });
+
+describe("ResultsSummary eval report states", () => {
+  const renderStatus = (status: "loading" | "pending" | "error") =>
+    render(
+      <ResultsSummary
+        report={null}
+        status={status}
+        onRefresh={() => {}}
+        refreshDisabled={false}
+        noImages={false}
+        runWarnings={classifyWarnings([])}
+      />,
+    );
+
+  it("shows a skeleton row (no button) while the report loads", () => {
+    const { container } = renderStatus("loading");
+    expect(screen.getByRole("status")).toHaveTextContent("Loading the evaluation report…");
+    expect(container.querySelector('[data-slot="skeleton"]')).not.toBeNull();
+    expect(screen.queryByRole("button")).toBeNull();
+  });
+
+  it.each(["pending", "error"] as const)("offers a refresh when the report is %s", (status) => {
+    const { container } = renderStatus(status);
+    expect(screen.getByRole("button", { name: "Refresh" })).toBeEnabled();
+    expect(container.querySelector('[data-slot="skeleton"]')).toBeNull();
+  });
+});

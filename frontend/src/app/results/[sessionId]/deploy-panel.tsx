@@ -42,7 +42,8 @@ const optionHelp = <T extends string>(opts: { value: T; label: string }[], help:
 
 /**
  * Optional last step on the results page: pick 2–4 creatives and deploy them as
- * the arms of a contextual bandit experiment (docs/bandit/contracts.md §5).
+ * the arms of a contextual bandit experiment (docs/bandit/contracts.md §5). The
+ * page owns the heading and the collapsed-by-default disclosure around it.
  */
 export function DeployPanel({
   proofs,
@@ -127,14 +128,8 @@ export function DeployPanel({
   };
 
   return (
-    <section
-      aria-labelledby="deploy-heading"
-      className="mb-6 rounded-lg border border-border bg-card p-5"
-    >
-      <h2 id="deploy-heading" className="text-base font-semibold text-foreground">
-        Deploy creatives as a live experiment
-      </h2>
-      <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
+    <div>
+      <p className="max-w-3xl text-sm text-muted-foreground">
         A bandit chooses which creative to show each reader of a page about the trend, learns
         from simulated clicks, and shifts traffic toward what works for each kind of reader.
       </p>
@@ -345,6 +340,6 @@ export function DeployPanel({
           {error}
         </p>
       )}
-    </section>
+    </div>
   );
 }

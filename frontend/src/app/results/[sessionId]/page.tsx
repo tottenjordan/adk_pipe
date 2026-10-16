@@ -2,9 +2,11 @@
 
 import { useEffect, useState, useCallback, useMemo, useRef, use } from "react";
 import { useSearchParams } from "next/navigation";
-import Link from "next/link";
 import dynamic from "next/dynamic";
-import { buttonVariants } from "@/components/ui/button";
+import { ChevronDownIcon } from "lucide-react";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { ErrorState } from "@/components/ui/error-state";
+import { Skeleton } from "@/components/ui/skeleton";
 import { getSession, listArtifacts, SELF_USER_ID } from "@/lib/api";
 import { fetchEvalReport, parseEvalReport } from "@/lib/eval-report";
 import { gcsProxyUrl } from "@/lib/gcs";
@@ -55,15 +57,71 @@ import {
   usePersonalisationData,
 } from "@/components/personalise-panel";
 
-// Heavy, rarely needed on first paint: the report (react-markdown + remark-gfm) mounts
-// only when its disclosure opens; the Deploy panel (bandit scenario code) loads after.
+// Heavy, rarely needed on first paint: the report (react-markdown + remark-gfm) and the
+// Deploy panel (bandit scenario code) each mount only when their disclosure opens.
 const ResearchReport = dynamic(
   () => import("@/components/research-report").then((m) => m.ResearchReport),
   { loading: () => <p className="text-sm text-muted-foreground">Loading report…</p> }
 );
 const DeployPanel = dynamic(() => import("./deploy-panel").then((m) => m.DeployPanel), {
-  loading: () => <p className="mb-6 text-sm text-muted-foreground">Loading deploy options…</p>,
+  loading: () => <p className="text-sm text-muted-foreground">Loading deploy options…</p>,
 });
+
+/**
+ * The experiment set-up, collapsed by default below the review sections: a one-line
+ * summary, and the lazily loaded Deploy panel once opened (Collapsible's panel
+ * unmounts its children while closed, so the panel's chunk loads on first open).
+ */
+function DeployDisclosure({ children }: { children: React.ReactNode }) {
+  return (
+    <section aria-labelledby="deploy-heading" className="mb-4 overflow-hidden rounded-lg border border-border bg-card">
+      <Collapsible>
+        <h2 id="deploy-heading" className="text-sm font-semibold text-foreground">
+          <CollapsibleTrigger className="group flex w-full items-center justify-between gap-3 px-4 pt-2.5 text-left transition-colors hover:text-primary">
+            Deploy creatives as a live experiment
+            <ChevronDownIcon
+              aria-hidden="true"
+              className="size-4 shrink-0 text-muted-foreground transition-transform duration-(--dur-dialog) ease-(--ease-out) group-data-panel-open:rotate-180 motion-reduce:transition-none"
+            />
+          </CollapsibleTrigger>
+        </h2>
+        <p className="px-4 pb-2.5 text-xs text-muted-foreground">
+          Test 2–4 of these creatives on simulated readers; a bandit learns which works for whom.
+        </p>
+        <CollapsibleContent className="h-(--collapsible-panel-height) overflow-hidden transition-[height] duration-(--dur-dialog) ease-(--ease-out) data-ending-style:h-0 data-ending-style:duration-(--dur-exit) data-starting-style:h-0 motion-reduce:transition-none">
+          <div className="border-t border-border px-4 py-4">{children}</div>
+        </CollapsibleContent>
+      </Collapsible>
+    </section>
+  );
+}
+
+/** Layout-matched loading state: a header line and four contact-sheet card shells. */
+function ResultsSkeleton() {
+  return (
+    <div role="status" className="mx-auto max-w-[1600px] px-6 py-6">
+      <span className="sr-only">Loading results…</span>
+      <Skeleton className="mb-2 h-7 w-48" />
+      <Skeleton className="mb-6 h-4 w-96 max-w-full" />
+      <Skeleton className="mb-3 h-4 w-28" />
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+        {Array.from({ length: 4 }, (_, i) => (
+          <div key={i} data-slot="skeleton-card" aria-hidden className="rounded-lg border border-border bg-card p-2">
+            <Skeleton className="aspect-square w-full rounded-none" />
+            <div className="px-1 pt-3 pb-1">
+              <Skeleton className="h-5 w-4/5" />
+              <Skeleton className="mt-2 h-3 w-1/2" />
+              <div className="mt-4 grid grid-cols-2 gap-3 border-t border-border pt-3">
+                <Skeleton className="h-8 w-14" />
+                <Skeleton className="h-8 w-14" />
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
 
 const CAMPAIGN_FIELD_DEFS: DisplayFieldDef[] = [
   { label: "Brand", key: "brand" },
@@ -87,6 +145,8 @@ export default function ResultsPage({ params }: PageProps<"/results/[sessionId]"
   const [artifacts, setArtifacts] = useState<ArtifactData[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Bumped by "Try again" to re-run the load effect.
+  const [attempt, setAttempt] = useState(0);
   const [evalReport, setEvalReport] = useState<EvalReport | null>(null);
   const [evalStatus, setEvalStatus] = useState<EvalStatus>("idle");
   const [sort, setSort] = useState<ProofSort>("pipeline");
@@ -156,7 +216,7 @@ export default function ResultsPage({ params }: PageProps<"/results/[sessionId]"
     return () => {
       cancelled = true;
     };
-  }, [appName, userId, sessionId, loadEval]);
+  }, [appName, userId, sessionId, loadEval, attempt]);
 
   const state = session?.state || EMPTY_STATE;
 
@@ -196,34 +256,27 @@ export default function ResultsPage({ params }: PageProps<"/results/[sessionId]"
     [appName, state, session]
   );
 
-  if (loading) {
-    return (
-      <div className="flex flex-1 items-center justify-center py-24">
-        <p className="text-sm text-muted-foreground" role="status">
-          Loading results…
-        </p>
-      </div>
-    );
-  }
+  if (loading) return <ResultsSkeleton />;
 
   if (error) {
     return (
       <div className="mx-auto max-w-4xl px-6 py-12">
-        <div className="rounded-lg border border-border bg-card p-6">
-          <h1 className="text-lg font-semibold text-foreground">These results didn&apos;t load</h1>
-          <p className="mt-1 text-sm text-mark-fail">{error}</p>
-          <p className="mt-2 text-sm text-muted-foreground">
-            Check the session link, or open the run again from your run history.
-          </p>
-          <div className="mt-4 flex flex-wrap gap-2">
-            <Link href="/runs" className={buttonVariants({ variant: "outline" })}>
-              Open run history
-            </Link>
-            <Link href="/" className={buttonVariants({ variant: "ghost" })}>
-              Start a new run
-            </Link>
-          </div>
-        </div>
+        <ErrorState
+          title="These results didn't load"
+          message={
+            <>
+              <p className="text-mark-fail">{error}</p>
+              <p className="mt-1">Check the session link, or open the run again from your run history.</p>
+            </>
+          }
+          onRetry={() => {
+            setError(null);
+            setLoading(true);
+            setAttempt((n) => n + 1);
+          }}
+          secondary={{ href: "/runs", label: "Open run history" }}
+          className="p-6"
+        />
       </div>
     );
   }
@@ -363,15 +416,6 @@ export default function ResultsPage({ params }: PageProps<"/results/[sessionId]"
               ) : null
             }
           />
-          {shareEnabled && <SessionShares sessionId={sessionId} created={newShares} />}
-          <DeployPanel
-            proofs={proofs}
-            appName={appName}
-            sessionId={sessionId}
-            imageUrlFor={imageUrlFor}
-            stoppedEarly={Boolean(stopped)}
-            now={now}
-          />
         </>
       )}
 
@@ -393,6 +437,21 @@ export default function ResultsPage({ params }: PageProps<"/results/[sessionId]"
             className="border-0 bg-transparent p-1"
           />
         </QuietDisclosure>
+      )}
+
+      {shareEnabled && <SessionShares sessionId={sessionId} created={newShares} />}
+
+      {hasCreativeView && (
+        <DeployDisclosure>
+          <DeployPanel
+            proofs={proofs}
+            appName={appName}
+            sessionId={sessionId}
+            imageUrlFor={imageUrlFor}
+            stoppedEarly={Boolean(stopped)}
+            now={now}
+          />
+        </DeployDisclosure>
       )}
 
       <ArtifactsPanel artifacts={artifacts} urlFor={outputUrl} />

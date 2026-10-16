@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { Button, buttonVariants } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 import { dimensionLabel } from "@/lib/eval-dimensions";
 import { passThreshold, type EvalReport } from "@/lib/eval-matching";
@@ -142,11 +143,22 @@ export function ResultsSummary({
         </Notice>
       )}
 
+      {/* Loading: a skeleton of the summary row it becomes. */}
+      {!report && status === "loading" && (
+        <div
+          role="status"
+          className="mb-4 flex flex-wrap items-center justify-between gap-x-6 gap-y-2 rounded-lg border border-border bg-card px-4 py-3.5"
+        >
+          <span className="sr-only">Loading the evaluation report…</span>
+          <Skeleton className="h-5 w-80 max-w-full" />
+          <Skeleton className="h-3 w-44" />
+        </div>
+      )}
+
       {/* Eval report still being written (it's the run's last artifact) or failed. */}
-      {!report && status !== "idle" && (
+      {!report && (status === "pending" || status === "error") && (
         <div className="mb-4 flex items-center justify-between gap-4 rounded-lg border border-border bg-card px-4 py-3">
           <p className="text-sm text-foreground">
-            {status === "loading" && "Loading the evaluation report…"}
             {status === "pending" &&
               "The evaluation report is still being written. It's the last step of the run, so refresh in a minute."}
             {status === "error" && "The evaluation report didn't load. Refresh to try again."}
@@ -155,10 +167,10 @@ export function ResultsSummary({
             variant="outline"
             size="sm"
             className="shrink-0"
-            disabled={status === "loading" || refreshDisabled}
+            disabled={refreshDisabled}
             onClick={onRefresh}
           >
-            {status === "loading" ? "Loading…" : "Refresh"}
+            Refresh
           </Button>
         </div>
       )}
