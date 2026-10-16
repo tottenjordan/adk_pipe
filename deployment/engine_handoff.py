@@ -13,7 +13,12 @@ Each parallel deploy step of deployment/cloudbuild.agents.yaml writes one
            ``--update-worker`` also sets the batch worker's
            ``CREATIVE_AGENT_ENGINE_ID`` env var (``gcloud run services update``),
            then routes 100% of its (pinned) traffic to the new revision and
-           verifies revision, env and traffic; refuses while a trends row is PROCESSING unless ``--force``
+           verifies revision, env and traffic; refuses while a trends row is PROCESSING unless ``--force``.
+           The worker's Cloud Tasks queue (``CRF_TASKS_QUEUE``, default
+           ``creative-worker-queue``, in ``CRF_TASKS_LOCATION`` else ``GCP_REGION``)
+           is paused before the busy check and resumed afterwards, even on a
+           refusal or an error, so no task starts between the check and the
+           rollout (``--force`` skips only the check, not the pause)
 
     uv run python deployment/engine_handoff.py apply --ids engine_ids.json --env-file .env
     uv run python deployment/engine_handoff.py apply --ids engine_ids.json --update-worker
@@ -198,6 +203,63 @@ def check_worker_idle() -> None:
             f"worker busy: {busy} row(s) PROCESSING; re-run once they finish "
             "(or pass --force, which kills the run in flight)"
         )
+
+
+# The worker's Cloud Tasks queue; same env names and defaults as the CRF config
+# (cloud_functions/creative_fanout/config.py).
+WORKER_QUEUE = "creative-worker-queue"
+
+
+def _worker_queue() -> tuple[str, str]:
+    """``(queue, location)`` of the worker's Cloud Tasks queue."""
+    return (
+        os.getenv("CRF_TASKS_QUEUE") or WORKER_QUEUE,
+        os.getenv("CRF_TASKS_LOCATION") or os.getenv("GCP_REGION") or "us-central1",
+    )
+
+
+def _queue_cmd(verb: str) -> list[str]:
+    queue, location = _worker_queue()
+    return ["gcloud", "tasks", "queues", verb, queue, "--location", location, "--quiet"]
+
+
+def pause_worker_queue() -> None:
+    """Pause the worker's queue so no task is dispatched (tasks can still be
+    enqueued) between the busy check and the revision rollout: a task started
+    in that window would be killed by the new revision. Raises
+    WorkerUpdateError when gcloud fails (the queue is then not paused).
+
+    https://cloud.google.com/sdk/gcloud/reference/tasks/queues/pause
+    """
+    cmd = _queue_cmd("pause")
+    print(f"pausing queue {cmd[4]} ({cmd[6]})")
+    try:
+        subprocess.run(cmd, check=True)
+    except (subprocess.CalledProcessError, OSError) as e:
+        raise WorkerUpdateError(
+            f"can't pause queue {cmd[4]} ({cmd[6]}): {e}; nothing was changed"
+        ) from e
+
+
+def resume_worker_queue() -> bool:
+    """Resume the worker's queue; False (after a loud message naming the manual
+    command) when that fails. Never raises, so it can't mask the error that
+    ended the update.
+
+    https://cloud.google.com/sdk/gcloud/reference/tasks/queues/resume
+    """
+    cmd = _queue_cmd("resume")
+    try:
+        subprocess.run(cmd, check=True)
+    except (subprocess.CalledProcessError, OSError) as e:
+        print(
+            f"!!! queue {cmd[4]} ({cmd[6]}) is STILL PAUSED: resume failed ({e}). "
+            "No batch row runs until it is resumed; run:\n"
+            f"  {' '.join(cmd[:-1])}"
+        )
+        return False
+    print(f"resumed queue {cmd[4]} ({cmd[6]})")
+    return True
 
 
 class WorkerTrafficError(RuntimeError):
@@ -419,7 +481,8 @@ def main(argv: list[str] | None = None) -> int:
     a.add_argument(
         "--force",
         action="store_true",
-        help="with --update-worker: skip the PROCESSING-rows check",
+        help="with --update-worker: skip the PROCESSING-rows check (the queue "
+        "is still paused and resumed)",
     )
     a.add_argument("--worker-service", default=WORKER_SERVICE)
 
@@ -448,24 +511,36 @@ def main(argv: list[str] | None = None) -> int:
     # The busy check runs before anything is written, so a refusal changes
     # nothing (neither .env nor the worker): re-run once the worker is idle.
     record = _engines(args.ids).get(WORKER_AGENT)
-    try:
-        if record is not None and not args.force:
-            check_worker_idle()
+    if record is None:
         apply(args.ids, args.env_file)
-        if record is None:
-            print(
-                f"{args.worker_service}: no {WORKER_AGENT} record in {args.ids}; "
-                "worker not updated."
-            )
-            return 0
-        update_worker(record["resource_name"], args.worker_service)
+        print(
+            f"{args.worker_service}: no {WORKER_AGENT} record in {args.ids}; "
+            "worker not updated."
+        )
+        return 0
+    # Pause the queue first so no task starts between the check and the
+    # rollout. If the pause fails the queue isn't paused: nothing to resume.
+    try:
+        pause_worker_queue()
     except WorkerUpdateError as e:
         print(f"Refusing to update {args.worker_service}: {e}")
         return 1
+    rc = 1
+    try:
+        if not args.force:
+            check_worker_idle()
+        apply(args.ids, args.env_file)
+        update_worker(record["resource_name"], args.worker_service)
+        rc = 0
+    except WorkerUpdateError as e:
+        print(f"Refusing to update {args.worker_service}: {e}")
     except (WorkerTrafficError, subprocess.CalledProcessError) as e:
         print(f"Updating {args.worker_service} failed: {e}")
-        return 1
-    return 0
+    finally:
+        # Always resume: on success, a refusal, or any error (which propagates).
+        if not resume_worker_queue():
+            rc = 1
+    return rc
 
 
 if __name__ == "__main__":
