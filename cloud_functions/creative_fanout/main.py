@@ -118,9 +118,11 @@ def agent_worker_task(request: flask.Request) -> tuple[str, int]:
     Cloud Tasks retries any non-2xx response, so the status code is the
     ACK/NACK: 200 for a body that can never run (malformed, not allow-listed),
     a missing engine and every recorded outcome (lost lock, PROCESSED,
-    FAILED, re-queued); 503 for an error before the status write, retried
-    under the queue's retry policy. The run deadline is taken here, at
-    request start (``worker.run_deadline``).
+    FAILED, re-queued); 500 for an error before the status write, retried
+    under the queue's own backoff (60-600 s, 5 attempts). Never 503: Cloud
+    Tasks backs a 503 (or 429) off harder and may slow the whole queue, so one
+    bad row would delay every healthy row behind it. The run deadline is taken
+    here, at request start (``worker.run_deadline``).
     """
     logs.bind_trace(request.headers)
     deadline = worker.request_deadline()
@@ -139,5 +141,5 @@ def agent_worker_task(request: flask.Request) -> tuple[str, int]:
 
     outcome = worker.handle_worker_message(dataset, table, row_data, deadline=deadline)
     if outcome is worker.Outcome.RETRY:
-        return "retry", 503
+        return "retry", 500
     return "ok", 200

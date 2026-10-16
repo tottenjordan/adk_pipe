@@ -3,8 +3,9 @@
 Cloud Tasks retries a task on any non-2xx response, so the status code IS the
 ACK/NACK: a permanent problem (malformed body, unset engine) and every
 recorded outcome (lost lock, PROCESSED, FAILED, re-queued) answer 200; an error
-before the status write answers 503. The run deadline is taken at request
-start.
+before the status write answers 500 (the queue's own backoff; never 503, which
+Cloud Tasks backs off harder and which may slow the whole queue). The run
+deadline is taken at request start.
 """
 
 import json
@@ -197,26 +198,26 @@ def test_processed_answers_200(monkeypatch):
     assert _call(_payload())[1] == 200
 
 
-def test_error_before_the_status_write_answers_503(monkeypatch, caplog):
+def test_error_before_the_status_write_answers_500(monkeypatch, caplog):
     """A BigQuery error before the lock (process_row raises): Cloud Tasks
-    must retry the task under its policy."""
+    must retry the task under the queue's own backoff (500, not 503)."""
     monkeypatch.setattr(clients, "get_bigquery_client", MagicMock)
     monkeypatch.setattr(
         worker, "process_row", AsyncMock(side_effect=RuntimeError("bq 500"))
     )
     with caplog.at_level(logging.ERROR):
         _, status = _call(_payload())
-    assert status == 503
+    assert status == 500
     assert "bq 500" in caplog.text
 
 
-def test_client_construction_error_answers_503(monkeypatch):
+def test_client_construction_error_answers_500(monkeypatch):
     def _boom():
         raise RuntimeError("no credentials")
 
     monkeypatch.setattr(clients, "get_bigquery_client", _boom)
     monkeypatch.setattr(worker, "process_row", AsyncMock())
-    assert _call(_payload())[1] == 503
+    assert _call(_payload())[1] == 500
 
 
 def test_deadline_is_taken_at_request_start(monkeypatch):
