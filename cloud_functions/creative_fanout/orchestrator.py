@@ -8,6 +8,7 @@ import logging
 from datetime import datetime, timedelta
 
 from google.api_core import exceptions as gexc
+from google.api_core.retry import Retry, if_exception_type
 from google.cloud import tasks_v2
 
 from . import clients, status_store
@@ -20,6 +21,14 @@ logger = logging.getLogger(__name__)
 PUBLISH_TIMEOUT_SECS = 30.0
 # How long each Cloud Tasks create_task call may take.
 CREATE_TASK_TIMEOUT_SECS = 30.0
+# create_task has no default retry (unlike get_task); retry the transient
+# errors for up to 30 s. Safe: a named task is never created twice.
+CREATE_TASK_RETRY = Retry(
+    predicate=if_exception_type(gexc.ServiceUnavailable, gexc.DeadlineExceeded),
+    initial=1,
+    maximum=10,
+    timeout=30,
+)
 
 
 def _worker_topic_path() -> str:
@@ -82,14 +91,14 @@ def dispatch(payload: dict) -> int:
     rows = status_store.select_unprocessed(bq_client, dataset, table, max_rows)
 
     if not rows:
-        logging.info(
+        logger.info(
             "No new rows found to process (all are marked PROCESSED or table is empty)."
         )
         return 0
 
     # 2. Extract data into a list of dictionaries
     row_list = [build_row_dict(index, row) for index, row in enumerate(rows)]
-    logging.info(f"Loaded {len(row_list)} UNPROCESSED records for agent execution.")
+    logger.info(f"Loaded {len(row_list)} UNPROCESSED records for agent execution.")
 
     # 3. The rows' keys (uuid, target_trend).
     row_keys = [status_store.RowKey.from_mapping(d) for d in row_list]
@@ -170,11 +179,13 @@ def task_name(parent: str, row) -> str:
 
     ``crf-<sha256(uuid, target_trend, processing_attempts or 0)[:32]>`` (a
     legacy row without a key: its ``entry_timestamp`` instead of the key).
-    Cloud Tasks refuses a second task with the same name (``AlreadyExists``,
-    also for about an hour after the first one ran), so an orphaned QUEUED row
-    re-selected while its task still waits in the queue is not enqueued twice.
-    The attempt count changes on every lock, so a reaped or re-queued row gets
-    a fresh task.
+    Cloud Tasks refuses a second task with the same name (``AlreadyExists``),
+    also for up to 24 h after the first one ran or was deleted (9 days for a
+    queue created from queue.yaml; ``tasks_v2`` ``Task.name``), so an orphaned
+    QUEUED row re-selected while its task still waits in the queue is not
+    enqueued twice (``_send_tasks`` re-creates a gone one unnamed). The
+    attempt count changes on every lock, so a reaped or re-queued row gets a
+    fresh task.
     """
     key = status_store.RowKey.from_mapping(row)
     attempts = row.get("processing_attempts") or 0
@@ -193,7 +204,13 @@ def _send_tasks(
     """Create one Cloud Tasks HTTP task per row (OIDC-authenticated POST of the
     worker message to ``CRF_WORKER_URL``). Returns ``(dispatched, failed)``.
 
-    ``AlreadyExists`` = this row attempt already has a task: dispatched. Any
+    ``create_task`` retries ``ServiceUnavailable`` / ``DeadlineExceeded``
+    (``CREATE_TASK_RETRY``; safe, the task is named). ``AlreadyExists`` is
+    confirmed with ``get_task``: a task still there means this row attempt is
+    already queued (dispatched); ``NotFound`` means the name is only a
+    tombstone (the task ran or was deleted without moving the row on), so the
+    task is created again without a name (WARNING, ``task_name_tombstoned``);
+    the worker's QUEUED->PROCESSING lock makes any duplicate a no-op. Any
     other error is logged and counted; the row stays QUEUED.
     """
     tasks_client = clients.get_tasks_client()
@@ -219,15 +236,51 @@ def _send_tasks(
             "dispatch_deadline": deadline,
         }
         try:
-            tasks_client.create_task(
-                request={"parent": parent, "task": task},
-                timeout=CREATE_TASK_TIMEOUT_SECS,
-            )
+            _create_task(tasks_client, parent, task)
             dispatched_count += 1
         except gexc.AlreadyExists:
-            logging.info(f"Worker task {name} already exists; not enqueued again.")
-            dispatched_count += 1
+            if _recreate_if_tombstoned(tasks_client, parent, task):
+                dispatched_count += 1
+            else:
+                failed_count += 1
         except Exception as e:  # noqa: BLE001 — one bad task shouldn't sink the batch
             failed_count += 1
-            logging.error(f"Failed to create worker task {name}: {e}")
+            logger.error(f"Failed to create worker task {name}: {e}")
     return dispatched_count, failed_count
+
+
+def _create_task(tasks_client, parent: str, task: dict) -> None:
+    tasks_client.create_task(
+        request={"parent": parent, "task": task},
+        retry=CREATE_TASK_RETRY,
+        timeout=CREATE_TASK_TIMEOUT_SECS,
+    )
+
+
+def _recreate_if_tombstoned(tasks_client, parent: str, task: dict) -> bool:
+    """After ``AlreadyExists`` for ``task``: True when the row attempt is
+    dispatched (the named task still exists, or it was gone and an unnamed
+    copy was created); False (logged) when that can't be confirmed or the
+    unnamed create failed."""
+    name = task["name"]
+    try:
+        tasks_client.get_task(name=name)
+        logger.info(f"Worker task {name} already exists; not enqueued again.")
+        return True
+    except gexc.NotFound:
+        pass
+    except Exception as e:  # noqa: BLE001 — leave the row QUEUED for next time
+        logger.error(f"Worker task {name} exists, but get_task failed: {e}")
+        return False
+    logger.warning(
+        f"Worker task name {name} is taken by a task that is gone; creating "
+        "the task again without a name.",
+        extra={"json_fields": {"reason": "task_name_tombstoned", "task_name": name}},
+    )
+    unnamed = {k: v for k, v in task.items() if k != "name"}
+    try:
+        _create_task(tasks_client, parent, unnamed)
+        return True
+    except Exception as e:  # noqa: BLE001 — leave the row QUEUED for next time
+        logger.error(f"Failed to create worker task {name} (unnamed): {e}")
+        return False

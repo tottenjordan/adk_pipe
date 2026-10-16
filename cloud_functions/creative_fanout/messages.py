@@ -13,11 +13,14 @@ from datetime import date, datetime
 from .config import config
 from .status_store import _to_utc_datetime, _validate_target
 
+logger = logging.getLogger(__name__)
+
 
 class MalformedMessageError(ValueError):
-    """A Pub/Sub message that can never be processed, however often it is
-    redelivered: the entry points log it as an error and ACK (return) instead
-    of raising, which would NACK it into a redelivery loop."""
+    """A message (a trigger, or a worker task body) that can never be
+    processed, however often it is redelivered: the entry points log it as an
+    error and acknowledge it (return, or HTTP 200) instead of failing, which
+    would only redeliver it into a loop."""
 
 
 # The engine is the worker's CREATIVE_AGENT_ENGINE_ID env var; a legacy
@@ -75,7 +78,7 @@ def _note_legacy_engine_id(payload: dict) -> None:
         return
     legacy = payload["agent_resource_id"]
     if legacy != config.CREATIVE_AGENT_ENGINE_ID:
-        logging.warning(
+        logger.warning(
             f"Ignoring agent_resource_id={legacy!r} in the message: the worker "
             "runs the engine in its CREATIVE_AGENT_ENGINE_ID env var "
             f"({config.CREATIVE_AGENT_ENGINE_ID or 'unset'!r})."
@@ -110,12 +113,12 @@ def parse_trigger_message(cloud_event) -> dict | None:
     data = cloud_event.data
     message = data.get("message") if isinstance(data, dict) else None
     if not isinstance(message, dict) or "data" not in message:
-        logging.info("No data found in the Pub/Sub message.")
+        logger.info("No data found in the Pub/Sub message.")
         return None
     message_payload = _decode_pubsub_json(cloud_event)
-    logging.info(f"Parsed message payload: {message_payload}")
+    logger.info(f"Parsed message payload: {message_payload}")
     if "bq_dataset" not in message_payload:
-        logging.info("Trigger message has no 'bq_dataset'; nothing to process.")
+        logger.info("Trigger message has no 'bq_dataset'; nothing to process.")
         return None
 
     _require_fields(message_payload, _TRIGGER_FIELDS, "trigger message")

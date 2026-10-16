@@ -155,3 +155,8 @@ class FakeTasksClient:
         if err is not None:
             raise err
         return request["task"]
+
+    def get_task(self, request=None, *, name=None, **_):
+        """The named task always still exists (``AlreadyExists`` = queued)."""
+        self.events.append(("get_task", name))
+        return {"name": name}
