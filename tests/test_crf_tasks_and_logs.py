@@ -59,7 +59,6 @@ def _clear_trace():
 
 @pytest.fixture
 def tasks_env(monkeypatch):
-    monkeypatch.setenv("CRF_WORKER_TRANSPORT", "tasks")
     monkeypatch.setenv("CRF_WORKER_URL", URL)
     monkeypatch.setenv("CRF_TASKS_INVOKER_SA", INVOKER)
     for name in ("CRF_TASKS_QUEUE", "CRF_TASKS_LOCATION", "GCP_REGION"):

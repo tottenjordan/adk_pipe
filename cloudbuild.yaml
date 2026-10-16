@@ -113,8 +113,7 @@ steps:
   # the buildpack-era automatic base-image updates (a Dockerfile image can't use them).
   # The orchestrator's FUNCTION_TARGET is (re)set (it never changes). The worker's
   # FUNCTION_TARGET / FUNCTION_SIGNATURE_TYPE are NOT touched: the service owns them
-  # (agent_worker_task + http behind Cloud Tasks, agent_worker_entrypoint + the
-  # cloudevent default on the Pub/Sub rollback path; deployment/README.md §3), and
+  # (agent_worker_task + http behind Cloud Tasks; deployment/README.md §3), and
   # --no-traffic only updates an existing service, which always has them set.
   - id: deploy
     name: gcr.io/cloud-builders/gcloud
