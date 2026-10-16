@@ -1,7 +1,8 @@
 """``engine_handoff.py apply --update-worker``: push the new creative engine to
 the batch worker's ``CREATIVE_AGENT_ENGINE_ID`` env var, refusing while a row
-is PROCESSING (a revision change would kill the run in flight). gcloud and
-BigQuery are mocked.
+is PROCESSING (a revision change would kill the run in flight). The worker's
+Cloud Tasks queue is paused around the check and the update (so no task is
+dispatched in between) and always resumed. gcloud and BigQuery are mocked.
 """
 
 import json
@@ -23,6 +24,8 @@ def eh(monkeypatch):
     monkeypatch.setenv("BQ_DATASET_ID", "trend_trawler")
     monkeypatch.setenv("BQ_TABLE_TARGETS", "target_trends_crf")
     monkeypatch.setenv("GCP_REGION", "us-central1")
+    monkeypatch.delenv("CRF_TASKS_QUEUE", raising=False)
+    monkeypatch.delenv("CRF_TASKS_LOCATION", raising=False)
     return engine_handoff
 
 
@@ -74,6 +77,9 @@ class FakeGcloud:
     tracks the latest revision (``pinned`` False), like Cloud Run.
     ``services update-traffic --to-revisions R=100`` moves the traffic.
     ``services describe`` / ``revisions describe`` answer JSON.
+    ``tasks queues pause`` / ``resume`` succeed unless their verb is in
+    ``fail_queue`` (then they exit 1, like a gcloud error). ``tasks list``
+    answers ``tasks`` as JSON (exits 1 when "list" is in ``fail_queue``).
     """
 
     def __init__(self):
@@ -86,6 +92,8 @@ class FakeGcloud:
         self.ready_by_rev = {"creative-worker-crf-00022-old": True}
         self.latest = "creative-worker-crf-00022-old"
         self.traffic = [{"revisionName": self.latest, "percent": 100}]
+        self.fail_queue: set[str] = set()
+        self.tasks: list[dict] = []
 
     def _traffic(self):
         if not self.pinned:
@@ -98,7 +106,14 @@ class FakeGcloud:
         self.calls.append((cmd, kwargs))
         verb = cmd[1:4]
         out = ""
-        if verb == ["run", "services", "update"]:
+        if verb[:2] == ["tasks", "queues"]:
+            if verb[2] in self.fail_queue:
+                raise subprocess.CalledProcessError(1, cmd)
+        elif verb[:2] == ["tasks", "list"]:
+            if "list" in self.fail_queue:
+                raise subprocess.CalledProcessError(1, cmd)
+            out = json.dumps(self.tasks)
+        elif verb == ["run", "services", "update"]:
             env = cmd[cmd.index("--update-env-vars") + 1].split("=", 1)[1]
             n = len(self.revisions) + 22
             name = f"{cmd[4]}-000{n}-new"
@@ -152,8 +167,12 @@ class FakeGcloud:
         return subprocess.CompletedProcess(cmd, 0, stdout=out, stderr="")
 
     def mutating(self):
-        """The calls that change the service (no describes)."""
-        return [c for c, _ in self.calls if "describe" not in c]
+        """The calls that change the service (no describes, no queue calls)."""
+        return [c for c, _ in self.calls if "describe" not in c and c[1] != "tasks"]
+
+    def queue(self):
+        """The ``gcloud tasks queues`` calls, in order."""
+        return [c for c, _ in self.calls if c[1:3] == ["tasks", "queues"]]
 
 
 @pytest.fixture
@@ -182,6 +201,35 @@ def _traffic_cmd(rev, service="creative-worker-crf", region="us-central1"):
         f"{rev}=100",
         "--quiet",
     ]
+
+
+def _queue_cmd(verb, queue="creative-worker-queue", location="us-central1"):
+    return [
+        "gcloud",
+        "tasks",
+        "queues",
+        verb,
+        queue,
+        "--location",
+        location,
+        "--quiet",
+    ]
+
+
+def _list_cmd(queue="creative-worker-queue", location="us-central1"):
+    return [
+        "gcloud",
+        "tasks",
+        "list",
+        "--queue",
+        queue,
+        "--location",
+        location,
+        "--format=json",
+    ]
+
+
+PAUSE_RESUME = [_queue_cmd("pause"), _queue_cmd("resume")]
 
 
 def _expected_cmd(service="creative-worker-crf", rid=11):
@@ -224,7 +272,8 @@ def test_update_worker_refuses_while_a_row_is_processing(
     path = ids({"creative_agent": 11})
     argv = ["apply", "--ids", path, "--env-file", env_file, "--update-worker"]
     assert eh.main(argv) != 0
-    assert run.calls == []
+    # The queue was paused for the check and resumed after the refusal.
+    assert [c for c, _ in run.calls] == PAUSE_RESUME
     assert "worker busy" in capsys.readouterr().out
     # Nothing changed: re-run once the worker is idle.
     assert open(env_file).read() == ""
@@ -237,6 +286,9 @@ def test_update_worker_force_skips_the_busy_check(eh, ids, env_file, bq, run):
     assert eh.main([*argv, "--force"]) == 0
     bq.query_and_wait.assert_not_called()
     assert run.mutating()[0] == _expected_cmd()
+    # --force skips only the check: the update still runs with the queue paused.
+    assert run.calls[0][0] == _queue_cmd("pause")
+    assert run.calls[-1][0] == _queue_cmd("resume")
 
 
 def test_update_worker_service_override(eh, ids, env_file, bq, run):
@@ -247,6 +299,7 @@ def test_update_worker_service_override(eh, ids, env_file, bq, run):
     assert all(
         cmd[4] == "load-test-worker" for cmd, _ in run.calls if cmd[2] == "services"
     )
+    assert run.queue() == PAUSE_RESUME
 
 
 def test_update_worker_region_from_env(eh, ids, env_file, bq, run, monkeypatch):
@@ -254,7 +307,9 @@ def test_update_worker_region_from_env(eh, ids, env_file, bq, run, monkeypatch):
     path = ids({"creative_agent": 11})
     eh.main(["apply", "--ids", path, "--env-file", env_file, "--update-worker"])
     for cmd, _ in run.calls:
-        assert cmd[cmd.index("--region") + 1] == "europe-west4"
+        flag = "--location" if cmd[1] == "tasks" else "--region"
+        assert cmd[cmd.index(flag) + 1] == "europe-west4"
+    assert len(run.queue()) == 2
 
 
 def test_update_worker_without_a_creative_record_is_a_noop(
@@ -296,7 +351,7 @@ def test_update_worker_without_the_table_env_refuses(
     path = ids({"creative_agent": 11})
     argv = ["apply", "--ids", path, "--env-file", env_file, "--update-worker"]
     assert eh.main(argv) != 0
-    assert run.calls == []
+    assert [c for c, _ in run.calls] == PAUSE_RESUME
     assert unset in capsys.readouterr().out
 
 
@@ -308,7 +363,7 @@ def test_update_worker_rejects_a_malformed_table_name(
     argv = ["apply", "--ids", path, "--env-file", env_file, "--update-worker"]
     assert eh.main(argv) != 0
     bq.query_and_wait.assert_not_called()
-    assert run.calls == []
+    assert [c for c, _ in run.calls] == PAUSE_RESUME
 
 
 def test_project_falls_back_to_google_cloud_project(
@@ -339,6 +394,7 @@ def test_pinned_worker_traffic_moves_to_the_new_revision(
     new = gcloud.latest
     assert new != "creative-worker-crf-00022-old"
     assert gcloud.mutating() == [_expected_cmd(), _traffic_cmd(new)]
+    assert gcloud.queue() == PAUSE_RESUME
     assert gcloud.traffic == [{"revisionName": new, "percent": 100}]
     out = capsys.readouterr().out
     assert f"{new} serves 100%" in out
@@ -365,6 +421,7 @@ def test_new_revision_not_ready_fails_and_leaves_traffic(
     path = ids({"creative_agent": 11})
     assert _apply(eh, path, env_file) != 0
     assert gcloud.mutating() == [_expected_cmd()]  # no update-traffic
+    assert gcloud.calls[-1][0] == _queue_cmd("resume")
     assert gcloud.traffic == [
         {"revisionName": "creative-worker-crf-00022-old", "percent": 100}
     ]
@@ -393,3 +450,183 @@ def test_traffic_verification_mismatch_fails_with_the_manual_fix(
     assert f"--to-revisions {new}=100" in out
     # and the rollback to the previously serving revision
     assert "--to-revisions creative-worker-crf-00022-old=100" in out
+
+
+# --- queue pause: no task is dispatched between the busy check and the update ---
+
+
+def test_queue_is_paused_before_the_check_and_resumed_after_the_update(
+    eh, ids, env_file, bq, gcloud, monkeypatch
+):
+    real_check = eh.check_worker_idle
+
+    def _check():
+        gcloud.calls.append((["IDLE-CHECK"], {}))
+        real_check()
+
+    monkeypatch.setattr(eh, "check_worker_idle", _check)
+    path = ids({"creative_agent": 11})
+    assert _apply(eh, path, env_file) == 0
+    cmds = [c for c, _ in gcloud.calls if "describe" not in c]
+    assert cmds == [
+        _queue_cmd("pause"),
+        ["IDLE-CHECK"],
+        _list_cmd(),
+        _expected_cmd(),
+        _traffic_cmd(gcloud.latest),
+        _queue_cmd("resume"),
+    ]
+    for cmd, kwargs in gcloud.calls:
+        if cmd[0] == "gcloud":
+            assert not kwargs.get("shell")
+
+
+def test_queue_name_and_location_from_the_crf_env(
+    eh, ids, env_file, bq, gcloud, monkeypatch
+):
+    monkeypatch.setenv("CRF_TASKS_QUEUE", "load-test-queue")
+    monkeypatch.setenv("CRF_TASKS_LOCATION", "europe-west1")
+    path = ids({"creative_agent": 11})
+    assert _apply(eh, path, env_file) == 0
+    assert gcloud.queue() == [
+        _queue_cmd("pause", "load-test-queue", "europe-west1"),
+        _queue_cmd("resume", "load-test-queue", "europe-west1"),
+    ]
+    # The worker service keeps its own region.
+    assert gcloud.mutating()[0] == _expected_cmd()
+
+
+def test_pause_failure_refuses_without_touching_anything(
+    eh, ids, env_file, bq, gcloud, capsys
+):
+    gcloud.fail_queue = {"pause"}
+    path = ids({"creative_agent": 11})
+    assert _apply(eh, path, env_file) != 0
+    # The queue was never paused, so there is nothing to resume.
+    assert [c for c, _ in gcloud.calls] == [_queue_cmd("pause")]
+    bq.query_and_wait.assert_not_called()
+    assert open(env_file).read() == ""
+    out = capsys.readouterr().out
+    assert "Refusing to update creative-worker-crf" in out
+    assert "creative-worker-queue" in out
+
+
+def test_update_failure_still_resumes_the_queue(eh, ids, env_file, bq, gcloud, capsys):
+    gcloud.ignore_update_traffic = True  # verification fails after update-traffic
+    path = ids({"creative_agent": 11})
+    assert _apply(eh, path, env_file) != 0
+    assert gcloud.calls[-1][0] == _queue_cmd("resume")
+    assert "Updating creative-worker-crf failed" in capsys.readouterr().out
+
+
+def test_unexpected_error_resumes_the_queue_and_propagates(
+    eh, ids, env_file, bq, gcloud
+):
+    bq.query_and_wait.side_effect = RuntimeError("bigquery down")
+    path = ids({"creative_agent": 11})
+    with pytest.raises(RuntimeError, match="bigquery down"):
+        _apply(eh, path, env_file)
+    assert [c for c, _ in gcloud.calls] == PAUSE_RESUME
+
+
+def test_resume_failure_is_loud_and_fails_the_run(
+    eh, ids, env_file, bq, gcloud, capsys
+):
+    gcloud.fail_queue = {"resume"}
+    path = ids({"creative_agent": 11})
+    assert _apply(eh, path, env_file) != 0
+    # The update itself went through...
+    assert gcloud.traffic == [{"revisionName": gcloud.latest, "percent": 100}]
+    out = capsys.readouterr().out
+    # ...but the operator is told the queue is still paused and how to fix it.
+    assert "STILL PAUSED" in out
+    assert (
+        "gcloud tasks queues resume creative-worker-queue --location us-central1" in out
+    )
+
+
+def test_resume_failure_never_masks_the_refusal(eh, ids, env_file, bq, gcloud, capsys):
+    bq.processing = 1
+    gcloud.fail_queue = {"resume"}
+    path = ids({"creative_agent": 11})
+    assert _apply(eh, path, env_file) != 0
+    out = capsys.readouterr().out
+    assert "worker busy" in out
+    assert "STILL PAUSED" in out
+
+
+def test_resume_failure_never_masks_an_unexpected_error(
+    eh, ids, env_file, bq, gcloud, capsys
+):
+    bq.query_and_wait.side_effect = RuntimeError("bigquery down")
+    gcloud.fail_queue = {"resume"}
+    path = ids({"creative_agent": 11})
+    with pytest.raises(RuntimeError, match="bigquery down"):
+        _apply(eh, path, env_file)
+    assert "STILL PAUSED" in capsys.readouterr().out
+
+
+# --- in-flight tasks: a task dispatched before the pause may not be PROCESSING yet ---
+
+IN_FLIGHT = {
+    "name": "projects/p/locations/us-central1/queues/creative-worker-queue/tasks/1",
+    "dispatchCount": "1",
+    "responseCount": "0",
+    "lastAttempt": {
+        "scheduleTime": "2026-10-16T10:00:00Z",
+        "dispatchTime": "2026-10-16T10:00:01Z",
+    },
+}
+
+
+def test_a_task_in_flight_refuses_and_resumes(eh, ids, env_file, bq, gcloud, capsys):
+    gcloud.tasks = [IN_FLIGHT]
+    path = ids({"creative_agent": 11})
+    assert _apply(eh, path, env_file) != 0
+    assert [c for c, _ in gcloud.calls] == [
+        _queue_cmd("pause"),
+        _list_cmd(),
+        _queue_cmd("resume"),
+    ]
+    assert not gcloud.calls[1][1].get("shell")
+    assert gcloud.calls[1][1].get("check") is True
+    assert open(env_file).read() == ""
+    assert "1 task(s) in flight" in capsys.readouterr().out
+
+
+def test_answered_and_undispatched_tasks_do_not_block(eh, ids, env_file, bq, gcloud):
+    gcloud.tasks = [
+        # waiting to be retried: its last attempt got a response
+        {
+            "name": "t/2",
+            "lastAttempt": {
+                "dispatchTime": "2026-10-16T10:00:01Z",
+                "responseTime": "2026-10-16T10:00:09Z",
+                "responseStatus": {"code": 13},
+            },
+        },
+        # never dispatched (queued while paused)
+        {"name": "t/3", "scheduleTime": "2026-10-16T10:05:00Z"},
+    ]
+    path = ids({"creative_agent": 11})
+    assert _apply(eh, path, env_file) == 0
+    assert gcloud.mutating()[0] == _expected_cmd()
+
+
+def test_task_listing_failure_refuses_and_resumes(
+    eh, ids, env_file, bq, gcloud, capsys
+):
+    gcloud.fail_queue = {"list"}
+    path = ids({"creative_agent": 11})
+    assert _apply(eh, path, env_file) != 0
+    assert gcloud.mutating() == []
+    assert gcloud.calls[-1][0] == _queue_cmd("resume")
+    assert "can't list" in capsys.readouterr().out
+
+
+def test_force_skips_the_in_flight_check_too(eh, ids, env_file, bq, gcloud):
+    gcloud.tasks = [IN_FLIGHT]
+    path = ids({"creative_agent": 11})
+    argv = ["apply", "--ids", path, "--env-file", env_file, "--update-worker"]
+    assert eh.main([*argv, "--force"]) == 0
+    assert _list_cmd() not in [c for c, _ in gcloud.calls]

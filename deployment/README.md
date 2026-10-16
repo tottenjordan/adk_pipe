@@ -317,6 +317,15 @@ uv run python deployment/engine_handoff.py apply --ids /tmp/engine_ids.json --en
 #    refuses ("worker busy", exit 1, nothing written) while a run is in flight, because
 #    the new revision would kill it; --force skips the check, --worker-service <name>
 #    targets another service. No creative_agent record -> .env only, worker untouched.
+#    Around the check and the update it runs `gcloud tasks queues pause
+#    creative-worker-queue --location us-central1` (override with CRF_TASKS_QUEUE /
+#    CRF_TASKS_LOCATION; the location falls back to GCP_REGION), so no task starts
+#    between the check and the new revision, and `... resume` afterwards, also on a
+#    refusal or error. The check also refuses while a task's last attempt is in flight
+#    (`gcloud tasks list`: dispatchTime set, no responseTime), since a task dispatched
+#    just before the pause may not have marked its row PROCESSING yet; --force skips
+#    both checks but still pauses. A failed pause refuses with nothing changed; a failed resume exits 1 with
+#    "STILL PAUSED" and the manual resume command (rows stay QUEUED until it is run).
 #    The worker is traffic-pinned (traffic on a named revision, not "latest"), so the
 #    update alone leaves the new revision at 0% (and gcloud's success line names the OLD
 #    revision). --update-worker therefore also reads the new revision
