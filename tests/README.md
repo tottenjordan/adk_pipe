@@ -15,11 +15,11 @@ uv run pytest tests/ -q -n 6 -m "not slow"  # fast local loop: skips the multi-s
 uv run pytest -m "not subprocess"  # skip the child-process tests (fresh-import guards, shell entrypoint)
 
 # ADK evals — end-to-end LLM-as-judge (real API calls, ~5 min per case)
-PYTHONPATH="$PWD" uv run adk eval trend_scout tests/eval/evalsets/trend_scout_evalset.json \
+uv run adk eval agents/trend_scout tests/eval/evalsets/trend_scout_evalset.json \
   --config_file_path=tests/eval/eval_config.json --print_detailed_results
 
-# creative_agent eval — needs PYTHONPATH + its own rubric config
-PYTHONPATH="$PWD" uv run adk eval creative_agent tests/eval/evalsets/creative_agent_evalset.json \
+# creative_agent eval — its own rubric config
+uv run adk eval agents/creative_agent tests/eval/evalsets/creative_agent_evalset.json \
   --config_file_path=tests/eval/creative_eval_config.json --print_detailed_results
 ```
 
@@ -32,7 +32,8 @@ GOOGLE_CLOUD_PROJECT=test-project /usr/bin/time -f "%e s wall %U s user" taskset
 ```
 
 Pytest config lives in `pyproject.toml` `[tool.pytest.ini_options]`: `testpaths`,
-`pythonpath = ["."]` (so tests import the flat packages without `sys.path` hacks), the
+`pythonpath = ["."]` (the repo root, for `deployment.*` / `runserver.*` / `tests.*`; the
+agents in `agents/` and the libs in `libs/` import by bare name via the editable install), the
 `subprocess` and `slow` markers (`slow` = notebook-parity generation smoke, scenario-preview
 goldens, `test_build_image.py`), and `filterwarnings` scoped to known third-party noise only.
 
@@ -62,7 +63,7 @@ tests/
 ├── test_agent_common_models.py      # shared model location + build_gemini() factory
 ├── test_agent_common_state.py       # shared memorize tool + seed_initial_state()
 ├── test_ad_copy_prompts.py          # ad copy prompts: angle spread + typicality (drafter), angle coverage/surprise/brief checklist/CTA (critic), flagged-only reviser tokens, the trend tie rule (drafter) + trend_bridge check wording matching the judge's trend_connected (critic); brace-safety
-├── test_agents_dir.py               # agents/ serving-view symlinks used by the Cloud Run api_server
+├── test_agents_dir.py               # agents/ = ADK agents_dir: exactly the 3 agents as real dirs, libs/ outside it, Dockerfile PYTHONPATH, a local session via async_app's default SQLite store
 ├── test_async_app_wiring.py         # imports deployment.async_app for real (subprocess, in-memory stores): UserAuthzMiddleware installed, enforce boot guard refuses a missing proxy config
 ├── test_async_runs.py               # async-job run model: kick-off/poll/resume, terminal markers, checkpoint edits (report, structured brief: valid merge / 400 on invalid); only the terminal marker decides done/error, so a contained in-pipeline error event keeps the run running and is listed as a deduped, capped, truncated non-fatal `warnings` entry (#322)
 ├── test_authz.py                    # P3 per-user authz (incl. /shares/{u}, /person-refs/{u} and /variants/{u} paths): modes, userId normalization, proxy ID-token check, middleware 401/403/404, ownership → 404
@@ -73,8 +74,8 @@ tests/
 ├── test_create_bq_tables.py         # create_bq_tables.sh with a stub bq: bandit_* + creative_ratings + creative_shares + person_references + trend_digest (partitioned, 30-day expiry) schemas (ratings from deployment/bq_schemas/creative_ratings.json, REPEATED fail_reasons, vs RATING_COLUMN_TYPES), partitioning/clustering, idempotency
 ├── test_bandit_*.py                 # JAX bandit core (bandit/): features, config, linear TS, baselines, environment, simulate+metrics+aggregate, notebook-parity figures (fixture data) + generation smoke, scripted shifts
 │                                    #   (also test_bandit_continuous.py: §11 continuous segments; test_bandit_endpoint_client.py: traffic endpoint clients/retries; test_bandit_traffic_bq.py: traffic row builders vs contracts §3)
-├── test_brand_history.py            # creative_agent/brand_history.py: parameterised creative_evals SELECT (no string-built brand), report reads limited to the configured bucket + size cap, aggregation (recent/strongest styles, recurring weak dimensions, runs with failed non-advisory gates), brace-free ≤120-word note, BQ/GCS/timeout fail-open, disabled knob → no query, shortlist re-draw unless a style preference is set, canonical style mapping (schema example phrasings), allowlisted tones/dimensions/gates only (injection strings never reach the note), GCS per-call timeouts + report-read deadline, failed-check denominator = readable reports
-├── test_rating_signals.py          # creative_agent/rating_signals.py: fail-reason enum == runserver copy, check-backed strictness subset, allowlisted aggregation (canonical styles, tone Literal, enum; injection strings dropped), style/reason minimums + 30% dominance, brace-free ≤80-word note, SELECT reads only allowlisted columns (never note), normalised @brand/@days params, 8 s job timeout, fail-open (None = unavailable)
+├── test_brand_history.py            # agents/creative_agent/brand_history.py: parameterised creative_evals SELECT (no string-built brand), report reads limited to the configured bucket + size cap, aggregation (recent/strongest styles, recurring weak dimensions, runs with failed non-advisory gates), brace-free ≤120-word note, BQ/GCS/timeout fail-open, disabled knob → no query, shortlist re-draw unless a style preference is set, canonical style mapping (schema example phrasings), allowlisted tones/dimensions/gates only (injection strings never reach the note), GCS per-call timeouts + report-read deadline, failed-check denominator = readable reports
+├── test_rating_signals.py          # agents/creative_agent/rating_signals.py: fail-reason enum == runserver copy, check-backed strictness subset, allowlisted aggregation (canonical styles, tone Literal, enum; injection strings dropped), style/reason minimums + 30% dominance, brace-free ≤80-word note, SELECT reads only allowlisted columns (never note), normalised @brand/@days params, 8 s job timeout, fail-open (None = unavailable)
 ├── test_brief_check.py              # deterministic creative-brief check (proposition incl. abbreviations/capital-led sentence breaks/brand-product-trend names/and-compounds, X-but-Y insight + ;/dash/contrast markers, cited RTBs + normalised src-N/brief ids vs sources, fit_mode, angle names/tensions, motifs, assets, product named exactly in mandatories, unsupported absolute claims vs key selling points/mandatories)
 ├── test_brief_render.py             # creative brief → "## Creative Brief" markdown in the research PDF (real markdown_pdf TOC check) + compact (headless) prompt variant + gallery summary card (HTML-escaped)
 ├── test_build_context.py            # the web image's build context excludes per-checkout generated files (tsconfig.tsbuildinfo, next-env.d.ts, Playwright outputs) so the registry cache hits
@@ -82,11 +83,11 @@ tests/
 ├── test_citations.py                # shared citation renderer (creative_agent.citations)
 ├── test_cleanup_policies.py         # deployment/cleanup/ retention rules: scoped to trend-trawler's own packages/prefixes, untagged registry versions only, never live engine / bandit / run / share prefixes
 ├── test_cleanup_apply_sh.py         # deployment/cleanup/apply.sh preview with a stub gcloud: a failed lookup of what Cloud Run serves aborts (exit 5)
-├── test_clock.py                    # agent_common/clock.py: per-run date state (timezone, fallback, naive = UTC), TREND_TIMEZONE config + deploy wiring
+├── test_clock.py                    # libs/agent_common/clock.py: per-run date state (timezone, fallback, naive = UTC), TREND_TIMEZONE config + deploy wiring
 ├── test_concept_guard.py            # final image prompts always name the trend_motif + product + brand_cue (pure guard; token-overlap matching incl. brand_cue, intangible-product cue); concept_issues (quoted text vs paired headline/CTA incl. curly quotes / punctuation / substring, meme+comic exemption, empty motif, set-level text cap + centred-hero selection, conservative heuristics; rating strictness: text cap 1, prominence line, verbatim motif) + restore_unflagged_concepts
 ├── test_config.py                   # per-agent config resolution (incl. campaign-placement resolver, brand-history + rating-learning knobs)
-├── test_claims.py                  # creative_agent/claims.py: absolute-claim lexicon (whole-word, risk free/risk-free, 100% ≠ 100, lifetime idioms exempt, "never miss" not a claim), allowed text + term families, claims_allowed_text joins
-├── test_lexicon.py                 # creative_agent/lexicon.py: the shared Lexicon engine (whole-word, fold, space/hyphen, boundary class, idioms blanked first, overrides, rewrites, families)
+├── test_claims.py                  # agents/creative_agent/claims.py: absolute-claim lexicon (whole-word, risk free/risk-free, 100% ≠ 100, lifetime idioms exempt, "never miss" not a claim), allowed text + term families, claims_allowed_text joins
+├── test_lexicon.py                 # agents/creative_agent/lexicon.py: the shared Lexicon engine (whole-word, fold, space/hyphen, boundary class, idioms blanked first, overrides, rewrites, families)
 ├── test_lexicon_table.py           # characterisation table pinning claims / temporal_terms / endorsement behaviour across the shared engine (incl. the CA-9 dropped idioms)
 ├── test_text_match.py               # shared conservative matching (Unicode folding, plurals, sizes/packaging head nouns, single-token full phrase, brand anchor, 60% token-overlap mentions; the shared word sets pinned to the former private sets)
 ├── test_run_policy.py               # RunPolicy.from_state: every gate-policy field derived from state like the gates' former ad-hoc reads (one golden state per feature combination)
@@ -172,7 +173,7 @@ tests/
 ├── test_retry_node.py               # RetryUntilKeyNode (retry-on-empty graph wrapper; transient errors as missed attempts; is_populated; NodeTool no-stall)
 ├── test_root_history.py            # agent_common.history: ADK replays earlier pipelines' sub-agent turns + node inputs into a root's request (measured on the real creative root), the trim keeps only user/root turns + call/response pairs, precise matching, both roots wired
 ├── test_early_ad_copy_eval.py       # early ad-copy judging (evaluate_ad_copies_only / evaluate_ad_copies_node): partial stored, reused by finalize only when the fingerprint matches, failed copies re-judged, fail-soft
-├── test_finalize.py                 # creative_agent/finalize.py nodes: summary formatting, judge off-loop on a snapshot, per-step isolation + ordering in persist_node, sync steps off the loop, skipped eval writes
+├── test_finalize.py                 # agents/creative_agent/finalize.py nodes: summary formatting, judge off-loop on a snapshot, per-step isolation + ordering in persist_node, sync steps off the loop, skipped eval writes
 ├── test_fail_soft_node.py           # FailSoftNode (optional-step exception → on_error state delta; successors still run; DynamicNodeFailError unwrap)
 ├── test_retry_config.py             # scoped RetryConfig constants on infra agents
 ├── test_research_alignment.py       # research prompts, inputs and brief helpers agree with each agent's input and the deterministic gates (planner fallbacks, named tokens, source de-duplication, schema/doc wording)
@@ -185,13 +186,13 @@ tests/
 ├── test_style_shortlist.py          # per-session stratified style shortlist (families match the guide palette; exclusion of recently used styles and preference of well-rated ones keep the 2/3/1 strata)
 ├── test_tools.py                    # backend tool functions (pure logic, no I/O)
 ├── test_tools_retry.py              # infra tools propagate (don't swallow) exceptions
-├── test_trend_context.py           # trend_scout/trend_context.py: per-trend context JSON from info_gtrends + selected_gtrends (fenced JSON, markdown fallback, malformed → ""), plus sensitive / sensitive_reason only for a flagged term (unflagged output unchanged)
-├── test_trend_situation.py         # creative_agent/trend_situation.py: the validator table (upcoming/just-happened ok; no source / unknown src id / outside the window / wrong side of today / no outcome / URL date before the event → unknown; live/sensitive/ongoing/evergreen/low confidence never timely), valid_until, run-timezone dates, tone playbook, one-line moment, prompt tokens
+├── test_trend_context.py           # agents/trend_scout/trend_context.py: per-trend context JSON from info_gtrends + selected_gtrends (fenced JSON, markdown fallback, malformed → ""), plus sensitive / sensitive_reason only for a flagged term (unflagged output unchanged)
+├── test_trend_situation.py         # agents/creative_agent/trend_situation.py: the validator table (upcoming/just-happened ok; no source / unknown src id / outside the window / wrong side of today / no outcome / URL date before the event → unknown; live/sensitive/ongoing/evergreen/low confidence never timely), valid_until, run-timezone dates, tone playbook, one-line moment, prompt tokens
 ├── test_trend_situation_graph.py   # the trend situation branch inside combined_research_pipeline (stub models): grounded draft → validated moment in the brief writer's prompt + compact brief; synthesizer raises → unknown; empty turns exhaust → unknown; disabled → no model call, stale draft cleared
 ├── test_timely_rules.py            # MAX_TIMELY_CONCEPTS, build_timely_rules per phase (incl. the loss wording), timely_rules seeded only when timely, {timely_rules?} placement + sha256-pinned byte-identical instructions without it
-├── test_safer_angle.py            # creative_agent/safer_angle.py (opt-in safer angle for sensitive trends): parse_hint table, derive_state truth table (opt-in AND scout flag; "true" ≠ True), brace-free rule texts carrying the safety floor, state init (both creative apps), {safer_angle_*_rules?} placement + sha256-pinned byte-identical brief/research instructions without it, check_brief(safer_angle_active=) rules, brief gate (stray cleared, active checked), "Safer angle" rendering, checkpoint-1 brief edit
-├── test_temperature_profile.py     # agent_common/sampling.py GEMINI_TEMPERATURE_PROFILE: tuned|default|unknown parsing; fresh-interpreter golden of every agent's temperature (tuned = pre-seam values, default = all 1.0 or unset)
-├── test_temporal_terms.py          # creative_agent/temporal_terms.py: outcome/date/weekday terms flagged, idioms (win win, lose weight, …) pass
+├── test_safer_angle.py            # agents/creative_agent/safer_angle.py (opt-in safer angle for sensitive trends): parse_hint table, derive_state truth table (opt-in AND scout flag; "true" ≠ True), brace-free rule texts carrying the safety floor, state init (both creative apps), {safer_angle_*_rules?} placement + sha256-pinned byte-identical brief/research instructions without it, check_brief(safer_angle_active=) rules, brief gate (stray cleared, active checked), "Safer angle" rendering, checkpoint-1 brief edit
+├── test_temperature_profile.py     # libs/agent_common/sampling.py GEMINI_TEMPERATURE_PROFILE: tuned|default|unknown parsing; fresh-interpreter golden of every agent's temperature (tuned = pre-seam values, default = all 1.0 or unset)
+├── test_temporal_terms.py          # agents/creative_agent/temporal_terms.py: outcome/date/weekday terms flagged, idioms (win win, lose weight, …) pass
 ├── test_timely_guards.py           # enforce_timely_cap / enforce_timely_copy_cap, evergreen temporal-term + pairing issues (only with a timely moment), copy gate write-back, concept guard callback
 ├── test_timely_records.py          # generate_image adds timely: True + valid_until only to the timely concept's render record; every other record keeps its exact keys
 ├── test_timely_expiry.py           # runserver/timely.py timely_expired vs the shared golden tests/fixtures/timely_expiry.json (also read by the frontend's lib/timely.ts tests)
@@ -205,8 +206,8 @@ tests/
 ├── test_trend_scout_logging.py      # trend_scout wiring of the shared observability callbacks
 ├── test_trend_digest.py             # trend_scout trend digest (digest.py graph + digest_store.py helpers/I/O): terms_hash / normalize_draft / SQL builders (param-only) + schema file; real-App graph runs for cache hit (state restored, no model call), miss (describe → classify reads summaries → one MERGE), failed describe (unavailable, no write), < 80% summary coverage, flags must cover every term (partial flags → no write; a row without full flags → miss), a stale draft cleared on the miss route, other terms_hash, BigQuery error/timeout, disabled (classifier only)
 ├── test_trend_scout_sensitive.py    # trend_scout sensitive trends: TrendFlags schema, classify_trends_agent wiring + instruction (inside trend_digest; the root digests right after gather, both branches), pick prompt never selects flagged terms, save_search_trends_to_session_state refuses flagged auto picks (dict/JSON/fenced flags; interactive picks saved; a truthy non-bool interactive flag is not a human pick; malformed flags never block), auto picks limited to the gathered raw_gtrends (normalised, saved as gathered, duplicates skipped), classifier summaries can only add a flag (fenced as data), sensitive_flags parser
-├── test_trend_tie.py                # creative_agent/trend_tie.py: distinctive trend token / full phrase / brief motif (adjacent-word motif phrases) tie, generic query tokens + years + short tokens don't count, avoid terms never count, empty trend passes, tie_terms examples
-├── test_endorsement.py             # creative_agent/endorsement.py lexicon: whole-word/fold/hyphen matching, pinned idioms (partner up, real estate, lower-case rip)
+├── test_trend_tie.py                # agents/creative_agent/trend_tie.py: distinctive trend token / full phrase / brief motif (adjacent-word motif phrases) tie, generic query tokens + years + short tokens don't count, avoid terms never count, empty trend passes, tie_terms examples
+├── test_endorsement.py             # agents/creative_agent/endorsement.py lexicon: whole-word/fold/hyphen matching, pinned idioms (partner up, real estate, lower-case rip)
 ├── test_safer_angle_guards.py      # safer angle on a sensitive trend: copy gate endorsement flag + re-enabled trend tie (risk-named event words excluded) + safer_angle_named_copies, trend_sensitive_hint tie skip, image-QA public_figure_likeness (critical, only when active)
 ├── test_safer_angle_copy_tie.py    # safer angle: at least ceil(n/2) copies must name the subject or use a distinctive safer-angle word (generic/product/brand/risk/avoid words never count), else every untied copy is flagged; gate routing + interactive residual path
 ├── test_visual_concept_prompts.py   # visual concept prompts: shared brand_cue / copy-quoted in-image text / brief avoid + fit_mode rules (drafter, critic, finalizer), finalizer angle_id, interactive reviser keeps brand_cue; brace-safety

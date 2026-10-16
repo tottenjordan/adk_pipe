@@ -50,9 +50,9 @@ Use **`ty`** for type checking (from the Astral team). Never use `mypy` or `pyri
 uv run ty check   # whole repo; scope + rules live in pyproject.toml [tool.ty] (tests/ excluded)
 ```
 
-There is no `src/` directory: the agent packages live **flat at the repo root** on purpose
-(Agent Engine's `extra_packages` staging preserves each package's relative path as its
-import path — see "Flat package layout" in [CLAUDE.md](./CLAUDE.md)). Don't nest them.
+There is no `src/` directory: runnable agents live in `agents/`, shared code in `libs/`,
+bandit tooling in `bandit_stack/`, and every package imports by its bare folder name (see
+"Package layout" in [CLAUDE.md](./CLAUDE.md)). Never give two packages the same folder name.
 
 ## 5. Testing
 

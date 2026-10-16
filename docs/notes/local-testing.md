@@ -13,7 +13,7 @@ The frontend's run page kicks off a run with `POST /runs/{app_name}` and then
 router (on top of ADK's canned session/artifact CRUD), so run it under uvicorn:
 
 ```bash
-TRUST_CLIENT_USER_ID=1 SESSION_SERVICE_URI=memory:// ALLOW_ORIGINS=http://localhost:3000 \
+TRUST_CLIENT_USER_ID=1 ALLOW_ORIGINS=http://localhost:3000 \
   uv run uvicorn deployment.async_app:app --port 8000
 cd frontend && npm install && npm run dev   # http://localhost:3000
 ```
@@ -21,8 +21,11 @@ cd frontend && npm install && npm run dev   # http://localhost:3000
 - `TRUST_CLIENT_USER_ID=1` is required locally (the default authz mode is
   `enforce`, which returns 401 without a proxy-asserted `X-TT-User`); the app
   refuses the flag on Cloud Run (`K_SERVICE` set).
-- `SESSION_SERVICE_URI=memory://` sidesteps ADK's per-agent local SQLite path
-  check, which rejects the `agents/` symlinks.
+- Sessions default to ADK's per-agent local SQLite store
+  (`agents/<app>/.adk/session.db`). The agents are real directories under
+  `agents/`, so ADK's path check passes; the old `SESSION_SERVICE_URI=memory://`
+  workaround (needed while `agents/` held symlinks) is gone
+  (`tests/test_agents_dir.py` creates a session this way).
 - The canned `/run`, `/run_sse` and `/run_live` routes are blocked (404) by
   `runserver/authz.py`; there is no browser-held SSE stream any more.
 
