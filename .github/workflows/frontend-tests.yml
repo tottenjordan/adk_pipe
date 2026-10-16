@@ -6,6 +6,11 @@ on:
   pull_request:
     paths:
       - "frontend/**"
+      # Python sources and shared fixtures the frontend tests read directly
+      # (creative-brief-drift, gcs-route-person, timely): a change there can break them.
+      - "agents/creative_agent/schemas.py"
+      - "tests/fixtures/person_slugs.json"
+      - "tests/fixtures/timely_expiry.json"
       - ".github/workflows/frontend-tests.yml"
 
 permissions:

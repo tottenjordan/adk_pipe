@@ -10,7 +10,7 @@ import { SAMPLE_CREATIVE_BRIEF } from "./helpers";
 // re-renders into creative_brief_md. A Python field the client does not carry
 // would silently fall back to its default on every edit, so every field of the
 // brief models must round-trip through parseCreativeBrief -> toBriefPayload.
-const SCHEMAS = path.resolve(__dirname, "../../../creative_agent/schemas.py");
+const SCHEMAS = path.resolve(__dirname, "../../../agents/creative_agent/schemas.py");
 const source = readFileSync(SCHEMAS, "utf8");
 
 /** Field names of a top-level pydantic class (4-space `name:` lines in its block). */
