@@ -884,12 +884,16 @@ over later. The Cloud Tasks service agent mints the OIDC token; its
   re-selected while its task still waits in the queue gets `AlreadyExists`, which
   counts as dispatched: never two tasks for one attempt. Every lock bumps
   `processing_attempts`, so a reaped or re-queued row gets a fresh task.
-  Cloud Tasks also keeps a used name for about an hour after the task ran, so a
-  row the worker ACKed **without** locking it (no engine configured) is only
-  re-dispatched by a trigger after that window.
+  Cloud Tasks also keeps a used name for up to 24 h after the task ran or was
+  deleted (9 days for a queue.yaml queue), so `AlreadyExists` is confirmed with
+  `get_task`: a task that is gone (a row the worker ACKed **without** locking it,
+  e.g. no engine configured, or 5 failed attempts before the lock) logs a WARNING
+  with `reason=task_name_tombstoned` and is created again **without** a name (the
+  worker's lock makes a duplicate a no-op).
 - The rows are marked QUEUED before the first `create_task`; each call is bounded
-  to 30 s; any error other than `AlreadyExists` is logged and counted, and the row
-  stays QUEUED for the next trigger.
+  to 30 s and retries `ServiceUnavailable` / `DeadlineExceeded` for up to 30 s;
+  any other error (or a `get_task` error other than `NotFound`) is logged and
+  counted, and the row stays QUEUED for the next trigger.
 - The worker answers **200** for every recorded outcome (lost lock, PROCESSED,
   FAILED, re-queued) and for a task that can never run (malformed body, a
   non-allow-listed table, no `CREATIVE_AGENT_ENGINE_ID`); **503** only for an
