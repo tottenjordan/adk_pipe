@@ -22,6 +22,20 @@ import { ArmImage } from "./arm-image";
 import { CtrOverTime, PeriodBars, SegmentBars } from "./creative-detail-charts";
 import { cn } from "@/lib/utils";
 
+// Slides in from the right on the drawer curve (240ms), out a quarter faster;
+// the backdrop fades in step. Reduced motion: a plain fade, no movement.
+const SHEET_OUT = "data-ending-style:duration-[calc(var(--dur-drawer)*0.75)]";
+const BACKDROP = cn(
+  "fixed inset-0 isolate z-50 bg-foreground/40 transition-opacity duration-(--dur-drawer) ease-(--ease-drawer) data-starting-style:opacity-0 data-ending-style:opacity-0",
+  SHEET_OUT
+);
+const SHEET = cn(
+  "fixed inset-y-0 right-0 z-50 flex w-full flex-col border-l border-border bg-card text-card-foreground shadow-xl outline-hidden sm:w-[min(40rem,calc(100vw-3rem))]",
+  "transition-[transform,opacity] duration-(--dur-drawer) ease-(--ease-drawer) motion-safe:data-starting-style:translate-x-full motion-safe:data-ending-style:translate-x-full",
+  "motion-reduce:transition-opacity motion-reduce:data-starting-style:opacity-0 motion-reduce:data-ending-style:opacity-0",
+  SHEET_OUT
+);
+
 /**
  * Right-side sheet with one creative's observed results: a reading sentence, the
  * key numbers, click rate by audience segment (the drawer's main view) and click
@@ -75,9 +89,9 @@ export function CreativeDetailDrawer({
   return (
     <DialogPrimitive.Root open={lane !== null} onOpenChange={(open) => !open && onClose()}>
       <DialogPrimitive.Portal>
-        <DialogPrimitive.Backdrop className="fixed inset-0 isolate z-50 bg-foreground/40" />
+        <DialogPrimitive.Backdrop className={BACKDROP} />
         <DialogPrimitive.Popup
-          className="fixed inset-y-0 right-0 z-50 flex w-full flex-col border-l border-border bg-card text-card-foreground shadow-xl outline-hidden sm:w-[min(40rem,calc(100vw-3rem))]"
+          className={SHEET}
         >
           {lane && (
             <>
