@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useEffectEvent, useRef, useState, type ReactNode } from "react";
+import { useState, type KeyboardEvent, type ReactNode } from "react";
 import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
@@ -10,20 +10,6 @@ import { SHORTCUTS, hasCommandModifier, isTypingTarget } from "@/lib/shortcuts";
 import { ProofCopyPane } from "./proof-copy-pane";
 import { ProofImagePane } from "./proof-image-pane";
 import { ProofKeysContext, dispatchProofKey, type ProofKeyRegistry } from "./proof-keys";
-
-/**
- * True when a key event belongs to this viewer: it happened inside the popup, or
- * on the bare body (focus lost to a removed element) with no other dialog on top.
- * A dialog opened from the viewer (Share) portals outside the popup, so its keys
- * never page or rate behind it.
- */
-function ownsKeyEvent(popup: HTMLElement | null, target: EventTarget | null): boolean {
-  if (!popup) return false;
-  if (target instanceof Node && popup.contains(target)) return true;
-  if (target !== document.body) return false;
-  const dialogs = document.querySelectorAll('[role="dialog"], [role="alertdialog"]');
-  return dialogs[dialogs.length - 1] === popup;
-}
 
 /**
  * Full view of one proof in a dialog: large image left, copy and scores right.
@@ -71,12 +57,15 @@ export function ProofDetail({
     if (next) onIndexChange(next.index);
   };
 
-  const popupRef = useRef<HTMLDivElement>(null);
   const [registry] = useState<ProofKeyRegistry>(() => new Set());
 
-  const onKey = useEffectEvent((e: KeyboardEvent) => {
-    if (e.defaultPrevented || hasCommandModifier(e) || e.shiftKey) return;
-    if (isTypingTarget(e.target) || !ownsKeyEvent(popupRef.current, e.target)) return;
+  // A React handler on the popup, not a document listener: Base UI's popup stops
+  // arrow keys from bubbling past it. A dialog opened from the viewer (Share) is
+  // portalled outside the popup's DOM, so its keys (which still bubble here
+  // through the React tree) fail the contains() check and never page or rate.
+  const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    if (!(e.target instanceof Node) || !e.currentTarget.contains(e.target)) return;
+    if (e.defaultPrevented || hasCommandModifier(e) || e.shiftKey || isTypingTarget(e.target)) return;
     if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
       const delta = e.key === "ArrowLeft" ? -1 : 1;
       if (delta < 0 ? !hasPrev : !hasNext) return;
@@ -86,28 +75,20 @@ export function ProofDetail({
     }
     if (e.repeat) return;
     if (dispatchProofKey(registry, e.key.toLowerCase())) e.preventDefault();
-  });
-
-  const shown = open && proof !== undefined;
-  useEffect(() => {
-    if (!shown) return;
-    const listener = (e: KeyboardEvent) => onKey(e);
-    document.addEventListener("keydown", listener);
-    return () => document.removeEventListener("keydown", listener);
-  }, [shown]);
+  };
 
   const shareAction = proof ? shareSlot?.(proof) : null;
 
   return (
     <Dialog
-      open={shown}
+      open={open && proof !== undefined}
       onOpenChange={(next) => {
         if (!next) onClose();
       }}
     >
       {proof && proof.concept && (
         <DialogContent
-          ref={popupRef}
+          onKeyDown={onKeyDown}
           finalFocus={() => returnFocusTo(proof.index)}
           className="flex max-h-[calc(100dvh-2rem)] w-full flex-col gap-0 overflow-hidden p-0 sm:max-w-[min(72rem,calc(100%-2rem))] md:grid md:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]"
         >
@@ -139,7 +120,7 @@ export function ProofDetail({
                 {pos + 1} of {proofs.length}
               </span>
               {/* Visual hint only: the buttons carry aria-keyshortcuts. */}
-              <span className="ml-auto flex items-center gap-1" aria-hidden="true">
+              <span className="ml-3 flex items-center gap-1" aria-hidden="true">
                 <Kbd>{SHORTCUTS.prev.combos[0][0]}</Kbd>
                 <Kbd>{SHORTCUTS.next.combos[0][0]}</Kbd>
               </span>

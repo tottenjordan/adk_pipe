@@ -51,8 +51,14 @@ function Viewer({
   );
 }
 
-const press = (key: string, init: KeyboardEventInit = {}, target: Element | null = null) =>
-  fireEvent.keyDown(target ?? document.activeElement ?? document.body, { key, ...init });
+// Keys go to the focused element, as in the browser; with nothing focused (jsdom
+// skips the dialog's initial focus) to the viewer's popup.
+const viewerPopup = () => document.querySelector('[data-slot="dialog-content"]') as HTMLElement;
+const press = (key: string, init: KeyboardEventInit = {}, target: Element | null = null) => {
+  const active = document.activeElement;
+  const focused = active && active !== document.body ? active : null;
+  fireEvent.keyDown(target ?? focused ?? viewerPopup(), { key, ...init });
+};
 
 // hidden: true so the checks also work while another dialog marks the viewer aria-hidden.
 const group = (name: string) => screen.getByRole("group", { name, hidden: true });
@@ -105,6 +111,7 @@ describe("proof viewer rating keys", () => {
     const reasons = screen.getByTestId("fail-reasons-visual");
     expect(reasons).toHaveClass("opacity-100");
     expect(reasons.className).not.toMatch(/transition/);
+    expect(visualVerdict()).toHaveClass("[&>button]:transition-none");
     const score = group("Your score for the visual, 1 to 5 (optional)");
     press("4");
     expect(pressed(score, "4")).toBe(true);

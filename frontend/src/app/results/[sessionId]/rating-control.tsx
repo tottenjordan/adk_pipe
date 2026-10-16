@@ -206,6 +206,8 @@ export function RatingControl({
   const payload = buildRatingPayload(appName, creativeKey, kind, draft);
   const canSave = payload !== null && status !== "saving" && isDirty(draft, saved);
   const rootRef = useRef<HTMLDivElement>(null);
+  // Key-driven edits switch the pressed option without the colour fade.
+  const keyInstant = viaKey ? "[&>button]:transition-none" : undefined;
 
   // "Saved" is a passing confirmation: it clears on its own.
   useEffect(() => {
@@ -278,6 +280,7 @@ export function RatingControl({
           value={draft.verdict}
           onChange={(v) => edit({ verdict: v })}
           disabled={status === "saving"}
+          className={keyInstant}
         />
         <SegmentedControl
           label={`Your score for the ${subject}, 1 to 5 (optional)`}
@@ -285,6 +288,7 @@ export function RatingControl({
           value={draft.score === null ? "" : String(draft.score)}
           onChange={(v) => edit({ score: v === "" ? null : Number(v) })}
           disabled={status === "saving"}
+          className={keyInstant}
         />
       </div>
       <FailReasonChips
