@@ -1,17 +1,37 @@
 "use client";
 
-import { type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useEffectEvent, useRef, useState, type ReactNode } from "react";
 import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { Kbd } from "@/components/ui/kbd";
 import type { Proof } from "@/lib/eval-matching";
+import { SHORTCUTS, hasCommandModifier, isTypingTarget } from "@/lib/shortcuts";
 import { ProofCopyPane } from "./proof-copy-pane";
 import { ProofImagePane } from "./proof-image-pane";
+import { ProofKeysContext, dispatchProofKey, type ProofKeyRegistry } from "./proof-keys";
+
+/**
+ * True when a key event belongs to this viewer: it happened inside the popup, or
+ * on the bare body (focus lost to a removed element) with no other dialog on top.
+ * A dialog opened from the viewer (Share) portals outside the popup, so its keys
+ * never page or rate behind it.
+ */
+function ownsKeyEvent(popup: HTMLElement | null, target: EventTarget | null): boolean {
+  if (!popup) return false;
+  if (target instanceof Node && popup.contains(target)) return true;
+  if (target !== document.body) return false;
+  const dialogs = document.querySelectorAll('[role="dialog"], [role="alertdialog"]');
+  return dialogs[dialogs.length - 1] === popup;
+}
 
 /**
  * Full view of one proof in a dialog: large image left, copy and scores right.
  * Left/Right arrows and the prev/next buttons step through the sheet in its
- * current sort order; Escape closes and focus returns to the grid item.
+ * current sort order; Escape closes and focus returns to the grid item. Rating
+ * keys (`lib/shortcuts.ts`, proof scope) go to the rating controls via
+ * `proof-keys.ts`. Every key action is instant (nothing animates on a key), and
+ * none fires while typing, with Ctrl/⌘/Alt/Shift held, or under another dialog.
  */
 export function ProofDetail({
   proofs,
@@ -51,31 +71,45 @@ export function ProofDetail({
     if (next) onIndexChange(next.index);
   };
 
-  const onKeyDown = (e: KeyboardEvent) => {
-    if (e.target instanceof HTMLElement && e.target.closest("input, textarea, select")) return;
-    if (e.key === "ArrowLeft" && hasPrev) {
+  const popupRef = useRef<HTMLDivElement>(null);
+  const [registry] = useState<ProofKeyRegistry>(() => new Set());
+
+  const onKey = useEffectEvent((e: KeyboardEvent) => {
+    if (e.defaultPrevented || hasCommandModifier(e) || e.shiftKey) return;
+    if (isTypingTarget(e.target) || !ownsKeyEvent(popupRef.current, e.target)) return;
+    if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+      const delta = e.key === "ArrowLeft" ? -1 : 1;
+      if (delta < 0 ? !hasPrev : !hasNext) return;
       e.preventDefault();
-      go(-1);
-    } else if (e.key === "ArrowRight" && hasNext) {
-      e.preventDefault();
-      go(1);
+      go(delta);
+      return;
     }
-  };
+    if (e.repeat) return;
+    if (dispatchProofKey(registry, e.key.toLowerCase())) e.preventDefault();
+  });
+
+  const shown = open && proof !== undefined;
+  useEffect(() => {
+    if (!shown) return;
+    const listener = (e: KeyboardEvent) => onKey(e);
+    document.addEventListener("keydown", listener);
+    return () => document.removeEventListener("keydown", listener);
+  }, [shown]);
 
   const shareAction = proof ? shareSlot?.(proof) : null;
 
   return (
     <Dialog
-      open={open && proof !== undefined}
+      open={shown}
       onOpenChange={(next) => {
         if (!next) onClose();
       }}
     >
       {proof && proof.concept && (
         <DialogContent
-          onKeyDown={onKeyDown}
+          ref={popupRef}
           finalFocus={() => returnFocusTo(proof.index)}
-          className="flex max-h-[calc(100dvh-2rem)] w-full flex-col gap-0 overflow-hidden p-0 sm:max-w-[min(72rem,calc(100%-2rem))] md:grid md:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)] data-open:animate-none data-closed:animate-none"
+          className="flex max-h-[calc(100dvh-2rem)] w-full flex-col gap-0 overflow-hidden p-0 sm:max-w-[min(72rem,calc(100%-2rem))] md:grid md:grid-cols-[minmax(0,1.15fr)_minmax(0,1fr)]"
         >
           <ProofImagePane proof={proof} imageUrlFor={imageUrlFor} />
 
@@ -83,33 +117,42 @@ export function ProofDetail({
             <div className="flex items-center gap-1 border-b border-border px-4 py-2 pr-12">
               <Button
                 variant="outline"
-                size="icon-sm"
+                size="icon"
                 onClick={() => go(-1)}
                 disabled={!hasPrev}
-                aria-label="Previous creative"
+                aria-label={SHORTCUTS.prev.label}
+                aria-keyshortcuts={SHORTCUTS.prev.aria}
               >
                 <ChevronLeftIcon />
               </Button>
               <Button
                 variant="outline"
-                size="icon-sm"
+                size="icon"
                 onClick={() => go(1)}
                 disabled={!hasNext}
-                aria-label="Next creative"
+                aria-label={SHORTCUTS.next.label}
+                aria-keyshortcuts={SHORTCUTS.next.aria}
               >
                 <ChevronRightIcon />
               </Button>
               <span className="ml-2 text-xs text-muted-foreground tabular-nums">
                 {pos + 1} of {proofs.length}
               </span>
+              {/* Visual hint only: the buttons carry aria-keyshortcuts. */}
+              <span className="ml-auto flex items-center gap-1" aria-hidden="true">
+                <Kbd>{SHORTCUTS.prev.combos[0][0]}</Kbd>
+                <Kbd>{SHORTCUTS.next.combos[0][0]}</Kbd>
+              </span>
             </div>
 
-            <ProofCopyPane
-              proof={proof}
-              ratingSlot={ratingSlot}
-              shareAction={shareAction}
-              personaliseSlot={personaliseSlot}
-            />
+            <ProofKeysContext value={registry}>
+              <ProofCopyPane
+                proof={proof}
+                ratingSlot={ratingSlot}
+                shareAction={shareAction}
+                personaliseSlot={personaliseSlot}
+              />
+            </ProofKeysContext>
           </div>
         </DialogContent>
       )}

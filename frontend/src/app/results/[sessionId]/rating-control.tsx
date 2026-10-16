@@ -1,12 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useId, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Kbd } from "@/components/ui/kbd";
 import { Textarea } from "@/components/ui/textarea";
 import { FieldLabel } from "@/components/field-label";
 import { SegmentedControl } from "@/components/segmented-control";
 import { getRatings, putRating } from "@/lib/api";
+import { SHORTCUTS } from "@/lib/shortcuts";
 import { cn } from "@/lib/utils";
 import type { Proof } from "@/lib/eval-matching";
 import { FAIL_REASON_LABELS, failReasonsFor, type FailReason } from "@/lib/rating-reasons";
@@ -24,15 +26,19 @@ import {
   type RatingKind,
   type RatingVerdict,
 } from "@/lib/ratings";
+import { useProofKeyTarget } from "./proof-keys";
 
-const VERDICT_OPTIONS: { value: RatingVerdict | ""; label: string }[] = [
-  { value: "pass", label: "Pass" },
-  { value: "fail", label: "Fail" },
+const VERDICT_OPTIONS: { value: RatingVerdict | ""; label: string; keyshortcuts: string }[] = [
+  { value: "pass", label: "Pass", keyshortcuts: SHORTCUTS.pass.aria },
+  { value: "fail", label: "Fail", keyshortcuts: SHORTCUTS.fail.aria },
 ];
 const SCORE_OPTIONS = [
-  { value: "", label: "No score" },
-  ...[1, 2, 3, 4, 5].map((n) => ({ value: String(n), label: String(n) })),
+  { value: "", label: "No score", keyshortcuts: SHORTCUTS.noScore.aria },
+  ...[1, 2, 3, 4, 5].map((n) => ({ value: String(n), label: String(n), keyshortcuts: String(n) })),
 ];
+
+/** How long the "Saved" confirmation stays before it clears. */
+export const SAVED_CLEAR_MS = 2500;
 
 export type SetRating = (creativeKey: string, rating: Rating | undefined) => void;
 
@@ -88,15 +94,34 @@ function FailReasonChips({
   selected,
   onToggle,
   disabled,
+  shown,
+  instant,
 }: {
   kind: RatingKind;
   selected: readonly FailReason[];
   onToggle: (reason: FailReason) => void;
   disabled: boolean;
+  /** Only on a fail; otherwise the group keeps its space (no layout shift) but is invisible and inert. */
+  shown: boolean;
+  /** Skip the fade (the verdict was set by a key: key actions never animate). */
+  instant: boolean;
 }) {
   const id = useId();
   return (
-    <div role="group" aria-labelledby={`${id}-label`}>
+    <div
+      role="group"
+      aria-labelledby={`${id}-label`}
+      aria-hidden={!shown || undefined}
+      inert={!shown}
+      data-testid={`fail-reasons-${kind}`}
+      className={cn(
+        shown ? "opacity-100" : "opacity-0",
+        !instant &&
+          (shown
+            ? "transition-opacity duration-(--dur-pop) ease-(--ease-out)"
+            : "transition-opacity duration-(--dur-exit) ease-(--ease-out)")
+      )}
+    >
       <FieldLabel id={`${id}-label`}>Why did it fail? (optional)</FieldLabel>
       <div className="mt-1 flex flex-wrap gap-1.5">
         {failReasonsFor(kind).map((reason) => {
@@ -175,12 +200,23 @@ export function RatingControl({
     setDraft(draftFrom(saved));
   }
   const [status, setStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  // The last edit came from a key: the fail-reason group appears without a fade.
+  const [viaKey, setViaKey] = useState(false);
   const subject = title.toLowerCase();
   const payload = buildRatingPayload(appName, creativeKey, kind, draft);
   const canSave = payload !== null && status !== "saving" && isDirty(draft, saved);
+  const rootRef = useRef<HTMLDivElement>(null);
 
-  const edit = (patch: Partial<RatingDraft>) => {
+  // "Saved" is a passing confirmation: it clears on its own.
+  useEffect(() => {
+    if (status !== "saved") return;
+    const timer = setTimeout(() => setStatus("idle"), SAVED_CLEAR_MS);
+    return () => clearTimeout(timer);
+  }, [status]);
+
+  const edit = (patch: Partial<RatingDraft>, fromKey = false) => {
     setTouched(true);
+    setViaKey(fromKey);
     // Reasons only belong to a fail: switching to Pass clears them.
     setDraft((d) => ({ ...d, ...patch, ...(patch.verdict === "pass" ? { failReasons: [] } : {}) }));
     if (status !== "saving") setStatus("idle");
@@ -209,8 +245,26 @@ export function RatingControl({
     }
   };
 
+  useProofKeyTarget({
+    kind,
+    root: rootRef,
+    // The first group is the verdict.
+    focus: () => rootRef.current?.querySelector<HTMLButtonElement>('[role="group"] button')?.focus(),
+    handleKey: (key) => {
+      if (status === "saving") return false;
+      if (key === "p" || key === "f") edit({ verdict: key === "p" ? "pass" : "fail" }, true);
+      else if (key === "0") edit({ score: null }, true);
+      else if (/^[1-5]$/.test(key)) edit({ score: Number(key) }, true);
+      else if (key === "s") {
+        if (!canSave) return false;
+        void save();
+      } else return false;
+      return true;
+    },
+  });
+
   return (
-    <div className="space-y-2" data-testid={`rating-${kind}`}>
+    <div ref={rootRef} className="space-y-2" data-testid={`rating-${kind}`}>
       <div className="flex items-baseline justify-between gap-3">
         <FieldLabel as="h4" id={`${id}-title`}>
           {title}
@@ -233,14 +287,14 @@ export function RatingControl({
           disabled={status === "saving"}
         />
       </div>
-      {draft.verdict === "fail" && (
-        <FailReasonChips
-          kind={kind}
-          selected={draft.failReasons}
-          onToggle={toggleReason}
-          disabled={status === "saving"}
-        />
-      )}
+      <FailReasonChips
+        kind={kind}
+        selected={draft.failReasons}
+        onToggle={toggleReason}
+        disabled={status === "saving"}
+        shown={draft.verdict === "fail"}
+        instant={viaKey}
+      />
       <div>
         <FieldLabel as="label" htmlFor={`${id}-note`}>
           Note (optional)
@@ -256,7 +310,7 @@ export function RatingControl({
         />
       </div>
       <div className="flex items-center gap-3">
-        <Button size="sm" onClick={save} disabled={!canSave}>
+        <Button size="sm" onClick={save} disabled={!canSave} aria-keyshortcuts={SHORTCUTS.save.aria}>
           {status === "saving" ? "Saving…" : `Save ${subject} rating`}
         </Button>
         <span aria-live="polite" className="text-xs">
@@ -267,6 +321,45 @@ export function RatingControl({
         </span>
       </div>
     </div>
+  );
+}
+
+/** One key cap (or cap range) and what it does, for the legend. */
+function KeyHint({ caps, label }: { caps: string; label: string }) {
+  return (
+    <span className="inline-flex items-center gap-1">
+      <Kbd>{caps}</Kbd>
+      {label}
+    </span>
+  );
+}
+
+/**
+ * The rating keys, from the shortcut registry. They rate the visual unless focus
+ * is in the ad copy control (C moves it there, V back).
+ */
+function RatingKeysLegend({ copy }: { copy: boolean }) {
+  const cap = (id: "pass" | "fail" | "noScore" | "save" | "rateCopy" | "rateVisual") =>
+    SHORTCUTS[id].combos[0][0];
+  const scores = SHORTCUTS.score.combos;
+  return (
+    <p
+      data-testid="rating-keys"
+      className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground"
+    >
+      <span className="sr-only">Keyboard: </span>
+      <KeyHint caps={cap("pass")} label="pass" />
+      <KeyHint caps={cap("fail")} label="fail" />
+      <KeyHint caps={`${scores[0][0]}–${scores[scores.length - 1][0]}`} label="score" />
+      <KeyHint caps={cap("noScore")} label="no score" />
+      <KeyHint caps={cap("save")} label="save" />
+      {copy && (
+        <>
+          <KeyHint caps={cap("rateCopy")} label="ad copy" />
+          <KeyHint caps={cap("rateVisual")} label="visual" />
+        </>
+      )}
+    </p>
   );
 }
 
@@ -297,6 +390,7 @@ export function CreativeRatings({
         <p className="mt-0.5 text-xs text-muted-foreground">
           Your verdicts are compared with the judge&apos;s to check how far its scores can be trusted.
         </p>
+        <RatingKeysLegend copy={keys.adCopy !== undefined} />
       </div>
       {keys.adCopy && (
         <RatingControl
