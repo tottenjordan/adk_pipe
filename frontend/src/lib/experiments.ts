@@ -1038,9 +1038,14 @@ export const POLICY_COLORS: Record<Policy, string> = {
 const POLICY_DASH: Partial<Record<Policy, string>> = { uniform: "2 3", oracle: "6 4", linear_ts_unshifted: "5 4" };
 
 /** Arm colours in arm order (the four chromatic slots; arms are capped at 4). */
-// Creatives get their own earth-tone palette so a creative line never shares a
-// colour with a strategy line (POLICY_COLORS): teal, ochre-brown, olive, navy.
-export const ARM_COLORS = ["#0f766e", "#8a5a2b", "#5f7a1f", "#1e3a5f"] as const;
+// Creative lines cross, so the four are validated as ALL pairs (dataviz skill's
+// validator, light, surface #fff): worst CVD ΔE 12.7, normal-vision ΔE 24.2.
+// Orange, plum, sea green, lavender: no blue/cyan (that family stays the live
+// endpoint's, Linear TS #2a78d6, and proof cyan's), every slot ≥ 19 normal-vision
+// ΔE from both and ≥ 10 from the pass/fail/pending marks. Slots 3–4 are under 3:1
+// on white (2.35, 2.64), so the share chart keeps its legend and the arm table as
+// relief; slots 1–2 (every two-arm experiment) clear 3:1 and differ most (ΔE 24).
+export const ARM_COLORS = ["#e26b1b", "#923e81", "#54bb97", "#b688fe"] as const;
 
 const CANONICAL_ORDER: Policy[] = [
   "linear_ts",
