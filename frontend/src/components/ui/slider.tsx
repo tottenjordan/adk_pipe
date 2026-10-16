@@ -73,7 +73,7 @@ export function Slider({
             aria-label={ariaLabel}
             aria-labelledby={ariaLabelledBy}
             getAriaValueText={valueText ? (_formatted, v) => valueText(v) : undefined}
-            className="size-4 rounded-full border-2 border-primary bg-card shadow-[0_1px_2px_rgb(26_29_33/0.2)] outline-hidden has-[:focus-visible]:ring-3 has-[:focus-visible]:ring-ring/50 data-[dragging]:scale-110 motion-reduce:transition-none"
+            className="size-4 rounded-full border-2 border-primary bg-card shadow-[0_1px_2px_rgb(26_29_33/0.2)] outline-hidden has-[:focus-visible]:ring-3 has-[:focus-visible]:ring-ring/50 transition-[scale] duration-(--dur-press) ease-(--ease-out) data-[dragging]:scale-110 motion-reduce:data-[dragging]:scale-100"
           />
         </SliderPrimitive.Track>
       </SliderPrimitive.Control>
