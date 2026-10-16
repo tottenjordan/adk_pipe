@@ -566,6 +566,8 @@ async function main() {
     });
     const panel = page.locator('section[aria-labelledby="deploy-heading"]');
     await panel.waitFor();
+    // Collapsed by default: open it (the panel loads on first open).
+    await panel.getByRole("button", { name: "Deploy creatives as a live experiment" }).click();
     for (const i of [0, 1, 2]) await page.locator(`#deploy-creative-${i}`).check();
     await page.waitForFunction(() =>
       [...document.querySelectorAll('section[aria-labelledby="deploy-heading"] img')].every(
@@ -1464,6 +1466,8 @@ async function journeyExperiments() {
     });
     const panel = page.locator('section[aria-labelledby="deploy-heading"]');
     await panel.waitFor();
+    // Collapsed by default: open it (the panel loads on first open).
+    await panel.getByRole("button", { name: "Deploy creatives as a live experiment" }).click();
     for (const i of [0, 1, 2]) await page.locator(`#deploy-creative-${i}`).check();
     await page.waitForFunction(() =>
       [...document.querySelectorAll('section[aria-labelledby="deploy-heading"] img')].every(

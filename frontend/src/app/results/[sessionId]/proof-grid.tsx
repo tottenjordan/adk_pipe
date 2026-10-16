@@ -63,6 +63,11 @@ export function NamesRealPersonChip({ show, className }: { show?: boolean; class
   );
 }
 
+/** Whether a proof shows any flag chip under its scores. */
+function hasFlags(p: Proof): boolean {
+  return proofFailedChecks(p).length > 0 || Boolean(p.timely) || Boolean(p.namesRealPerson);
+}
+
 /**
  * Contact sheet: every creative as a dense proof (square image, headline, two
  * score marks). Each proof is a button that opens ProofDetail.
@@ -86,6 +91,8 @@ export function ProofGrid({
   /** Whether the user has rated this proof (shows a muted "Rated" mark). */
   isRated?: (proof: Proof) => boolean;
 }) {
+  // One card with a chip reserves the flag row on every card, so scores line up.
+  const reserveFlags = proofs.some(hasFlags);
   return (
     <section aria-labelledby="proofs-heading" className="mb-6">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
@@ -113,7 +120,7 @@ export function ProofGrid({
                 ref={itemRef(p.index)}
                 onClick={() => onOpen(p.index)}
                 aria-label={`Open creative ${p.index + 1}: ${p.concept.headline}${timelyAria(p.timely)}${p.namesRealPerson ? " · names a real person" : ""}${rated ? " (rated)" : ""}`}
-                className="group flex h-full w-full flex-col rounded-lg border border-border bg-card p-2 text-left transition-colors hover:border-foreground/40"
+                className="group flex h-full w-full flex-col rounded-lg border border-border bg-card p-2 text-left transition-[border-color,scale] duration-(--dur-press) ease-(--ease-out) hover:border-foreground/40 active:scale-[0.99] motion-reduce:transition-colors motion-reduce:active:scale-100"
               >
                 <ProofImage
                   src={imageUrlFor(p.concept.concept_name)}
@@ -140,11 +147,13 @@ export function ProofGrid({
                       <ScoreMark label="Visual" score={p.visualEval?.score} />
                     </div>
                   </div>
-                  <div className="flex flex-wrap gap-1.5 empty:hidden">
-                    <CheckFailedChip count={proofFailedChecks(p).length} className="mt-2" />
-                    <TimelyChip timely={p.timely} className="mt-2" />
-                    <NamesRealPersonChip show={p.namesRealPerson} className="mt-2" />
-                  </div>
+                  {reserveFlags && (
+                    <div data-slot="proof-flags" className="mt-2 flex min-h-4.5 flex-wrap gap-1.5">
+                      <CheckFailedChip count={proofFailedChecks(p).length} />
+                      <TimelyChip timely={p.timely} />
+                      <NamesRealPersonChip show={p.namesRealPerson} />
+                    </div>
+                  )}
                 </div>
               </button>
             </li>
