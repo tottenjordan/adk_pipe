@@ -3,21 +3,13 @@
 # registry layer cache); `docker build .` / `gcloud run deploy --source .` still work.
 
 # ---- app source ----
-# App source (agent packages: trend_scout, creative_agent, interactive_creative,
-# creative_eval, agent_common), prepared in its own stage so the final image can take it
-# with `COPY --link`: a source-only change then rebuilds just this small layer, without
-# pulling and unpacking the ~1 GB dependency layer underneath it.
+# App source (agents/: trend_scout, creative_agent, interactive_creative; libs/:
+# creative_eval, agent_common; runserver/, deployment/), prepared in its own stage so the
+# final image can take it with `COPY --link`: a source-only change then rebuilds just this
+# small layer, without pulling and unpacking the ~1 GB dependency layer underneath it.
 FROM python:3.13-slim AS src
 WORKDIR /app
 COPY . .
-# `gcloud run deploy --source` uploads a zip that does NOT preserve symlinks, so the
-# `agents/<name>` relative symlinks arrive as EMPTY dirs. ADK <2.10 only checked
-# is_dir() and still listed them; ADK 2.10 also requires an `__init__.py`, so
-# `/list-apps` came back empty. Re-create each entry as a symlink to the flat package.
-RUN for d in agents/*/; do \
-      n="$(basename "$d")"; \
-      rm -rf "agents/$n" && ln -s "../$n" "agents/$n"; \
-    done
 
 # ---- runtime ----
 FROM python:3.13-slim
@@ -48,11 +40,12 @@ ENV UV_NO_DEV=1
 # otherwise build and install the project (fetching hatchling from PyPI) on every boot.
 # The venv is complete from the build-time sync above.
 ENV UV_NO_SYNC=1
-# Serve from `agents/` (relative symlinks to the three runnable agents) rather than `.`
-# so `GET /list-apps` returns only those three instead of every top-level dir. The
-# loader only puts `agents/` on sys.path, so PYTHONPATH=/app keeps each agent's
-# cross-package imports (creative_eval, agent_common) resolvable. See agents/README.md.
-ENV PYTHONPATH=/app
+# async_app serves `agents/` (the three runnable agents, real dirs), so `GET /list-apps`
+# returns exactly those. The project is not installed here (--no-install-project), so
+# there is no editable-install .pth: PYTHONPATH lists the roots instead. /app for
+# runserver + deployment, /app/agents for the agents (ADK's loader adds it too, but
+# runserver imports agents directly), /app/libs for agent_common + creative_eval.
+ENV PYTHONPATH=/app:/app/agents:/app/libs
 # Cloud Run sets $PORT; bind all interfaces. Same-origin frontend proxy means no CORS needed.
 # SESSION_SERVICE_URI (opt-in persistent Agent Engine sessions) is read from the
 # environment inside async_app.py, not passed as a flag. See deployment/backend_entrypoint.sh.

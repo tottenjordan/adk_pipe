@@ -12,15 +12,15 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 
 # Runnable ADK agents (what `adk web` and the api serve).
 AGENT_DIRS = {
-    "trend_scout": REPO_ROOT / "trend_scout",
-    "creative_agent": REPO_ROOT / "creative_agent",
-    "interactive_creative": REPO_ROOT / "interactive_creative",
+    "trend_scout": REPO_ROOT / "agents" / "trend_scout",
+    "creative_agent": REPO_ROOT / "agents" / "creative_agent",
+    "interactive_creative": REPO_ROOT / "agents" / "interactive_creative",
 }
 
 # Shared libraries the agents import.
 LIB_DIRS = {
-    "agent_common": REPO_ROOT / "agent_common",
-    "creative_eval": REPO_ROOT / "creative_eval",
+    "agent_common": REPO_ROOT / "libs" / "agent_common",
+    "creative_eval": REPO_ROOT / "libs" / "creative_eval",
 }
 
 # Bandit experimentation stack (never imported by runserver or the agents).

@@ -23,6 +23,7 @@ experiments
 notebook-examples
 imgs
 bandit_serving
+bandit_stack
 cloud_functions
 # Build configs: editing them must not invalidate the api's source layer.
 cloudbuild.yaml
