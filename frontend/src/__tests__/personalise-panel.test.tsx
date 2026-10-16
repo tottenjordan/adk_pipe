@@ -105,6 +105,27 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
+/** The Base UI select's trigger (a combobox showing the chosen person). */
+const trigger = () => screen.getByRole("combobox", { name: "Person" });
+
+/** Open the person picker (once the people loaded) and list its options. */
+async function optionLabels() {
+  await waitFor(() => expect(trigger()).not.toHaveAttribute("data-disabled"));
+  fireEvent.click(trigger());
+  const options = await screen.findAllByRole("option");
+  return options.map((o) => o.textContent);
+}
+
+/** Open the person picker and pick the option named `name`. */
+async function choose(name: string) {
+  await waitFor(() => expect(trigger()).not.toHaveAttribute("data-disabled"));
+  fireEvent.click(trigger());
+  const option = await screen.findByRole("option", { name });
+  // Base UI commits a mouse click only when the press started on the item.
+  fireEvent.pointerDown(option);
+  fireEvent.click(option);
+}
+
 describe("PersonalisePanel", () => {
   it("renders a preview, polls while it is pending and shows both images", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
@@ -118,7 +139,10 @@ describe("PersonalisePanel", () => {
     });
     renderPanel();
     const select = await screen.findByRole("combobox", { name: "Person" });
-    await waitFor(() => expect(select).toHaveValue("consent-1234"));
+    await waitFor(() => expect(select).toHaveTextContent("Me"));
+    // The shared ui/select (like every other picker), not a native <select>.
+    expect(select.tagName).not.toBe("SELECT");
+    expect(select).toHaveAttribute("data-slot", "select-trigger");
     expect(screen.getByText(VARIANT_NOTE)).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Render preview" }));
@@ -163,7 +187,7 @@ describe("PersonalisePanel", () => {
       created_at: DONE.created_at,
     });
     renderPanel();
-    await waitFor(() => expect(screen.getByRole("combobox", { name: "Person" })).toHaveValue("consent-1234"));
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "Person" })).toHaveTextContent("Me"));
     fireEvent.click(screen.getByRole("button", { name: "Render preview" }));
     expect(await screen.findByRole("status")).toHaveTextContent(/Queued/);
 
@@ -200,13 +224,13 @@ describe("PersonalisePanel", () => {
     );
     listVariants.mockResolvedValue(listing({ B: { kb: { ...DONE, status: "done" } } }, castable));
     const { rerender } = render(<Page conceptName="A" />);
-    await waitFor(() => expect(screen.getByRole("combobox", { name: "Person" })).toHaveValue("consent-1234"));
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "Person" })).toHaveTextContent("Me"));
     rerender(<Page conceptName="B" />);
     // B's earlier preview comes from the page's listing, no new request.
     expect(await screen.findByAltText(/Personalised preview with Me/)).toBeInTheDocument();
     rerender(<Page conceptName="C" />);
     await waitFor(() => expect(screen.queryByAltText(/Personalised preview/)).not.toBeInTheDocument());
-    expect(screen.getByRole("combobox", { name: "Person" })).toHaveValue("consent-1234");
+    expect(screen.getByRole("combobox", { name: "Person" })).toHaveTextContent("Me");
     expect(listPersonRefs).toHaveBeenCalledTimes(1);
     expect(listVariants).toHaveBeenCalledTimes(1);
   });
@@ -222,7 +246,7 @@ describe("PersonalisePanel", () => {
       created_at: DONE.created_at,
     });
     renderPanel();
-    await waitFor(() => expect(screen.getByRole("combobox", { name: "Person" })).toHaveValue("consent-1234"));
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "Person" })).toHaveTextContent("Me"));
     expect(listVariants).toHaveBeenCalledTimes(1);
     fireEvent.click(screen.getByRole("button", { name: "Render preview" }));
     await waitFor(() => expect(listVariants).toHaveBeenCalledTimes(2));
@@ -249,7 +273,7 @@ describe("PersonalisePanel", () => {
       created_at: DONE.created_at,
     });
     const { rerender } = render(<Page />);
-    await waitFor(() => expect(screen.getByRole("combobox", { name: "Person" })).toHaveValue("consent-1234"));
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "Person" })).toHaveTextContent("Me"));
     // The refresh after the create sees the queued record.
     listVariants.mockResolvedValue(listing({ [CONCEPT]: { k9: { ...DONE, status: "queued" } } }));
     fireEvent.click(screen.getByRole("button", { name: "Render preview" }));
@@ -343,16 +367,15 @@ describe("PersonalisePanel", () => {
     listVariants.mockResolvedValue(listing({ [CONCEPT]: { k1: DONE } }));
     renderPanel();
     expect(await screen.findByAltText(/Personalised preview with Me/)).toBeInTheDocument();
-    fireEvent.change(screen.getByRole("combobox", { name: "Person" }), {
-      target: { value: "consent-5678" },
-    });
+    await choose("Sam");
     await waitFor(() => expect(screen.queryByAltText(/Personalised preview/)).not.toBeInTheDocument());
+    expect(trigger()).toHaveTextContent("Sam");
   });
 
   it("shows the api's refusal as an alert", async () => {
     createVariant.mockRejectedValue(new VariantError("variant_cap_reached", 429));
     renderPanel();
-    await waitFor(() => expect(screen.getByRole("combobox", { name: "Person" })).toHaveValue("consent-1234"));
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "Person" })).toHaveTextContent("Me"));
     fireEvent.click(screen.getByRole("button", { name: "Render preview" }));
     expect(await screen.findByRole("alert")).toHaveTextContent(/today's limit/);
   });
@@ -397,7 +420,7 @@ describe("PersonalisePanel", () => {
     let resolve: (v: unknown) => void = () => {};
     listVariants.mockReturnValue(new Promise((r) => (resolve = r)));
     renderPanel();
-    await waitFor(() => expect(screen.getByRole("combobox", { name: "Person" })).toHaveValue("consent-1234"));
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "Person" })).toHaveTextContent("Me"));
     const button = screen.getByRole("button", { name: "Render preview" });
     expect(button).toBeEnabled();
     expect(button).not.toHaveAttribute("aria-describedby");
@@ -414,7 +437,7 @@ describe("PersonalisePanel", () => {
     renderPanel();
     expect(await screen.findByRole("heading", { name: "Personalise" })).toBeInTheDocument();
     await waitFor(() => expect(listVariants).toHaveBeenCalled());
-    expect(screen.getAllByRole("option").map((o) => o.textContent)).toEqual(["Me", "Sam"]);
+    expect(await optionLabels()).toEqual(["Me", "Sam"]);
   });
 
   it("swaps the person in a cast creative, leaving the cast person out of the picker", async () => {
@@ -434,8 +457,8 @@ describe("PersonalisePanel", () => {
     renderPanel();
     expect(await screen.findByRole("heading", { name: "Swap person" })).toBeInTheDocument();
     const select = screen.getByRole("combobox", { name: "Person" });
-    await waitFor(() => expect(select).toHaveValue("consent-5678"));
-    expect(screen.getAllByRole("option").map((o) => o.textContent)).toEqual(["Sam"]);
+    await waitFor(() => expect(select).toHaveTextContent("Sam"));
+    expect(await optionLabels()).toEqual(["Sam"]);
     expect(screen.queryByRole("heading", { name: "Personalise" })).not.toBeInTheDocument();
     // The earlier swap with Sam shows side by side with the original.
     expect(await screen.findByText("With Sam")).toBeInTheDocument();
