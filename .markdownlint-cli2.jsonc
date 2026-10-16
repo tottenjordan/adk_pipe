@@ -1,0 +1,18 @@
+// markdownlint-cli2 config, run in CI by .github/workflows/markdown-lint.yml.
+// Only a deliberately small rule set is enabled: every image needs alt text
+// (MD045) and heading levels go up one at a time (MD001).
+{
+  "config": {
+    "default": false,
+    "MD001": true,
+    "MD045": true
+  },
+  // Skip .venv and other gitignored trees so a local run lints what CI lints.
+  "gitignore": true,
+  "ignores": [
+    "**/node_modules/**",
+    "docs/plans/archive/**",
+    // Vendored agent skills, not ours to edit.
+    ".agents/**"
+  ]
+}

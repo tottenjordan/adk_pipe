@@ -31,6 +31,8 @@
 
 ---
 
+## Tasks
+
 ### Task 0: Branch + plan doc
 
 **Step 1:**

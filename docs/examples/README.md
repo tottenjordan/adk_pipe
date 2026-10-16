@@ -226,18 +226,18 @@ web research is saved for humans:**
 <details>
   <summary>Some details on the HTML report</summary>
 
-#### Campaign metadata at the top
+### Campaign metadata at the top
 
 * Brand
 * Target product
 * Key selling point
 * Target audience
 
-#### Each creative has a headline (title) and a caption
+### Each creative has a headline (title) and a caption
 
 ![October 2025 gallery: PRS ad creatives, each with a headline and caption](gallery_sample_prs.png)
 
-#### Hovering over a creative displays
+### Hovering over a creative displays
 
 * How it references the search trend
 * How it markets the target product
