@@ -53,6 +53,27 @@
   --radius-4xl: var(--radius);
 }
 
+/* ── Motion tokens: the only place durations and curves live ─────
+   Feedback motion only (no page entrances or staggers). Only transform and
+   opacity animate (plus Collapsible height via --collapsible-panel-height);
+   never ease-in, never transition-all, nothing animates on a keyboard action,
+   exits are faster than entries, popovers scale from origin-(--transform-origin).
+   Class idiom (Tailwind 4 CSS-variable shorthand):
+     transition-[transform,opacity] duration-(--dur-pop) ease-(--ease-out)
+   `ease-out` / `ease-in-out` / `ease-drawer` also work as bare utilities (these
+   override Tailwind's default curves). `static` keeps every token emitted even
+   when only referenced via var() or an arbitrary value. */
+@theme static {
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+  --dur-press: 140ms; /* button/card press (active:scale-[0.97]) */
+  --dur-pop: 160ms; /* popover/select/menu enter */
+  --dur-dialog: 200ms; /* modal enter, backdrop fade, collapsible height */
+  --dur-drawer: 240ms; /* side sheet enter */
+  --dur-exit: 130ms; /* every exit: faster than its entry */
+}
+
 /* ── Proof-room palette (light theme only) ─────────────────── */
 :root {
   --radius: 0.5rem; /* 8px panels */
