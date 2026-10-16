@@ -45,6 +45,14 @@ updates:
   # there is a follow-up once that is verified on this file layout.
   - package-ecosystem: "pip"
     directory: "/cloud_functions/creative_fanout"
+    # Scanned as a manifest, the lock got single-package PRs for transitive
+    # pins (#479-#482) that skip requirements.txt, fail the drift check and
+    # ignore their parents' caps (google-genai: tenacity<9.2, websockets<17;
+    # agentplatform: opentelemetry-instrumentation-google-genai<1). Only
+    # requirements.txt is bumped; transitive pins move when the lock is
+    # regenerated. Glob patterns are relative to `directory`.
+    exclude-paths:
+      - "requirements.lock.txt"
     schedule:
       interval: "weekly"
     groups:
