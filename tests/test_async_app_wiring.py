@@ -70,9 +70,16 @@ _ENFORCE_SCRIPT = """
     from fastapi.testclient import TestClient
 
     from deployment import async_app
+    import logging
+
+    from runserver.async_runs import ADK_AGENT_ROUTER_LOGGER, RunserverMarkerLogFilter
     from runserver.authz import UserAuthzMiddleware
 
     app = async_app.app
+    router_filters = logging.getLogger(ADK_AGENT_ROUTER_LOGGER).filters
+    assert any(isinstance(f, RunserverMarkerLogFilter) for f in router_filters), (
+        "the __runserver__ unknown-agent log filter is not installed"
+    )
     assert any(m.cls is UserAuthzMiddleware for m in app.user_middleware), (
         "UserAuthzMiddleware is not installed"
     )

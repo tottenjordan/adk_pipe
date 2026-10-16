@@ -4,6 +4,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { FieldLabel } from "@/components/field-label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { createVariant, listPersonRefs, listVariants } from "@/lib/api";
 import type { PersonRef } from "@/lib/person-refs";
 import { cn } from "@/lib/utils";
@@ -292,24 +299,29 @@ export function PersonalisePanel({
             <label htmlFor={selectId} className="block text-xs text-muted-foreground">
               Person
             </label>
-            <select
+            <Select
               id={selectId}
-              value={consentId}
+              value={consentId || null}
               disabled={people === null || submitting}
-              onChange={(e) => {
-                setPicked(e.target.value);
+              items={options.map((p) => ({ value: p.consent_id, label: p.label }))}
+              onValueChange={(v) => {
+                setPicked(v ?? "");
                 setLive(null);
                 setError(null);
                 setPollStopped(false);
               }}
-              className="h-8 w-full rounded-sm border border-input bg-card px-2 text-sm text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
             >
-              {options.map((p) => (
-                <option key={p.consent_id} value={p.consent_id}>
-                  {p.label}
-                </option>
-              ))}
-            </select>
+              <SelectTrigger className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {options.map((p) => (
+                  <SelectItem key={p.consent_id} value={p.consent_id}>
+                    {p.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
           <Button
             size="sm"

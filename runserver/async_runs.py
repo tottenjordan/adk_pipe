@@ -30,6 +30,44 @@ RUNSERVER_AUTHOR = "__runserver__"
 RUN_STATUS_KEY = "__run_status"
 RUN_ERROR_KEY = "__run_error"
 
+# ADK's agent router (google/adk/agents/_agent_router.py) and the exact warning it
+# logs from ``find_agent_to_run`` for an event author outside the agent tree.
+ADK_AGENT_ROUTER_LOGGER = "google_adk.google.adk.agents._agent_router"
+_ADK_UNKNOWN_AGENT_MSG = "Event from an unknown agent: %s, event id: %s"
+
+
+class RunserverMarkerLogFilter(logging.Filter):
+    """Drop ADK's "unknown agent" warning for runserver's own marker events.
+
+    Every resume runs ``Runner._find_agent_to_run``, which scans the session's
+    events newest-first by author; the run-status / edit markers this module
+    appends (``author=RUNSERVER_AUTHOR``) are outside the agent tree by design,
+    so ADK warned once per marker per resume. ADK offers no hook to exclude an
+    author from that scan, and the markers must stay session events (pollers and
+    the CRF read them), so the api drops that one record: same message template,
+    first argument exactly ``RUNSERVER_AUTHOR``. Any other author still warns.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        args = record.args
+        return not (
+            record.msg == _ADK_UNKNOWN_AGENT_MSG
+            and isinstance(args, tuple)
+            and len(args) >= 1
+            and args[0] == RUNSERVER_AUTHOR
+        )
+
+
+def install_runserver_marker_log_filter() -> None:
+    """Install :class:`RunserverMarkerLogFilter` on the ADK router logger, once.
+
+    Called by the api entrypoint (``deployment/async_app.py``) where it sets up
+    logging; never at import of an agent package."""
+    logger = logging.getLogger(ADK_AGENT_ROUTER_LOGGER)
+    if not any(isinstance(f, RunserverMarkerLogFilter) for f in logger.filters):
+        logger.addFilter(RunserverMarkerLogFilter())
+
+
 # Hard ceiling on a single detached run (seconds). A wedged model call would
 # otherwise keep the asyncio task — and, with --no-cpu-throttling --min-instances
 # 1, the Cloud Run instance — alive indefinitely with no server-side stall

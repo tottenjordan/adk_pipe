@@ -93,11 +93,11 @@ describe("results page: personalisation data", () => {
     expect(api.listVariants).not.toHaveBeenCalled();
 
     fireEvent.click(open);
-    await waitFor(() => expect(screen.getByRole("combobox", { name: "Person" })).toHaveValue("consent-1234"));
+    await waitFor(() => expect(screen.getByRole("combobox", { name: "Person" })).toHaveTextContent("Me"));
     for (const name of ["Bravo", "Charlie"]) {
       fireEvent.click(screen.getByRole("button", { name: "Next creative" }));
       await screen.findByRole("heading", { name: `Headline ${name}` });
-      await waitFor(() => expect(screen.getByRole("combobox", { name: "Person" })).toHaveValue("consent-1234"));
+      await waitFor(() => expect(screen.getByRole("combobox", { name: "Person" })).toHaveTextContent("Me"));
     }
     expect(api.listPersonRefs).toHaveBeenCalledTimes(1);
     expect(api.listVariants).toHaveBeenCalledTimes(1);
