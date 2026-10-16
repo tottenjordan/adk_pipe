@@ -3,12 +3,14 @@
 ``FakeStatusStore`` replaces the row-state statements ``worker.process_row``
 calls (``status_store.acquire_processing_lock`` / ``read_locked_row`` /
 ``mark_final`` / ``requeue``) and records them, so worker tests can drive the
-lock -> re-read -> run -> status flow without BigQuery. Importable in the CRF
-CI's clean venv (only the Cloud Function's requirements + pytest).
+lock -> re-read -> run -> status flow without BigQuery. ``fake_vertex_client``
+stands in for the ``agentplatform.Client`` ``process_row`` resolves the engine
+with before the lock. Importable in the CRF CI's clean venv (only the Cloud
+Function's requirements + pytest).
 """
 
 from datetime import UTC, datetime
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 from cloud_functions.creative_fanout import status_store
 
@@ -23,6 +25,15 @@ _ROW_COLUMNS = {
     "refresh_date": "refresh_date",
     "trend_context": "trend_context",
 }
+
+
+def fake_vertex_client(**_kwargs):
+    """An ``agentplatform.Client`` stand-in (patch ``clients.agentplatform.Client``
+    with it): ``runtimes.get`` returns a ``MagicMock`` engine and
+    ``aio.aclose()`` is awaitable."""
+    client = MagicMock()
+    client.aio.aclose = AsyncMock()
+    return client
 
 
 class _Result(list):

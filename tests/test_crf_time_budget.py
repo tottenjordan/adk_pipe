@@ -31,7 +31,7 @@ from cloud_functions.creative_fanout import (
     worker,
 )
 from cloud_functions.creative_fanout.config import config
-from tests.crf_fakes import FakeStatusStore
+from tests.crf_fakes import FakeStatusStore, fake_vertex_client
 
 pytestmark = pytest.mark.usefixtures("gcp_project_env", "crf_engine_env")
 
@@ -184,6 +184,12 @@ async def _raise_500():
     raise RuntimeError("500 delete failed")
 
 
+@pytest.fixture(autouse=True)
+def _fake_agent_runtime(monkeypatch):
+    """process_row resolves the engine before the lock (C1): a stub client."""
+    monkeypatch.setattr(clients.agentplatform, "Client", fake_vertex_client)
+
+
 def _wire_agent(monkeypatch, agent):
     fake_vertex = MagicMock()
     fake_vertex.runtimes.get.return_value = agent
@@ -216,7 +222,7 @@ def test_delete_that_hangs_times_out_without_changing_the_result(monkeypatch):
     _wire_agent(monkeypatch, agent)
     monkeypatch.setattr(config, "SESSION_DELETE_TIMEOUT_SECS", 0.05)
     outcome = asyncio.run(
-        worker.create_agent_run("123", dict(_ROW), "u", deadline=1e12)
+        worker.create_agent_run(agent, dict(_ROW), "u", deadline=1e12)
     )
     assert outcome.finalized
     assert agent.deletes == 1

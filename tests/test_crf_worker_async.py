@@ -16,7 +16,7 @@ import pytest
 from cloud_functions.creative_fanout import clients, logs, main, status_store, worker
 from cloud_functions.creative_fanout.config import config
 from cloud_functions.creative_fanout.session import agent_session
-from tests.crf_fakes import FakeStatusStore
+from tests.crf_fakes import FakeStatusStore, fake_vertex_client
 
 # The CRF config reads the (required) project at use time; pin a dummy.
 pytestmark = pytest.mark.usefixtures("gcp_project_env", "crf_engine_env")
@@ -33,6 +33,12 @@ def _fake_time(monkeypatch):
 
     monkeypatch.setattr(worker, "_clock", lambda: clock["now"])
     monkeypatch.setattr(worker, "_sleep", _sleep)
+
+
+@pytest.fixture(autouse=True)
+def _fake_agent_runtime(monkeypatch):
+    """process_row resolves the engine before the lock (C1): a stub client."""
+    monkeypatch.setattr(clients.agentplatform, "Client", fake_vertex_client)
 
 
 def test_streaming_error_marks_row_failed_end_to_end(monkeypatch):
@@ -120,10 +126,6 @@ def test_session_created_and_deleted_with_same_user_id(monkeypatch):
     remote_agent.async_get_session = _get_session
     remote_agent.async_delete_session = _delete_session
 
-    fake_vertex = MagicMock()
-    fake_vertex.runtimes.get.return_value = remote_agent
-    monkeypatch.setattr(clients, "new_vertex_client", lambda: fake_vertex)
-
     msg = {
         "index": 0,
         "brand": "BrandX",
@@ -136,7 +138,7 @@ def test_session_created_and_deleted_with_same_user_id(monkeypatch):
 
     asyncio.run(
         worker.create_agent_run(
-            agent_id="agent-123", msg_dict=msg, user_id=user_id, deadline=1e9
+            remote_agent=remote_agent, msg_dict=msg, user_id=user_id, deadline=1e9
         )
     )
 
@@ -242,10 +244,6 @@ def test_create_agent_run_deletes_session_on_stream_error(monkeypatch):
     remote_agent.async_stream_query = _raising_stream
     remote_agent.async_delete_session = _delete_session
 
-    fake_vertex = MagicMock()
-    fake_vertex.runtimes.get.return_value = remote_agent
-    monkeypatch.setattr(clients, "new_vertex_client", lambda: fake_vertex)
-
     msg = {
         "index": 3,
         "brand": "BrandX",
@@ -258,7 +256,7 @@ def test_create_agent_run_deletes_session_on_stream_error(monkeypatch):
 
     outcome = asyncio.run(
         worker.create_agent_run(
-            agent_id="agent-123", msg_dict=msg, user_id=user_id, deadline=1e9
+            remote_agent=remote_agent, msg_dict=msg, user_id=user_id, deadline=1e9
         )
     )
 
@@ -385,20 +383,10 @@ def test_worker_uses_runtimes_api_not_agent_engines(monkeypatch):
     fake_client = MagicMock(spec=["runtimes"])
     fake_client.runtimes.get.return_value = remote_agent
     monkeypatch.setattr(clients, "new_vertex_client", lambda: fake_client)
-
-    msg = {
-        "index": 0,
-        "brand": "BrandX",
-        "target_product": "prod",
-        "key_selling_point": "ksp",
-        "target_audience": "aud",
-        "target_search_trend": "trend",
-    }
+    FakeStatusStore(monkeypatch, _TREND)
 
     asyncio.run(
-        worker.create_agent_run(
-            agent_id="123", msg_dict=msg, user_id="crf_worker_0", deadline=1e9
-        )
+        worker.process_row(_TREND, "123", MagicMock(), "ds", "tbl", deadline=1e9)
     )
 
     name = fake_client.runtimes.get.call_args.kwargs["name"]
@@ -502,9 +490,6 @@ def test_blank_campaign_fields_are_not_seeded(monkeypatch):
     remote_agent.async_create_session = _create_session
     remote_agent.async_stream_query = _stream
     remote_agent.async_delete_session = _delete_session
-    fake_vertex = MagicMock()
-    fake_vertex.runtimes.get.return_value = remote_agent
-    monkeypatch.setattr(clients, "new_vertex_client", lambda: fake_vertex)
 
     msg = {
         "index": 0,
@@ -515,7 +500,9 @@ def test_blank_campaign_fields_are_not_seeded(monkeypatch):
         "target_search_trend": "trend",
     }
     asyncio.run(
-        worker.create_agent_run(agent_id="a", msg_dict=msg, user_id="u", deadline=1e9)
+        worker.create_agent_run(
+            remote_agent=remote_agent, msg_dict=msg, user_id="u", deadline=1e9
+        )
     )
 
     assert created["state"] == {
@@ -544,9 +531,6 @@ def test_trend_detection_date_and_context_seeded_as_state(monkeypatch):
     remote_agent.async_create_session = _create_session
     remote_agent.async_stream_query = _stream
     remote_agent.async_delete_session = _delete_session
-    fake_vertex = MagicMock()
-    fake_vertex.runtimes.get.return_value = remote_agent
-    monkeypatch.setattr(clients, "new_vertex_client", lambda: fake_vertex)
 
     msg = {
         "index": 0,
@@ -559,7 +543,9 @@ def test_trend_detection_date_and_context_seeded_as_state(monkeypatch):
         "trend_context": '{"hook":"h"}',
     }
     asyncio.run(
-        worker.create_agent_run(agent_id="a", msg_dict=msg, user_id="u", deadline=1e9)
+        worker.create_agent_run(
+            remote_agent=remote_agent, msg_dict=msg, user_id="u", deadline=1e9
+        )
     )
     assert created["state"]["trend_detected_on"] == "2026-10-10"
     assert created["state"]["trend_scout_context"] == '{"hook":"h"}'

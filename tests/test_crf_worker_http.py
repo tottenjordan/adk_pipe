@@ -22,9 +22,16 @@ from functions_framework import _function_registry
 
 from cloud_functions.creative_fanout import clients, main, worker
 from cloud_functions.creative_fanout.config import config
-from tests.crf_fakes import FakeStatusStore
+from tests.crf_fakes import FakeStatusStore, fake_vertex_client
 
 pytestmark = pytest.mark.usefixtures("gcp_project_env", "crf_engine_env")
+
+
+@pytest.fixture(autouse=True)
+def _fake_agent_runtime(monkeypatch):
+    """process_row resolves the engine before the lock (C1): a stub client."""
+    monkeypatch.setattr(clients.agentplatform, "Client", fake_vertex_client)
+
 
 _ROW = {
     "entry_timestamp": "2026-10-13T00:00:00",

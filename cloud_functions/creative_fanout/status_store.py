@@ -17,11 +17,15 @@ allow-list and backtick-quoted; every *value* goes through a query parameter.
 """
 
 import logging
+import random
 import re
+import time
 from dataclasses import dataclass
 from datetime import UTC, datetime
 
+from google.api_core.exceptions import GoogleAPICallError
 from google.cloud import bigquery
+from google.cloud.bigquery.retry import DEFAULT_JOB_RETRY, DEFAULT_RETRY
 
 from .config import config
 
@@ -207,24 +211,86 @@ def _build_select_unprocessed_sql(project, dataset, table, max_rows):
     return sql, [bigquery.ScalarQueryParameter("max_rows", "INT64", int(max_rows))]
 
 
-def _run_query(bq_client, sql, params):
-    """Run a parameterized query, wait (bounded) and return its ``RowIterator``.
+# A DML serialization conflict ("Could not serialize access to table ... due to
+# concurrent update", after BigQuery's own internal retries) is retried this
+# many times in all, with a jittered exponential backoff (1 s, 2 s, ...), while
+# the statement's one BQ_QUERY_TIMEOUT_SECS budget still has time for it.
+SERIALIZATION_RETRY_ATTEMPTS = 3
+SERIALIZATION_BACKOFF_SECS = 1.0
+# A retry is not started with less than this left of the budget.
+SERIALIZATION_MIN_RETRY_SECS = 5.0
+_SERIALIZATION_CONFLICT = "Could not serialize access"
 
-    ``query_and_wait`` gives up after ``wait_timeout`` (raising
-    ``concurrent.futures.TimeoutError`` and trying to cancel the job), and the
-    job's ``job_timeout_ms`` bounds it server-side too, so a stuck query fails
-    the invocation instead of hanging until the Cloud Run timeout. The
-    iterator carries ``num_dml_affected_rows`` for DML (both the fast
-    ``jobs.query`` path and the job fallback set it).
-    """
-    timeout = config.BQ_QUERY_TIMEOUT_SECS
+# Indirection so tests drive the retry without waiting.
+_sleep = time.sleep
+_monotonic = time.monotonic
+
+
+def _is_serialization_conflict(exc: BaseException) -> bool:
+    return isinstance(exc, GoogleAPICallError) and _SERIALIZATION_CONFLICT in str(exc)
+
+
+def _query_once(bq_client, sql, params, timeout: float):
     return bq_client.query_and_wait(
         sql,
         job_config=bigquery.QueryJobConfig(
             query_parameters=params, job_timeout_ms=int(timeout * 1000)
         ),
+        api_timeout=timeout,
         wait_timeout=timeout,
+        retry=DEFAULT_RETRY.with_deadline(timeout),
+        job_retry=DEFAULT_JOB_RETRY.with_deadline(timeout),
     )
+
+
+def _run_query(bq_client, sql, params):
+    """Run a parameterized query, wait (bounded) and return its ``RowIterator``.
+
+    Bounded by ``BQ_QUERY_TIMEOUT_SECS`` end to end (C3): ``api_timeout`` is
+    each HTTP request's socket timeout, ``retry`` / ``job_retry`` stop retrying
+    the ``jobs.query`` request and the job at that deadline (by default they
+    allow 600 s and 2400 s), ``wait_timeout`` bounds the polling (raising
+    ``concurrent.futures.TimeoutError`` and trying to cancel the job) and the
+    job's ``job_timeout_ms`` bounds it server-side. So a BigQuery outage fails
+    the invocation instead of outlasting the Cloud Run timeout. Re-running a
+    statement is safe: every UPDATE carries its from-state guard.
+
+    A DML serialization conflict (C6) is retried (``SERIALIZATION_RETRY_*``,
+    WARNING per retry) within the same budget: a retry gets only the time
+    left. A conflicting statement did not commit, and the guards make a repeat
+    a no-op. Any other error is raised at once.
+
+    The iterator carries ``num_dml_affected_rows`` for DML (both the fast
+    ``jobs.query`` path and the job fallback set it).
+    """
+    timeout = config.BQ_QUERY_TIMEOUT_SECS
+    end = _monotonic() + timeout
+    n = 1
+    while True:
+        try:
+            return _query_once(
+                bq_client, sql, params, timeout if n == 1 else end - _monotonic()
+            )
+        except GoogleAPICallError as e:
+            if not _is_serialization_conflict(e) or n >= SERIALIZATION_RETRY_ATTEMPTS:
+                raise
+            backoff = SERIALIZATION_BACKOFF_SECS * 2 ** (n - 1)
+            backoff *= random.uniform(0.5, 1.5)
+            if end - _monotonic() - backoff < SERIALIZATION_MIN_RETRY_SECS:
+                raise
+            logger.warning(
+                f"BigQuery serialization conflict (try {n} of "
+                f"{SERIALIZATION_RETRY_ATTEMPTS}), retrying in {backoff:.1f}s: {e}",
+                extra={
+                    "json_fields": {
+                        "reason": "bq_serialization_conflict",
+                        "try": n,
+                        "backoff_secs": round(backoff, 2),
+                    }
+                },
+            )
+            _sleep(backoff)
+            n += 1
 
 
 def select_unprocessed(bq_client, dataset, table, max_rows) -> list:
