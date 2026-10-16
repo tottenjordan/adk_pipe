@@ -18,7 +18,8 @@ export function SegmentedControl<T extends string>({
   /** Accessible group name (use `labelledBy` when a visible label exists). */
   label?: string;
   labelledBy?: string;
-  options: readonly { value: T; label: string }[];
+  /** `keyshortcuts`: the option's `aria-keyshortcuts` (from `lib/shortcuts.ts`). */
+  options: readonly { value: T; label: string; keyshortcuts?: string }[];
   value: T;
   onChange: (value: T) => void;
   disabled?: boolean;
@@ -38,6 +39,7 @@ export function SegmentedControl<T extends string>({
             key={o.value}
             type="button"
             aria-pressed={active}
+            aria-keyshortcuts={o.keyshortcuts}
             disabled={disabled}
             onClick={() => onChange(o.value)}
             className={cn(

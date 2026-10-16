@@ -2,7 +2,7 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { buildProofs, imageCheckFor, type VisualConcept } from "@/lib/eval-matching";
-import { ImageCheckSection } from "@/app/results/[sessionId]/proof-detail";
+import { ImageCheckSection } from "@/app/results/[sessionId]/proof-copy-pane";
 
 const record = (qa: unknown, attempts = 1) => ({
   Jackpot: { gcs_uri: "gs://b/x.png", artifact_key: "x.png", attempts, qa },

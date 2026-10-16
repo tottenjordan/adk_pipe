@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { act, fireEvent, render, renderHook, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Rating } from "@/lib/ratings";
 import type { Proof, VisualConcept, AdCopy } from "@/lib/eval-matching";
 
@@ -11,7 +11,12 @@ vi.mock("@/lib/api", () => ({
   getRatings: (...a: unknown[]) => getRatings(...a),
 }));
 
-import { CreativeRatings, RatingControl, useSessionRatings } from "@/app/results/[sessionId]/rating-control";
+import {
+  CreativeRatings,
+  RatingControl,
+  SAVED_CLEAR_MS,
+  useSessionRatings,
+} from "@/app/results/[sessionId]/rating-control";
 import { ProofGrid } from "@/app/results/[sessionId]/proof-grid";
 
 const KEY = "visual:The Jackpot Reveal";
@@ -343,5 +348,64 @@ describe("RatingControl fail-reason chips", () => {
     expect(screen.queryByRole("button", { name: "Product hard to see" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Visual artifacts / quality" })).toBeNull();
     expect(screen.getByRole("button", { name: "Save ad copy rating" })).toBeDisabled();
+  });
+});
+
+describe("RatingControl feedback", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("clears the Saved confirmation after about 2.5 s", async () => {
+    vi.useFakeTimers();
+    putRating.mockResolvedValue({});
+    render(<Harness />);
+    fireEvent.click(screen.getByRole("button", { name: "Pass" }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Save visual rating" }));
+    });
+    expect(screen.getByText("Saved")).toBeInTheDocument();
+    act(() => vi.advanceTimersByTime(SAVED_CLEAR_MS - 100));
+    expect(screen.getByText("Saved")).toBeInTheDocument();
+    act(() => vi.advanceTimersByTime(100));
+    expect(screen.queryByText("Saved")).toBeNull();
+  });
+
+  it("keeps an error message until the next edit", async () => {
+    vi.useFakeTimers();
+    putRating.mockRejectedValue(new Error("boom"));
+    render(<Harness />);
+    fireEvent.click(screen.getByRole("button", { name: "Pass" }));
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Save visual rating" }));
+    });
+    act(() => vi.advanceTimersByTime(SAVED_CLEAR_MS * 2));
+    expect(screen.getByText(/Couldn.t save your rating/)).toBeInTheDocument();
+  });
+
+  it("collapses the fail reasons until Fail, then reveals them with a height + opacity transition", () => {
+    render(<Harness />);
+    const reasons = screen.getByTestId("fail-reasons-visual");
+    // collapsed: zero rows, invisible, inert (out of the tab order) and hidden from AT
+    expect(reasons).toHaveClass("grid-rows-[0fr]", "opacity-0");
+    expect(reasons).toHaveAttribute("aria-hidden", "true");
+    expect(reasons).toHaveAttribute("inert");
+    expect(screen.queryByRole("button", { name: "Product hard to see" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Fail" }));
+    expect(screen.getByTestId("fail-reasons-visual")).toBe(reasons);
+    expect(reasons).toHaveClass("grid-rows-[1fr]", "opacity-100");
+    expect(reasons).not.toHaveAttribute("inert");
+    expect(reasons).not.toHaveAttribute("aria-hidden");
+    expect(screen.getByRole("button", { name: "Product hard to see" })).toBeVisible();
+    // a click animates rows + opacity on the tokens, snapping under reduced motion
+    expect(reasons).toHaveClass(
+      "transition-[grid-template-rows,opacity]",
+      "duration-(--dur-dialog)",
+      "ease-(--ease-out)",
+      "motion-reduce:transition-none"
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Pass" }));
+    expect(reasons).toHaveClass("grid-rows-[0fr]", "duration-(--dur-exit)");
+    expect(reasons).toHaveAttribute("inert");
   });
 });

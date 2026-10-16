@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Archivo, JetBrains_Mono } from "next/font/google";
+import { ShortcutHelp } from "@/components/shortcut-help";
 import { SiteHeader } from "@/components/site-header";
 import { SkipLink } from "@/components/skip-link";
 import "./globals.css";
@@ -39,6 +40,8 @@ export default function RootLayout({
         <main id="main" tabIndex={-1} className="flex-1 focus:outline-hidden">
           {children}
         </main>
+        {/* The `?` shortcut help + its footer link; absent on public share pages. */}
+        <ShortcutHelp />
       </body>
     </html>
   );
