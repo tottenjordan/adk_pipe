@@ -56,7 +56,7 @@ The figures below come from the committed run, and the numbers in the text are m
 
 ### 1. Cumulative average reward vs optimum (log x)
 
-![](../../experiments/bandit/figures/01_cum_avg_reward.png)
+![Cumulative average reward per policy against the optimum, log-scale rounds, for the clear_winner, segment_winners and drift scenarios](../../experiments/bandit/figures/01_cum_avg_reward.png)
 
 - **clear_winner** (arms at 6.0 / 4.5 / 3.5 % CTR):
   - The non-contextual policies converge on the winner, as in the toy notebook.
@@ -69,7 +69,7 @@ The figures below come from the committed run, and the numbers in the text are m
 
 ### 2. A UCB multiplier that is too small settles on a suboptimal arm
 
-![](../../experiments/bandit/figures/02_ucb_small_multiplier.png)
+![UCB with multiplier c = 0.01 versus c = 0.25: the small multiplier locks some episodes onto a suboptimal arm](../../experiments/bandit/figures/02_ucb_small_multiplier.png)
 
 This is the toy notebook's "epsilon = 1" cell.
 
@@ -83,7 +83,7 @@ others are stuck on a suboptimal arm.
 
 ### 3. Per-segment users (notebook cluster weights (1,0) / (0,1) / (0.5,0.5))
 
-![](../../experiments/bandit/figures/03_segment_users.png)
+![Per-segment users with segment-mix weights (1,0), (0,1) and (0.5,0.5): LinTS versus the non-contextual policies](../../experiments/bandit/figures/03_segment_users.png)
 
 This is `segment_winners` restricted to the `mobile_scrollers` and `trend_followers`
 segments, with the segment-mix weights shown in each panel title.
@@ -96,7 +96,7 @@ segments, with the segment-mix weights shown in each panel title.
 
 ### 4. Expected total reward ± std per policy (error bars)
 
-![](../../experiments/bandit/figures/04_expected_total_reward.png)
+![Expected total reward per episode with standard-deviation error bars for each policy and scenario](../../experiments/bandit/figures/04_expected_total_reward.png)
 
 This is the realistic notebook's headline plot. In **segment_winners**, LinTS earns
 1763 ± 51 clicks per episode. Every non-contextual policy earns about 1590–1600, uniform
@@ -104,7 +104,7 @@ included, and the oracle earns 2081.
 
 ### 5. Impressions and estimated vs true CTR per arm (LinTS)
 
-![](../../experiments/bandit/figures/05_arm_impressions_ctr.png)
+![LinTS impressions per arm and estimated versus true CTR per arm, for clear_winner and segment_winners](../../experiments/bandit/figures/05_arm_impressions_ctr.png)
 
 - **clear_winner**: LinTS gives the best arm 11.6k of 20k impressions, and its estimated
   CTRs match the true ones.
@@ -117,15 +117,15 @@ included, and the oracle earns 2081.
 
 ### 6. Cumulative regret ± 95% CI
 
-![](../../experiments/bandit/figures/06_cum_regret.png)
+![Cumulative pseudo-regret with 95% confidence bands per policy for the clear_winner, segment_winners and drift scenarios](../../experiments/bandit/figures/06_cum_regret.png)
 
 ### 7. % optimal arm (cumulative)
 
-![](../../experiments/bandit/figures/07_pct_optimal.png)
+![Cumulative share of optimal-arm decisions with 95% confidence bands per policy for the clear_winner, segment_winners and drift scenarios](../../experiments/bandit/figures/07_pct_optimal.png)
 
 ### 8. Drift recovery (the best arm becomes the worst at T/2)
 
-![](../../experiments/bandit/figures/08_drift_recovery.png)
+![Drift recovery after the best arm becomes the worst at T/2: discounted and undiscounted LinTS, UCB1 and Beta-Bernoulli TS](../../experiments/bandit/figures/08_drift_recovery.png)
 
 - **Before the drift**: discounting costs LinTS some accuracy. At T/2 the discounted
   variant reaches 59 % optimal, against 69 % for the undiscounted one.
@@ -140,7 +140,7 @@ included, and the oracle earns 2081.
 
 ### 9. Arm injection (the notebook's "sparse graph update")
 
-![](../../experiments/bandit/figures/09_arm_injection.png)
+![Arm injection at T/2, when the best arm a is added and arm d expires: share of pulls per arm for each policy](../../experiments/bandit/figures/09_arm_injection.png)
 
 The run uses 4 arms. Arms b, c and d are live until T/2, when arm a (the best one, at 6.0 %)
 is injected and arm d expires.

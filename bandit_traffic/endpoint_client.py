@@ -39,7 +39,7 @@ import random
 import re
 import tempfile
 import time
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Callable, Generator, Iterator, Sequence
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Protocol
 
@@ -219,7 +219,7 @@ class InProcessClient:
 
 
 @contextlib.contextmanager
-def _env_var(name: str, value: str) -> Iterator[None]:
+def _env_var(name: str, value: str) -> Generator[None]:
     old = os.environ.get(name)
     os.environ[name] = value
     try:
