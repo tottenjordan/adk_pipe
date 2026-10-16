@@ -62,6 +62,20 @@ def test_requirements_txt_has_no_eval_or_experiment_packages():
     assert "google-cloud-aiplatform" in pins
 
 
+def test_requirements_txt_has_no_local_project_lines():
+    """The project is an editable install (`[tool.uv] package = true`), so a plain
+    `uv export` starts with `-e .`; Agent Engine cannot install that. The export
+    must use --no-emit-project, and its header must record that command."""
+    text = (ROOT / "requirements.txt").read_text()
+    local = [
+        line
+        for line in text.splitlines()
+        if line.lstrip().startswith("-e") or "file:" in line
+    ]
+    assert not local, f"requirements.txt has local-project lines: {local}"
+    assert "--no-emit-project" in text.splitlines()[1]
+
+
 def test_eval_group_mirrors_google_adk_eval_extra():
     """The eval group lists google-adk's `eval` extra itself (that extra caps
     google-cloud-aiplatform <2); a new package in the extra must be added here."""
