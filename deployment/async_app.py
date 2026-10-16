@@ -31,7 +31,7 @@ from google.adk.cli.utils.service_factory import (
 )
 from google.adk.runners import Runner
 
-from runserver import experiments, person_refs, ratings, shares, variants
+from runserver import experiments, person_refs, ratings, shares, shutdown, variants
 from runserver.async_runs import (
     configure,
     get_root_agent,
@@ -66,6 +66,25 @@ _ARTIFACT_URI = os.getenv("ARTIFACT_SERVICE_URI") or None
 # "a, b" doesn't yield an origin " b" that never matches a browser Origin.
 _ALLOW = [o.strip() for o in os.getenv("ALLOW_ORIGINS", "").split(",") if o.strip()]
 
+
+# Our lifespan, passed to get_fast_api_app: ADK nests it INSIDE its own
+# (api_server.py internal_lifespan), so ADK's runner cleanup runs after ours.
+# Startup: the experiments TTL reaper (full pass every 5 min: expiry, resumes
+# deploys/teardowns a previous revision left mid-flight, finishes traffic runs; plus
+# a light 60 s pass over watched running_traffic rows). Shutdown (after the yield):
+# cancel the reaper and every detached /runs + /variants task and wait, bounded by
+# shutdown.SHUTDOWN_DRAIN_SECONDS, for their handlers to persist the interrupted
+# terminal marker — inside Cloud Run's 10 s SIGTERM->SIGKILL grace together with
+# uvicorn's --timeout-graceful-shutdown (budget: runserver/shutdown.py).
+@contextlib.asynccontextmanager
+async def _lifespan(_fast_api_app):
+    reaper = experiments.start_reaper()
+    try:
+        yield
+    finally:
+        await shutdown.cancel_and_wait([reaper, *shutdown.detached_tasks()])
+
+
 app = get_fast_api_app(
     agents_dir=_AGENTS_DIR,
     session_service_uri=_SESSION_URI,
@@ -74,6 +93,7 @@ app = get_fast_api_app(
     web=False,
     # Opt-in Cloud Trace export (ADK_OTEL_TO_CLOUD); see runserver/otel.py.
     otel_to_cloud=otel_to_cloud_enabled(),
+    lifespan=_lifespan,
 )
 
 
@@ -217,24 +237,6 @@ app.include_router(person_refs.router)
 variants.configure(session_service=session_service)
 app.include_router(variants.router)
 
-# Start the experiments TTL reaper (full pass every 5 min: expiry, resumes
-# deploys/teardowns a previous revision left mid-flight, finishes traffic runs; plus a
-# light 60 s pass over watched running_traffic rows) inside ADK's own lifespan,
-# which we wrap rather than replace.
-_adk_lifespan = app.router.lifespan_context
-
-
-@contextlib.asynccontextmanager
-async def _lifespan(fast_api_app):
-    async with _adk_lifespan(fast_api_app) as state:
-        reaper = experiments.start_reaper()
-        try:
-            yield state
-        finally:
-            reaper.cancel()
-
-
-app.router.lifespan_context = _lifespan
 install_ownership_handler(app)
 app.add_middleware(
     UserAuthzMiddleware,

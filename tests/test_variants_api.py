@@ -869,6 +869,27 @@ def test_orphaned_pending_record_reads_as_interrupted_and_can_retry():
     run(go)
 
 
+def test_cancelled_render_persists_interrupted_record():
+    """Instance shutdown cancels the detached render: its handler records
+    ``failed`` / ``interrupted`` in state before the cancellation propagates."""
+
+    async def go():
+        gate = asyncio.Event()  # never set: the render is cancelled mid-flight
+        h = Harness(renderer=FakeRenderer(gate=gate))
+        await h.consent()
+        await h.session()
+        key = (await h.post()).json()["key"]
+        await h.renderer.started.wait()
+        (task,) = vr._TASKS.values()
+        task.cancel()
+        results = await asyncio.gather(task, return_exceptions=True)
+        assert isinstance(results[0], asyncio.CancelledError)
+        record = (await h.state()).state["person_variants"][CASTABLE][key]
+        assert record["status"] == "failed" and record["reason"] == "interrupted"
+
+    run(go)
+
+
 # --- default renderer ---------------------------------------------------------------
 
 

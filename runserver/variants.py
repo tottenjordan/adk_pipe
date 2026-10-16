@@ -790,6 +790,15 @@ async def _run_job(job: _Job) -> None:
             attempts=outcome.attempts,
             reason=None if status == "done" else (outcome.reason or "no_image"),
         )
+    except asyncio.CancelledError:
+        # Instance shutdown (runserver/shutdown.py drains detached tasks): record
+        # the interruption so the panel stops polling, then let it propagate.
+        log.warning("variants: render interrupted session=%s", job.session_id)
+        try:
+            await write(status="failed", reason="interrupted")
+        except Exception:
+            log.exception("variants: could not record the interruption for %s", job.key)
+        raise
     except Exception:
         log.exception(
             "variants: render failed session=%s concept=%s key=%s",

@@ -130,3 +130,77 @@ def test_allow_origins_entries_are_stripped():
     result = _run(_CORS_SCRIPT, ALLOW_ORIGINS="http://a.test, http://b.test ,")
     assert result.returncode == 0, result.stdout + result.stderr
     assert "ORIGINS ['http://a.test', 'http://b.test']" in result.stdout
+
+
+_LIFESPAN_SCRIPT = """
+    import asyncio
+    import time
+
+    from google.adk.cli.utils import cleanup
+
+    from deployment import async_app
+    from runserver import async_runs, experiments, shutdown, variants
+
+    order = []
+    real_close_runners = cleanup.close_runners
+
+    async def close_runners(runners):
+        order.append("adk_close_runners")
+        await real_close_runners(runners)
+
+    cleanup.close_runners = close_runners
+    shutdown.SHUTDOWN_DRAIN_SECONDS = 0.5
+
+    def detached(label):
+        async def body():
+            try:
+                await asyncio.sleep(3600)
+            except asyncio.CancelledError:
+                await asyncio.sleep(0.05)  # the terminal-marker append
+                order.append(label)
+                raise
+        return asyncio.create_task(body())
+
+    async def stubborn():
+        try:
+            await asyncio.sleep(3600)
+        except asyncio.CancelledError:
+            await asyncio.sleep(5)  # a wedged marker write (> the bound)
+
+    async def main():
+        app = async_app.app
+        async with app.router.lifespan_context(app):
+            reapers = [t for t in experiments._BACKGROUND_TASKS if not t.done()]
+            assert reapers, "the experiments reaper was not started"
+            run = detached("run_marker")
+            async_runs._BACKGROUND_TASKS.add(run)
+            variant = detached("variant_marker")
+            variants._TASKS[("a", "u", "s", "c", "k")] = variant
+            wedged = asyncio.create_task(stubborn())
+            async_runs._BACKGROUND_TASKS.add(wedged)
+            await asyncio.sleep(0)
+            start = time.monotonic()
+        elapsed = time.monotonic() - start
+        assert all(r.done() for r in reapers), "reaper not cancelled+awaited"
+        assert run.cancelled() and variant.cancelled()
+        assert not wedged.done(), "a wedged task must not hold shutdown"
+        assert elapsed < 1.5, f"shutdown drain not bounded: {elapsed:.2f}s"
+        assert sorted(order[:2]) == ["run_marker", "variant_marker"], order
+        assert order[2:] == ["adk_close_runners"], (
+            "ADK's runner cleanup must run after our drain", order
+        )
+        wedged.cancel()
+
+    asyncio.run(main())
+    print("LIFESPAN_OK")
+"""
+
+
+@pytest.mark.slow
+def test_lifespan_drains_detached_tasks_before_adk_cleanup():
+    # Our lifespan is passed to get_fast_api_app (ADK nests it inside its own and
+    # closes runners after it); on exit it cancels the reaper and every detached
+    # /runs + /variants task and waits a bounded time for their marker writes.
+    result = _run(_LIFESPAN_SCRIPT)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "LIFESPAN_OK" in result.stdout
