@@ -66,7 +66,7 @@ function InfoTip({ label, children, side = "top", align = "center", className }:
             initialFocus={false}
             finalFocus={false}
             data-slot="info-tip-content"
-            className="max-w-xs rounded-lg border border-border bg-popover px-3 py-2 text-sm leading-snug font-normal text-popover-foreground shadow-sm outline-hidden transition-opacity duration-100 data-[ending-style]:opacity-0 data-[starting-style]:opacity-0 motion-reduce:transition-none"
+            className="max-w-xs rounded-lg border border-border bg-popover px-3 py-2 text-sm leading-snug font-normal text-popover-foreground shadow-sm outline-hidden origin-(--transform-origin) transition-[opacity,scale] duration-(--dur-pop) ease-(--ease-out) data-[ending-style]:duration-(--dur-exit) data-[starting-style]:scale-[0.97] data-[starting-style]:opacity-0 data-[ending-style]:scale-[0.97] data-[ending-style]:opacity-0 motion-reduce:data-[starting-style]:scale-100 motion-reduce:data-[ending-style]:scale-100"
           >
             {children}
           </PopoverPrimitive.Popup>
