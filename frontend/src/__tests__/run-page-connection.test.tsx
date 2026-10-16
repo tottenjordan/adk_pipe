@@ -177,3 +177,22 @@ describe("run page: stall watchdog", () => {
     expect(screen.getAllByText("No recent activity").length).toBeGreaterThan(0);
   });
 });
+
+describe("run page: connecting", () => {
+  it("says Connecting… until the first poll answers, in a status live region", async () => {
+    let answer!: (r: Response) => void;
+    const fetchMock = mockBackend([agentEvent("e1")]);
+    const backend = fetchMock.getMockImplementation()!;
+    fetchMock.mockImplementationOnce(() => new Promise<Response>((r) => (answer = r)));
+    renderPage();
+    await advance(1_000);
+
+    const status = screen.getByRole("status", { name: "Run status" });
+    expect(status).toHaveTextContent("Connecting…");
+    expect(screen.queryByText("Running")).toBeNull();
+
+    answer(await backend("/api/adk/runs/creative_agent/me/s1?since=0"));
+    await advance(1_000);
+    expect(screen.getByRole("status", { name: "Run status" })).toHaveTextContent("Running");
+  });
+});
