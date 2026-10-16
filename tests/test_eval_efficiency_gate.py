@@ -266,6 +266,13 @@ def test_main_missing_history_dir_exits_2(tmp_path):
     assert rc == 2
 
 
+def test_main_default_history_dir_is_under_agents(tmp_path, monkeypatch, capsys):
+    # `adk eval agents/<agent>` writes agents/<agent>/.adk/eval_history.
+    monkeypatch.chdir(tmp_path)
+    assert gate.main(["--agent", "a", "--baseline", "x"]) == 2
+    assert str(Path("agents/a/.adk/eval_history")) in capsys.readouterr().err
+
+
 # --- Deterministic tool-use check ------------------------------------------
 # Fixtures mirror the real nightly evalset_result.json: root-agent calls are
 # authored "root_agent" (creative_agent) / "trend_scout"; sub-agent calls made

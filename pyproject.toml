@@ -47,11 +47,11 @@ dev-mode-dirs = [".", "agents", "libs", "bandit_stack"]
 # --no-emit-project, plus extra_packages; the api image syncs --no-install-project).
 # Listed so the wheel/editable build has explicit package roots.
 packages = [
-    "trend_scout",
-    "creative_agent",
-    "interactive_creative",
-    "agent_common",
-    "creative_eval",
+    "agents/trend_scout",
+    "agents/creative_agent",
+    "agents/interactive_creative",
+    "libs/agent_common",
+    "libs/creative_eval",
     "bandit",
     "bandit_serving",
     "bandit_traffic",
@@ -127,12 +127,12 @@ filterwarnings = [
 [tool.ruff]
 target-version = "py313"
 line-length = 88
-# `agents/` holds symlinks back to the root agent packages (ADK web discovery),
-# so linting it would double-report every file. Notebooks are exploratory.
-# `.agents/skills/` are vendored third-party skills pinned by skills-lock.json
-# hashes, so they are never reformatted.
+# First-party import roots (isort classification), matching the editable install's
+# sys.path dirs.
+src = [".", "agents", "libs", "bandit_stack"]
+# Notebooks are exploratory. `.agents/skills/` are vendored third-party skills
+# pinned by skills-lock.json hashes, so they are never reformatted.
 extend-exclude = [
-    "agents/",
     ".agents/",
     "frontend/",
     "outputs/",

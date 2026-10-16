@@ -18,6 +18,7 @@ mutate the *already-imported* module in place and break identity checks elsewher
 """
 
 import logging
+from pathlib import Path
 
 import pytest
 
@@ -562,3 +563,11 @@ class TestTrendDigestKnobs:
             assert da.ENV_VAR_DICT[key], key
             assert key in env_example, key
             assert f"{key}=" in profile, key
+
+
+def test_agent_common_env_file_is_the_repo_root_dotenv():
+    """agent_common/config.py loads <repo>/.env, two levels above libs/agent_common/."""
+    from agent_common import config as common_config
+    from tests.repo_layout import REPO_ROOT
+
+    assert Path(common_config.ENV_FILE_PATH).resolve() == (REPO_ROOT / ".env").resolve()

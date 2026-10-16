@@ -27,8 +27,13 @@ from dataclasses import dataclass, field
 
 from dotenv import load_dotenv
 
-# Load the repo-root .env (agent_common is a top-level sibling of the agents).
-ENV_FILE_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".env"))
+# Load the repo-root .env: this file is <repo>/libs/agent_common/config.py, so the
+# root is two levels above the package dir. (os.path, not Path.parents[2], so a
+# shallow staged path in an Agent Engine runtime can't raise IndexError; no .env
+# exists there, so load_dotenv is a no-op.)
+ENV_FILE_PATH = os.path.abspath(
+    os.path.join(os.path.dirname(__file__), "..", "..", ".env")
+)
 load_dotenv(dotenv_path=ENV_FILE_PATH)
 
 

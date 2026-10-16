@@ -178,6 +178,44 @@ class TestFlatStaging:
         assert not list(dest.iterdir())  # nothing staged before the check
 
 
+# The real map: what each engine's tarball looks like. The pickled App refers to
+# modules by bare name (creative_agent.agent, agent_common.models …), so the
+# tarball's top-level dirs must be exactly those names, whatever the repo layout.
+EXPECTED_ENGINE_PACKAGES = {
+    "trend_scout": {"trend_scout", "agent_common"},
+    "creative_agent": {"creative_agent", "creative_eval", "agent_common"},
+    "interactive_creative": {
+        "interactive_creative",
+        "creative_agent",
+        "creative_eval",
+        "agent_common",
+    },
+}
+
+
+@pytest.mark.parametrize("agent", sorted(EXPECTED_ENGINE_PACKAGES))
+def test_real_engine_tarball_top_level_dirs_are_bare_package_names(
+    agent, tmp_path, monkeypatch
+):
+    da = _da()
+    pkgs = da.AGENT_EXTRA_PACKAGES[agent]
+    da.validate_extra_packages(pkgs)  # every entry exists in the repo
+    dest = tmp_path / "staged"
+    dest.mkdir()
+    staged = da.stage_extra_packages(pkgs, str(dest))
+    archive = tmp_path / "deps.tar.gz"
+    monkeypatch.chdir(dest)
+    with tarfile.open(archive, "w:gz") as tar:  # the SDK's bare tar.add(path)
+        for p in staged:
+            tar.add(p)
+    with tarfile.open(archive) as tar:
+        names = [m.name.removeprefix("./") for m in tar.getmembers() if m.isfile()]
+    assert {n.split("/")[0] for n in names} == EXPECTED_ENGINE_PACKAGES[agent]
+    assert f"{agent}/agent.py" in names
+    for pkg in EXPECTED_ENGINE_PACKAGES[agent]:
+        assert f"{pkg}/__init__.py" in names
+
+
 class TestAssertNoLocalData:
     @pytest.mark.parametrize(
         "bad",

@@ -1,38 +1,21 @@
-# `agents/` — backend serving view (do not "tidy")
+# `agents/` — the runnable ADK agents
 
-This directory exists **only** so the Cloud Run backend serves exactly the three
-runnable agents. The backend runs the custom launcher `deployment/async_app.py`
-under uvicorn (not bare `adk api_server`); it builds ADK's canned FastAPI app with
-`agents_dir=_AGENTS_DIR` (`"agents"`, i.e. this directory) and mounts the `/runs`,
-`/ratings`, `/shares`, `/person-refs`, `/variants` and `/experiments` routers on it.
-(Historically this was `adk api_server agents` instead of `adk api_server .`.)
+This directory is ADK's `agents_dir`: `adk web agents`, `adk eval agents/<agent>` and the
+api launcher `deployment/async_app.py` (`get_fast_api_app(agents_dir="agents")`) all
+serve it. It holds exactly the three runnable agents, as real directories:
 
-ADK's `AgentLoader.list_agents()` returns *every* non-hidden subdirectory of the
-agents dir — not just the ones with a runnable root agent. Pointed at the repo root
-(`.`), `GET /list-apps` therefore listed `docs/`, `outputs/`, `deployment/`,
-`agent_common/`, `creative_eval/`, `tests/`, … as "apps". Pointing it at this
-directory — which holds one **relative symlink per runnable agent** — makes
-`/list-apps` return exactly the three we serve:
+- `trend_scout/` — Phase 1, trend discovery and selection
+- `creative_agent/` — Phase 2, the batch creative pipeline
+- `interactive_creative/` — Phase 2 with human review checkpoints
 
-- `trend_scout` → `../trend_scout`
-- `creative_agent` → `../creative_agent`
-- `interactive_creative` → `../interactive_creative`
+ADK's `AgentLoader.list_agents()` lists every subdirectory that has an `__init__.py`, so
+anything placed here becomes an "app" in `GET /list-apps`. Shared code therefore lives in
+`libs/` (`agent_common`, `creative_eval`) and the bandit tooling in `bandit_stack/`.
 
-The real packages stay **flat at the repo root** (the layout Agent Engine's
-`extra_packages` staging depends on — see `CLAUDE.md`). These are just a view.
+Import names stay bare (`import creative_agent`, `from agent_common import …`): locally
+the editable install's `.pth` puts `agents/` and `libs/` on `sys.path`; the api image
+sets `PYTHONPATH=/app:/app/agents:/app/libs`; Agent Engine staging copies each
+`AGENT_EXTRA_PACKAGES` entry flat under its folder name (`deployment/deploy_agent.py`).
 
-Two things make it work, both required — see `tests/test_agents_dir.py`:
-
-1. **Relative** symlinks, so they resolve inside the container image
-   (`/app/agents/trend_scout → /app/trend_scout`).
-2. `PYTHONPATH=/app` (set in the root `Dockerfile`), so each agent's cross-package
-   imports (`from creative_eval …`, `from agent_common …`) still resolve — the loader
-   only puts `agents/` on `sys.path`, not the repo root.
-
-Do not add an `__init__.py`, `agent.py`, or `root_agent.yaml` here — a marker file
-would flip ADK into single-agent mode and break multi-agent serving.
-
-**Container note:** `gcloud run deploy --source` uploads a zip that drops symlinks, so
-these entries arrive in the build context as empty directories. The root `Dockerfile`
-re-creates them as relative symlinks after `COPY . .` (required since ADK 2.10, whose
-`list_agents()` also demands an `__init__.py` in each entry).
+Do not add an `__init__.py`, `agent.py` or `root_agent.yaml` here: a marker file would
+flip ADK into single-agent mode. `tests/test_agents_dir.py` guards all of this.

@@ -70,10 +70,10 @@ fan-out (which reads and locks the target trends).
 
 | Table (env var) | Written by | Contents |
 |---|---|---|
-| `target_trends_crf` (`BQ_TABLE_TARGETS`) | `trend_scout` (`trend_scout/tools.py`); the CRF worker sets `processed_status` / `processing_*` | The selected trends plus campaign metadata; the fan-out queue |
-| `trend_creatives` (`BQ_TABLE_CREATIVES`) | `creative_agent` / `interactive_creative` (`creative_agent/bq_tools.py`) | One row per creative run: campaign metadata, trend and the `creative_gcs` folder |
-| `creative_evals` (`BQ_TABLE_EVALS`) | same (`EVAL_COLUMN_TYPES` in `creative_agent/bq_tools.py`) | One evaluation summary per run; `creative_uuid` joins `trend_creatives.uuid` |
-| `trend_digest` (`BQ_TABLE_TREND_DIGEST`, default `trend_digest`) | `trend_scout` (`trend_scout/digest.py`) | The daily trend digest cache: one row per (refresh date, trend list); see [Trend digest cache](#trend-digest-cache) |
+| `target_trends_crf` (`BQ_TABLE_TARGETS`) | `trend_scout` (`agents/trend_scout/tools.py`); the CRF worker sets `processed_status` / `processing_*` | The selected trends plus campaign metadata; the fan-out queue |
+| `trend_creatives` (`BQ_TABLE_CREATIVES`) | `creative_agent` / `interactive_creative` (`agents/creative_agent/bq_tools.py`) | One row per creative run: campaign metadata, trend and the `creative_gcs` folder |
+| `creative_evals` (`BQ_TABLE_EVALS`) | same (`EVAL_COLUMN_TYPES` in `agents/creative_agent/bq_tools.py`) | One evaluation summary per run; `creative_uuid` joins `trend_creatives.uuid` |
+| `trend_digest` (`BQ_TABLE_TREND_DIGEST`, default `trend_digest`) | `trend_scout` (`agents/trend_scout/digest.py`) | The daily trend digest cache: one row per (refresh date, trend list); see [Trend digest cache](#trend-digest-cache) |
 
 The idempotent helper script skips anything that already exists:
 
@@ -689,7 +689,7 @@ are told apart), and every UPDATE checks the row's current state:
 
 **weakest_dimension_labels migration (2026-10-02)** — `creative_evals` gains a
 readable `weakest_dimension_labels` column ("Trend connection, Copy quality",
-from `creative_eval/dimensions.py`) next to the snake_case `weakest_dimensions`.
+from `libs/creative_eval/dimensions.py`) next to the snake_case `weakest_dimensions`.
 Same ordering rule: run the ALTER on **both** datasets **BEFORE deploying** the
 code that writes it (the `creative_agent` / `interactive_creative` engines and
 the `trend-trawler-api` backend), since the eval-row MERGE names every column:
@@ -736,7 +736,7 @@ ALTER TABLE `<BQ_PROJECT_ID>.trend_trawler_eval.creative_evals`
 `target_trends_crf` gains `trend_context STRING`: compact JSON
 (`{context, cultural_angle, event_hint, hook}`, blank fields dropped; `""` when
 nothing parsed) of trend_scout's research for that term
-(`trend_scout/trend_context.py`). The CRF worker forwards it to the creative run
+(`agents/trend_scout/trend_context.py`). The CRF worker forwards it to the creative run
 as `trend_scout_context`, and the row's `refresh_date` as `trend_detected_on`;
 the creative agents read both only as hints to re-verify. Same ordering rule: run
 the ALTER on **both** datasets **BEFORE deploying** the `trend_scout` engine (its
@@ -1228,10 +1228,10 @@ The original dev-vs-target view is kept in
   `adk api_server`. It loads the three runnable agent packages (`trend_scout`,
   `creative_agent`, `interactive_creative`) and calls Vertex/BigQuery/GCS in-process. It is
   **private** — deployed with `--no-allow-unauthenticated`. It serves from the `agents/`
-  directory (relative symlinks to the flat packages) so `GET /list-apps` returns exactly
-  those three instead of every top-level dir; the root `Dockerfile` sets `PYTHONPATH=/app`
-  so cross-package imports (`creative_eval`, `agent_common`) still resolve. See
-  `agents/README.md`. The canned session/artifact CRUD (`createSession`, `getSession`,
+  directory (the three agents, real dirs; shared code lives in `libs/`) so `GET /list-apps`
+  returns exactly those three; the root `Dockerfile` sets
+  `PYTHONPATH=/app:/app/agents:/app/libs` so cross-package imports (`creative_eval`,
+  `agent_common`) resolve. See `agents/README.md`. The canned session/artifact CRUD (`createSession`, `getSession`,
   `list-apps`, artifacts) still comes free from `get_fast_api_app`; the `/runs` router
   shares its exact session-service instance so both see one store. **Runs are async**
   (fire-and-forget + poll) — see [Async-job run model](#async-job-run-model) below.
@@ -1795,7 +1795,7 @@ gcloud run services update trend-trawler-api --region $REGION \
 (A revision change kills in-flight runs, and re-check the traffic pin afterwards — Step 8.)
 
 **Model Armor (opt-in, api + Agent Engine).** Off by default. When
-`MODEL_ARMOR_TEMPLATE` is set, `agent_common/safety.py` adds a Model Armor plugin to every
+`MODEL_ARMOR_TEMPLATE` is set, `libs/agent_common/safety.py` adds a Model Armor plugin to every
 agent's `App`, screening the user prompt and the model response of the **root
 orchestrator's turns only** (sub-agent research/drafter/critic calls are not screened —
 `AgentTool`/`NodeTool` would otherwise propagate the plugin into all of them). A blocked
@@ -2277,7 +2277,7 @@ deploying the api that writes it (until then a rating save answers 502 `store_fa
 | `GOOGLE_CLOUD_STORAGE_BUCKET` | (already set) | The only bucket eval reports are read from (local fallback `GCS_BUCKET_NAME`); unset = judge fields only from session state |
 
 The api writes ratings; the engines read them only for opt-in rating learning
-(`creative_agent/rating_signals.py`). So `RATINGS_STORE` is api-only, while
+(`agents/creative_agent/rating_signals.py`). So `RATINGS_STORE` is api-only, while
 `BQ_TABLE_RATINGS` is also shipped to the engines through `deploy_agent.py`'s
 `ENV_VAR_DICT` (see the [agent knobs](#creative-quality-migrations--knobs)); keep both
 values equal.
@@ -2546,7 +2546,7 @@ previews under [Personalised variants](#personalised-variants), and the share sc
   backstop.
 - **`person_renders`** (the images made with the photo): personalised variants are
   appended right before upload (`runserver/variants.py`); cast base renders
-  (`generated_images[c].cast` + `consent_id`, uploaded by `creative_agent/image_tools.py`
+  (`generated_images[c].cast` + `consent_id`, uploaded by `agents/creative_agent/image_tools.py`
   with blob metadata `consent_id`) are appended by the api's `/runs` path when a run
   segment ends (`async_runs._record_cast_renders`, owner-only, deduplicated, only
   `gs://$GOOGLE_CLOUD_STORAGE_BUCKET/` objects outside `shares/` and `person-refs/`). A
@@ -2748,7 +2748,7 @@ The results proof dialog's **Personalise** panel calls
 `{concept_name, consent_id}`) and polls `GET /variants/{user}/{app}/{session}`. The api
 renders in a detached task inside its own process by **editing the run's original render**
 (`creative_agent.render_concept.render_edit`): the image model gets
-`creative_agent/person_edit.py`'s `EDIT_INSTRUCTION` ("replace only the main person, keep
+`agents/creative_agent/person_edit.py`'s `EDIT_INSTRUCTION` ("replace only the main person, keep
 everything else exactly"), the original image (`generated_images[c].gcs_uri`, read only
 from the run's own output folder, ≤ 20 MB; else 400 `image_outside_bucket`, missing → 409
 `concept_not_ready`) and the chosen person's photo, with `ALLOW_ADULT`, at the allowed
@@ -2809,7 +2809,7 @@ gcloud run services update trend-trawler-api --region us-central1 \
 ```
 
 The refactor that made renders callable outside a `ToolContext` (PR 3) also touched
-`creative_agent/image_tools.py` (behaviour-identical, golden-tested in
+`agents/creative_agent/image_tools.py` (behaviour-identical, golden-tested in
 `tests/test_render_parity.py`), so redeploy the creative engines with the same PR to keep
 them on the shared code. These variables are api-only (not in `deploy_agent.py`'s
 `ENV_VAR_DICT`).
@@ -2892,7 +2892,7 @@ No migration was needed for brand history (it only reads `creative_evals` and th
 report JSON), the trend situation / timely slot, rating learning's reads, or the new
 session-state keys.
 
-**Agent knobs** (on `BaseAgentConfiguration` / `creative_agent/config.py`; shipped to
+**Agent knobs** (on `BaseAgentConfiguration` / `agents/creative_agent/config.py`; shipped to
 Agent Engine through `deploy_agent.py` `ENV_VAR_DICT`, read at import, so for an engine the
 *deployer's* env is baked in — redeploy to change):
 
@@ -2921,7 +2921,7 @@ Agent Engine through `deploy_agent.py` `ENV_VAR_DICT`, read at import, so for an
 | `BQ_TABLE_RATINGS` | `creative_ratings` | Ratings table (written by the api, read by rating learning) |
 | `PERSON_SAFE_STYLES` | photographic + calibrated illustrated families (see [Person casting](#person-casting)) | Style families a concept may cast the person in (unknown names dropped, none left → default) |
 | `MAX_CAST_CONCEPTS` | `2` (0–4) | Cast concepts per set; `0` = casting off |
-| `TREND_TIMEZONE` | `America/New_York` | IANA timezone of every run's date state (`agent_common/clock.py`; the date itself is computed per run, never at deploy; unknown → default with a warning). All three engines |
+| `TREND_TIMEZONE` | `America/New_York` | IANA timezone of every run's date state (`libs/agent_common/clock.py`; the date itself is computed per run, never at deploy; unknown → default with a warning). All three engines |
 | `FLASH_MODEL_REQUEST_TIMEOUT_SECONDS` | `90` (30–900) | Per-request timeout for flash / lite model calls (agent models + the image-QA client); never longer than `MODEL_REQUEST_TIMEOUT_SECONDS`; `0` = use the general timeout |
 
 **Runtime-read knobs (also shipped via `ENV_VAR_DICT`, since #376):** Agent Engine
@@ -2932,11 +2932,11 @@ engine from the *engine's* env. `deploy_agent.py` therefore ships these too (val
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `MODEL_REQUEST_TIMEOUT_SECONDS` | `240` (30–900; `0` disables) | Per-request timeout for model calls (`agent_common/genai_retry.py`); Pro models, the judge and image gen use it, flash/lite the shorter one above |
-| `MODEL_LOCATION` | `global` | Serving location pinned for gemini-3.x (`agent_common/locations.py`); also the judge's default location |
+| `MODEL_REQUEST_TIMEOUT_SECONDS` | `240` (30–900; `0` disables) | Per-request timeout for model calls (`libs/agent_common/genai_retry.py`); Pro models, the judge and image gen use it, flash/lite the shorter one above |
+| `MODEL_LOCATION` | `global` | Serving location pinned for gemini-3.x (`libs/agent_common/locations.py`); also the judge's default location |
 | `IMAGE_SIZE` / `IMAGE_ASPECT_RATIO_DEFAULT` | `2K` / `9:16` | Image-gen `ImageConfig` defaults |
-| `EVAL_MODEL` / `EVAL_MAX_WORKERS` / `EVAL_MAX_VISUAL_WAVE_WORKERS` | `gemini-3.1-pro-preview` / `2` / `4` | Judge model and concurrency caps (`creative_eval/config.py`) |
-| `CAMPAIGN_RESEARCH_PLACEMENT` | `global_altbucket` | Campaign-research model bucket (`creative_agent/config.py`) |
+| `EVAL_MODEL` / `EVAL_MAX_WORKERS` / `EVAL_MAX_VISUAL_WAVE_WORKERS` | `gemini-3.1-pro-preview` / `2` / `4` | Judge model and concurrency caps (`libs/creative_eval/config.py`) |
+| `CAMPAIGN_RESEARCH_PLACEMENT` | `global_altbucket` | Campaign-research model bucket (`agents/creative_agent/config.py`) |
 | `CRITIC_FALLBACK_MODEL` | `gemini-3.8-flash` | Failover model for the Pro (`critic_model`) producers on 429/5xx; `""` = no failover (kill switch). Shipped **only when set** in the deployer's env (`OPTIONAL_ENV_VARS`), so an unset var keeps the code default |
 | `EVAL_MODEL_LOCATION` | `MODEL_LOCATION` | Judge location override; shipped only when set |
 
@@ -2963,7 +2963,7 @@ after a passing run (`uv run python tests/eval/efficiency_gate.py --agent creati
 ## Trend digest cache
 
 `trend_scout` calls the `trend_digest` NodeTool right after the gather (both modes;
-`trend_scout/digest.py`): a neutral one-line summary of why each of the day's 25 trends
+`agents/trend_scout/digest.py`): a neutral one-line summary of why each of the day's 25 trends
 is trending (one grounded search turn + one lite synthesis → state `trend_summaries`,
 shown in the trend pick panel) plus the sensitivity flags (`trend_flags`). Both are
 cached per trend list in BigQuery, keyed by the public table's `refresh_date` and a hash

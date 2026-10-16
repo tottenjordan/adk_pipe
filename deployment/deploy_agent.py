@@ -198,19 +198,25 @@ def build_env_vars(enable_tracing: bool = False) -> dict[str, str | None]:
 # pip-install the repo), so a package a root_agent imports at runtime MUST be
 # listed here or the engine fails to start (e.g. `No module named 'creative_eval'`).
 # Kept by hand; tests/test_deploy_import_graph.py imports each agent module and
-# fails if it pulls in a repo-root package missing here. Current graph:
+# fails if it pulls in a first-party package missing here. Current graph:
 #   trend_scout          -> agent_common
 #   creative_agent       -> creative_eval, agent_common
 #   interactive_creative -> creative_agent, creative_eval, agent_common
 # Convention: the agent's own package is listed first, then its cross-package deps.
+# Paths are repo-relative (agents/ or libs/); stage_extra_packages copies each one
+# flat under its folder name, which is its import name inside the engine.
 AGENT_EXTRA_PACKAGES = {
-    "trend_scout": ["./trend_scout", "./agent_common"],
-    "creative_agent": ["./creative_agent", "./creative_eval", "./agent_common"],
+    "trend_scout": ["./agents/trend_scout", "./libs/agent_common"],
+    "creative_agent": [
+        "./agents/creative_agent",
+        "./libs/creative_eval",
+        "./libs/agent_common",
+    ],
     "interactive_creative": [
-        "./interactive_creative",
-        "./creative_agent",
-        "./creative_eval",
-        "./agent_common",
+        "./agents/interactive_creative",
+        "./agents/creative_agent",
+        "./libs/creative_eval",
+        "./libs/agent_common",
     ],
 }
 

@@ -22,7 +22,7 @@ Trend Trawler is a multi-agent system that automates trend-to-creative ad genera
 uv sync
 
 # Local development (ADK web UI)
-uv run adk web .
+uv run adk web agents
 
 # Local development (custom frontend + backend)
 # Run the async_app launcher (NOT bare `adk api_server`): the frontend's run page
@@ -31,9 +31,8 @@ uv run adk web .
 # superset of `adk api_server`.
 # TRUST_CLIENT_USER_ID=1 is required locally: the default per-user authz mode is enforce
 # (401 without a proxy-asserted X-TT-User), and the app refuses the flag on Cloud Run.
-# SESSION_SERVICE_URI=memory:// sidesteps ADK's per-agent local SQLite path check, which
-# rejects the agents/ symlinks (pre-existing 400 "resolves outside base directory").
-TRUST_CLIENT_USER_ID=1 SESSION_SERVICE_URI=memory:// ALLOW_ORIGINS=http://localhost:3000 uv run uvicorn deployment.async_app:app --port 8000
+# Sessions default to ADK's per-agent local SQLite (agents/<app>/.adk/session.db).
+TRUST_CLIENT_USER_ID=1 ALLOW_ORIGINS=http://localhost:3000 uv run uvicorn deployment.async_app:app --port 8000
 cd frontend && npm install && npm run dev   # http://localhost:3000
 
 # Deploy agent to Agent Engine (the per-agent packages bundled into the engine
@@ -82,18 +81,16 @@ uv run pytest tests/ -q -n 16  # local tip: fastest on a 32-core box (42s vs 50s
 uv run pytest tests/ -q -n 6 -m "not slow"   # fast local loop (skips JAX-compile/golden/image-staging tests; CI runs all)
 
 # ADK evals — end-to-end agent evaluation with LLM-as-judge (real API calls, ~5 min per case)
-PYTHONPATH="$PWD" uv run adk eval trend_scout tests/eval/evalsets/trend_scout_evalset.json \
+uv run adk eval agents/trend_scout tests/eval/evalsets/trend_scout_evalset.json \
   --config_file_path=tests/eval/eval_config.json --print_detailed_results
 
-# creative_agent eval — needs PYTHONPATH (adk eval's file-spec loader doesn't put the
-# repo root on sys.path, so creative_agent's sibling import `creative_eval` would fail),
-# and uses its own creative-specific rubric config.
-PYTHONPATH="$PWD" uv run adk eval creative_agent tests/eval/evalsets/creative_agent_evalset.json \
+# creative_agent eval — uses its own creative-specific rubric config.
+uv run adk eval agents/creative_agent tests/eval/evalsets/creative_agent_evalset.json \
   --config_file_path=tests/eval/creative_eval_config.json --print_detailed_results
 ```
 
 - Test inventories (which test file covers what, frontend and Python) and the full CI workflow details: [docs/reference/testing.md](docs/reference/testing.md); per-file table in [tests/README.md](tests/README.md).
-- ADK evals: `tests/eval/` (one evalset + rubric config per agent; `creative_agent` needs `PYTHONPATH="$PWD"`). Integration: `deployment/integration_test.py` (live GCP, deployed agents).
+- ADK evals: `tests/eval/` (one evalset + rubric config per agent; run as `adk eval agents/<agent>`). Integration: `deployment/integration_test.py` (live GCP, deployed agents).
 - CI (path-gated, PR-only + `workflow_dispatch`): `python-ci.yml` (`uv sync --locked`, requirements drift, ruff, ty, `pytest -n 4`), `crf-deps.yml` (CRF tests in the function's own venv), `frontend-tests.yml` (lint, test, `next build`), `adk-eval.yml` (nightly, not on PRs; `tests/eval/efficiency_gate.py` is the real pass/fail signal).
 
 ```bash
@@ -106,17 +103,17 @@ python deployment/integration_test.py --check all                             # 
 
 ## Architecture
 
-**Flat package layout (deliberate):** agent packages live flat at the repo root, not under an
-`agents/`/`src/` parent. Agent Engine's `extra_packages` staging preserves each package's relative path
-as its import path (`tarfile.add(path)` → arcname), so nesting would break every bare
-`from creative_agent …` import. Do not "tidy" this into a nested tree.
+**Package layout:** runnable agents in `agents/` (ADK `agents_dir`), shared code in `libs/`,
+bandit tooling in `bandit_stack/`; import names are bare (editable install's `.pth`). Agent Engine
+staging copies each `AGENT_EXTRA_PACKAGES` entry flat under its own name (`stage_extra_packages`),
+so a package's import name = its folder name — never give two packages the same folder name.
 
 ### Two-Phase Agent Pipeline
 
-- **Phase 1 — `trend_scout/`**: gathers the top 25 Google Search trends, digests them (`trend_digest`: one-line summaries + sensitivity flags, cached per trend list in BigQuery `trend_digest`; flagged terms are never auto-picked), researches cultural context, picks the 3 most campaign-relevant trends and saves them to BigQuery.
-- **Phase 2 — `creative_agent/`**: one trend + campaign → parallel research → structured `CreativeBrief` → gated ad copy and visual concepts → rendered images with post-render QA → LLM-judge evaluation → research PDF, HTML gallery and eval report in GCS. The root makes ONE `creative_pipeline` Workflow call after `memorize`.
-- **Phase 2 (interactive) — `interactive_creative/`**: the same pipelines (imported from `creative_agent`'s public facade, `creative_agent/__init__.py`), pausing at 3 `LongRunningFunctionTool` checkpoints (brief, ad copies, visual concepts); resumable App. Checkpoint details: [docs/reference/agent-composition.md](docs/reference/agent-composition.md).
-- **Evaluation — `creative_eval/`**: `gemini-3.1-pro-preview` judge, 12 advisory dimensions + binary gates; a creative passes only with score ≥ 0.7 AND every blocking gate passed. Every report is stamped with `creative_eval.JUDGE_VERSION`: bump it (to the change's date, `.N` for a second same-day change) whenever gates, gate/dimension wording, scoring/pass rules or the judge model change; calibration counts current-version ratings only. Gates, judge integrity, early ad-copy judging, calibration: [docs/reference/evaluation.md](docs/reference/evaluation.md).
+- **Phase 1 — `agents/trend_scout/`**: gathers the top 25 Google Search trends, digests them (`trend_digest`: one-line summaries + sensitivity flags, cached per trend list in BigQuery `trend_digest`; flagged terms are never auto-picked), researches cultural context, picks the 3 most campaign-relevant trends and saves them to BigQuery.
+- **Phase 2 — `agents/creative_agent/`**: one trend + campaign → parallel research → structured `CreativeBrief` → gated ad copy and visual concepts → rendered images with post-render QA → LLM-judge evaluation → research PDF, HTML gallery and eval report in GCS. The root makes ONE `creative_pipeline` Workflow call after `memorize`.
+- **Phase 2 (interactive) — `agents/interactive_creative/`**: the same pipelines (imported from `creative_agent`'s public facade, `agents/creative_agent/__init__.py`), pausing at 3 `LongRunningFunctionTool` checkpoints (brief, ad copies, visual concepts); resumable App. Checkpoint details: [docs/reference/agent-composition.md](docs/reference/agent-composition.md).
+- **Evaluation — `libs/creative_eval/`**: `gemini-3.1-pro-preview` judge, 12 advisory dimensions + binary gates; a creative passes only with score ≥ 0.7 AND every blocking gate passed. Every report is stamped with `creative_eval.JUDGE_VERSION`: bump it (to the change's date, `.N` for a second same-day change) whenever gates, gate/dimension wording, scoring/pass rules or the judge model change; calibration counts current-version ratings only. Gates, judge integrity, early ad-copy judging, calibration: [docs/reference/evaluation.md](docs/reference/evaluation.md).
 
 ### Agent Composition
 
@@ -146,7 +143,7 @@ interactive_creative (root; resumable App): combined_research / ad_creative / vi
   + ad_copy_user_reviser, visual_concept_reviser, save_draft_report_artifact, memorize
 ```
 
-Key ADK patterns used: `Agent`, graph `Workflow`s (`google.adk.workflow`: fan-out + `JoinNode`, routed function nodes, truthy terminal nodes; exposed to roots as bare nodes → `NodeTool`), `RetryUntilKeyNode` (graph retry wrapper in `agent_common/`), `AgentTool` (wraps agents as tools), `LongRunningFunctionTool` (pause/resume for human-in-the-loop), and `App` + `ResumabilityConfig` (resumable sessions). The ADK Workflow migration (proposal P2, complete 2026-09-29; `docs/plans/2026-09-29-p2-adk-workflow-migration.md`) retired the deprecated `SequentialAgent`/`ParallelAgent`/`LoopAgent` containers and the `RunIfAgent`/`RetryUntilKeyAgent` wrappers; `tests/test_public_api.py` guards against their return (no references in the agent packages, and importing every agent emits no legacy-container `DeprecationWarning`).
+Key ADK patterns used: `Agent`, graph `Workflow`s (`google.adk.workflow`: fan-out + `JoinNode`, routed function nodes, truthy terminal nodes; exposed to roots as bare nodes → `NodeTool`), `RetryUntilKeyNode` (graph retry wrapper in `libs/agent_common/`), `AgentTool` (wraps agents as tools), `LongRunningFunctionTool` (pause/resume for human-in-the-loop), and `App` + `ResumabilityConfig` (resumable sessions). The ADK Workflow migration (proposal P2, complete 2026-09-29; `docs/plans/2026-09-29-p2-adk-workflow-migration.md`) retired the deprecated `SequentialAgent`/`ParallelAgent`/`LoopAgent` containers and the `RunIfAgent`/`RetryUntilKeyAgent` wrappers; `tests/test_public_api.py` guards against their return (no references in the agent packages, and importing every agent emits no legacy-container `DeprecationWarning`).
 
 ### Invariants (read before changing these areas)
 
@@ -156,13 +153,13 @@ Key ADK patterns used: `Agent`, graph `Workflow`s (`google.adk.workflow`: fan-ou
 - **Agent Engine pickles at deploy:** anything read at agent-module import (models, knobs, Model Armor, temperature profile, timeouts) comes from the deployer's env (`deployment/deploy.env` in Cloud Build). Never seed per-run state at import.
 - **Locations:** gemini-3.x models only at `global` (`GOOGLE_CLOUD_LOCATION=global`, pinned in code by `agent_common.models.build_gemini`); Agent Engine SDK clients use `GCP_REGION` (default `us-central1`); BigQuery, GCS and Pub/Sub live in `us-central1` (their clients take no location). Bucket name: `GOOGLE_CLOUD_STORAGE_BUCKET` (not `GCS_BUCKET_NAME`, no `BUCKET`).
 - **JAX is dev-group only:** never add `jax` to `[project] dependencies` or `requirements.txt` (api image + engines stay JAX-free); `runserver/` never imports `bandit/`. Runtime code never imports group-only packages (`tests/test_dependency_groups.py`).
-- **Flat package layout** (above) and `AGENT_EXTRA_PACKAGES` in `deployment/deploy_agent.py` (checked by `tests/test_deploy_import_graph.py`).
+- **Package layout** (above) and `AGENT_EXTRA_PACKAGES` in `deployment/deploy_agent.py` (checked by `tests/test_deploy_import_graph.py`).
 - **Prompts:** instruction texts spliced into ADK prompts must be brace-free (`{x}` is a state token; use `[x]`). Optional rule blocks (`{timely_rules?}`, `{person_casting_rules?}`, `{rating_limits?}`, safer-angle rules) keep runs without them **byte-identical**, pinned by sha tests (`tests/test_timely_rules.py`, `tests/test_safer_angle.py`). Render and judge prompts have goldens (`tests/test_render_parity.py`, `tests/test_judge_prompt_golden.py`).
 - **Completion:** creative apps are finished only at `finalize_done` (runserver auto-continue, the CRF worker and the smoke test all key on it).
 - **Root history:** `agent_common.history.drop_other_agent_context` trims replayed NodeTool interiors from root prompts; keep it first in each root's `before_model_callback`.
 - **BigQuery writes are idempotent:** row keys come from `agent_common.idempotency.stable_row_id(session.id, …)`, never uuid4, written via `MERGE … WHEN NOT MATCHED THEN INSERT`, so at-least-once tool execution (resumed apps, CRF retries) leaves exactly one row.
 - **Privacy in logs:** never log user emails (log `stable_row_id(user_id)`), person photo URIs, whole events or `state_delta`. Person references are consent-gated (`runserver/person_refs.py`); URIs are never returned either; revoking deletes the photo and every image made with it (revoke cascade). Details: [docs/reference/configuration.md](docs/reference/configuration.md) → Person casting, Personalised variants, Person share scope + revoke cascade.
-- **Package boundaries:** `interactive_creative` imports only `creative_agent`'s public facade (`creative_agent/__init__.py`), never `creative_agent.agent` / `.schemas` internals, and the facade never re-exports `config` (it would shadow the `creative_agent.config` submodule). `agent_common` holds no per-agent business logic and no cloud function imports it. The shared tool name must stay `memorize`. Campaign state keys are seeded via `createSession` initialState, never via the user message.
+- **Package boundaries:** `interactive_creative` imports only `creative_agent`'s public facade (`agents/creative_agent/__init__.py`), never `creative_agent.agent` / `.schemas` internals, and the facade never re-exports `config` (it would shadow the `creative_agent.config` submodule). `agent_common` holds no per-agent business logic and no cloud function imports it. The shared tool name must stay `memorize`. Campaign state keys are seeded via `createSession` initialState, never via the user message.
 - **Python ↔ TypeScript mirrors:** eval dimensions, rating reasons, consent text, person slugs and timely expiry exist on both sides with drift tests or shared goldens; change both in the same PR.
 - **Commits and PRs:** never add `Co-Authored-By` trailers (see CODE_STANDARDS.md).
 
@@ -180,7 +177,7 @@ Pub/Sub orchestrator → Cloud Tasks queue `creative-worker-queue` → worker ru
 
 ### Configuration
 
-`agent_common/` building blocks (config, retry, `RetryUntilKeyNode`, `FailSoftNode`, timeouts, rate limit, history trim, clock, clients, idempotency, safety, models, observability), model lineup, image QA, trend digest / situation / timely slot, safer angle, brand history, rating learning, session state keys, person casting, variants, share scope + revoke cascade, visual-intent keys. Details: [docs/reference/configuration.md](docs/reference/configuration.md).
+`libs/agent_common/` building blocks (config, retry, `RetryUntilKeyNode`, `FailSoftNode`, timeouts, rate limit, history trim, clock, clients, idempotency, safety, models, observability), model lineup, image QA, trend digest / situation / timely slot, safer angle, brand history, rating learning, session state keys, person casting, variants, share scope + revoke cascade, visual-intent keys. Details: [docs/reference/configuration.md](docs/reference/configuration.md).
 
 ### Agent Definition Pattern
 

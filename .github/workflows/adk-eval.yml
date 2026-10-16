@@ -145,12 +145,12 @@ jobs:
         # Runtime deps + the `eval` group only (no pytest/ruff/jax).
         run: uv sync --locked --no-dev --group eval
 
-      # PYTHONPATH: adk eval's loader doesn't put the repo root on sys.path, so
-      # sibling imports (creative_eval, agent_common) would fail otherwise.
+      # No PYTHONPATH needed: the editable install's .pth puts agents/ and libs/
+      # on sys.path, so cross-package imports (creative_eval, agent_common) resolve.
       # NOTE: `adk eval` exits 0 even when cases FAIL — the gate below is the signal.
       - name: adk eval
         run: |
-          PYTHONPATH="$PWD" uv run adk eval ${{ matrix.agent }} \
+          uv run adk eval agents/${{ matrix.agent }} \
             tests/eval/evalsets/${{ matrix.agent }}_evalset.json \
             --config_file_path="$EVAL_CONFIG" \
             --print_detailed_results
@@ -169,7 +169,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: eval-history-${{ matrix.agent }}
-          path: ${{ matrix.agent }}/.adk/eval_history/
+          path: agents/${{ matrix.agent }}/.adk/eval_history/
           if-no-files-found: warn
           # The path is under .adk/; upload-artifact skips hidden paths by default.
           include-hidden-files: true

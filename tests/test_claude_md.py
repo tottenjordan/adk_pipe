@@ -38,7 +38,7 @@ def test_reference_links_resolve_and_no_orphans():
 def test_key_invariants_stay_in_claude_md():
     text = _text()
     for marker in (
-        "Flat package layout",
+        "Package layout",
         "--no-cpu-throttling",
         "update-traffic",
         "allUsers",

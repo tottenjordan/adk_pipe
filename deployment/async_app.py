@@ -11,10 +11,9 @@ in-memory. If ADK's internals ever move the instance out of reach, we fall back
 to rebuilding the services from the same ``SESSION_SERVICE_URI`` via ADK's own
 resolver and log a warning. That is correct for the prod remote
 ``agentengine://`` backend, which multiple clients share, but NOT for an
-in-memory store: local dev runs this launcher with ``SESSION_SERVICE_URI=memory://``
-(see CLAUDE.md), and there the fallback would give ``/runs`` a second, empty store,
-so sessions created via the canned CRUD endpoints would 404 on ``/runs`` (and vice
-versa). ``tests/test_async_app_wiring.py`` asserts the canned instance is found.
+in-memory store: with ``SESSION_SERVICE_URI=memory://`` the fallback would give
+``/runs`` a second, empty store, so sessions created via the canned CRUD endpoints
+would 404 on ``/runs`` (and vice versa). ``tests/test_async_app_wiring.py`` asserts the canned instance is found.
 """
 
 from __future__ import annotations
