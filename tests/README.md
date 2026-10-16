@@ -64,11 +64,12 @@ tests/
 ├── test_agent_common_state.py       # shared memorize tool + seed_initial_state()
 ├── test_ad_copy_prompts.py          # ad copy prompts: angle spread + typicality (drafter), angle coverage/surprise/brief checklist/CTA (critic), flagged-only reviser tokens, the trend tie rule (drafter) + trend_bridge check wording matching the judge's trend_connected (critic); brace-safety
 ├── test_agents_dir.py               # agents/ = ADK agents_dir: exactly the 3 agents as real dirs, libs/ outside it, Dockerfile PYTHONPATH, a local session via async_app's default SQLite store
-├── test_async_app_wiring.py         # imports deployment.async_app for real (subprocess, in-memory stores): UserAuthzMiddleware installed, the __runserver__ marker log filter installed, enforce boot guard refuses a missing proxy config
+├── test_api_shutdown.py             # bounded lifespan-shutdown drain (runserver/shutdown.py): cancels + awaits detached /runs and /variants tasks so the interrupted marker lands; budget < 10 s
+├── test_async_app_wiring.py         # imports deployment.async_app for real (subprocess, in-memory stores): UserAuthzMiddleware installed, the __runserver__ marker log filter installed, enforce boot guard refuses a missing proxy config; our lifespan (passed to get_fast_api_app) starts the reaper and on shutdown drains detached tasks, bounded, before ADK closes its runners
 ├── test_runserver_marker_log_filter.py # ADK router's "Event from an unknown agent" warning dropped for runserver's own __runserver__ markers only (real find_agent_to_run + caplog): other unknown authors and other messages still log; logger name matches the installed ADK; install is idempotent
 ├── test_async_runs.py               # async-job run model: kick-off/poll/resume, terminal markers, checkpoint edits (report, structured brief: valid merge / 400 on invalid); only the terminal marker decides done/error, so a contained in-pipeline error event keeps the run running and is listed as a deduped, capped, truncated non-fatal `warnings` entry (#322)
 ├── test_authz.py                    # P3 per-user authz (incl. /shares/{u}, /person-refs/{u} and /variants/{u} paths): modes, userId normalization, proxy ID-token check, middleware 401/403/404, ownership → 404
-├── test_backend_entrypoint.py       # backend container entrypoint (uvicorn serves async_app.py)
+├── test_backend_entrypoint.py       # backend container entrypoint (uvicorn serves async_app.py) + --timeout-graceful-shutdown inside the 10 s SIGTERM grace
 ├── test_backfill_eval_labels.py    # deployment/backfill_eval_dimension_labels.py: pure SQL builder (no BigQuery)
 ├── test_bandit_endpoint_lib.py      # deployment/bandit/endpoint.py vs a fake aiplatform (single-worker env, 1 replica, labels, find_* by label oldest-first)
 ├── test_bandit_cloudbuild.py        # the one bandit image (endpoint + traffic job) build: cloudbuild.bandit.yaml + Dockerfile, dependency layer cached apart from the code

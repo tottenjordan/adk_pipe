@@ -8,7 +8,13 @@
 # Set ADK_DRYRUN=1 to print the argv instead of exec'ing (used by tests).
 set -eu
 
-set -- uv run uvicorn deployment.async_app:app --host 0.0.0.0 --port "${PORT:-8080}"
+# Shutdown budget (Cloud Run SIGKILLs 10 s after SIGTERM): uvicorn waits at most
+# 6 s for open connections (default: no limit), then the app lifespan cancels the
+# detached /runs + /variants tasks and waits <= 3 s for their interrupted markers,
+# leaving ~1 s for ADK's runner cleanup. Keep in sync with runserver/shutdown.py
+# (UVICORN_GRACEFUL_SECONDS, SHUTDOWN_DRAIN_SECONDS).
+set -- uv run uvicorn deployment.async_app:app --host 0.0.0.0 --port "${PORT:-8080}" \
+  --timeout-graceful-shutdown 6
 
 if [ -n "${SESSION_SERVICE_URI:-}" ]; then
   echo "SESSION_SERVICE_URI is set; async_app will use persistent sessions." >&2

@@ -30,6 +30,18 @@ def test_serves_async_app_under_uvicorn():
     assert "--port 8080" in cmd
 
 
+def test_bounds_graceful_shutdown_inside_cloud_run_grace():
+    # Cloud Run SIGKILLs 10 s after SIGTERM; uvicorn's default waits forever for
+    # open connections, so the lifespan shutdown (marker writes) might never run.
+    from runserver.shutdown import SHUTDOWN_DRAIN_SECONDS, UVICORN_GRACEFUL_SECONDS
+
+    args = _run({}).split()
+    assert "--timeout-graceful-shutdown" in args
+    value = int(args[args.index("--timeout-graceful-shutdown") + 1])
+    assert value == UVICORN_GRACEFUL_SECONDS
+    assert value + SHUTDOWN_DRAIN_SECONDS < 10
+
+
 def test_session_uri_not_a_cli_flag():
     # The URI is consumed inside async_app.py, never passed as a CLI argument, so
     # it must not appear in the exec'd argv regardless of whether it is set.
