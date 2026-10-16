@@ -28,36 +28,36 @@ def test_staged_tree_contents(tmp_path):
     assert bi.staged_files(src) == [
         "Dockerfile",
         "Dockerfile.dockerignore",
-        "bandit/__init__.py",
-        "bandit/aggregate.py",
-        "bandit/baselines.py",
-        "bandit/calibration.py",
-        "bandit/config.py",
-        "bandit/environment.py",
-        "bandit/features.py",
-        "bandit/linear_ts.py",
-        "bandit/metrics.py",
-        "bandit/policies.py",
-        "bandit/scenario.py",
-        "bandit/scenarios/clear_winner.yaml",
-        "bandit/scenarios/drift.yaml",
-        "bandit/scenarios/segment_winners.yaml",
-        "bandit/shifts.py",
-        "bandit/simulate.py",
-        "bandit_serving/__init__.py",
-        "bandit_serving/checkpoint.py",
-        "bandit_serving/instances.py",
-        "bandit_serving/kernels.py",
-        "bandit_serving/predictor.py",
-        "bandit_serving/requirements.txt",
-        "bandit_serving/storage.py",
-        "bandit_traffic/__init__.py",
-        "bandit_traffic/bq.py",
-        "bandit_traffic/endpoint_client.py",
-        "bandit_traffic/main.py",
-        "bandit_traffic/traffic.py",
+        "bandit_stack/bandit/__init__.py",
+        "bandit_stack/bandit/aggregate.py",
+        "bandit_stack/bandit/baselines.py",
+        "bandit_stack/bandit/calibration.py",
+        "bandit_stack/bandit/config.py",
+        "bandit_stack/bandit/environment.py",
+        "bandit_stack/bandit/features.py",
+        "bandit_stack/bandit/linear_ts.py",
+        "bandit_stack/bandit/metrics.py",
+        "bandit_stack/bandit/policies.py",
+        "bandit_stack/bandit/scenario.py",
+        "bandit_stack/bandit/scenarios/clear_winner.yaml",
+        "bandit_stack/bandit/scenarios/drift.yaml",
+        "bandit_stack/bandit/scenarios/segment_winners.yaml",
+        "bandit_stack/bandit/shifts.py",
+        "bandit_stack/bandit/simulate.py",
+        "bandit_stack/bandit_serving/__init__.py",
+        "bandit_stack/bandit_serving/checkpoint.py",
+        "bandit_stack/bandit_serving/instances.py",
+        "bandit_stack/bandit_serving/kernels.py",
+        "bandit_stack/bandit_serving/predictor.py",
+        "bandit_stack/bandit_serving/requirements.txt",
+        "bandit_stack/bandit_serving/storage.py",
+        "bandit_stack/bandit_traffic/__init__.py",
+        "bandit_stack/bandit_traffic/bq.py",
+        "bandit_stack/bandit_traffic/endpoint_client.py",
+        "bandit_stack/bandit_traffic/main.py",
+        "bandit_stack/bandit_traffic/traffic.py",
     ]
-    reqs = (src / "bandit_serving/requirements.txt").read_text()
+    reqs = (src / "bandit_stack/bandit_serving/requirements.txt").read_text()
     assert "jax[cpu]==0.11.2" in reqs and "google-cloud-storage" in reqs
 
 
@@ -108,10 +108,12 @@ def test_serving_dockerfile_installs_deps_once_before_code():
         if k == "COPY" and "--from" not in a and "requirements.txt" not in a
     ]
     assert code_copies and all(i > installs[0] for i in code_copies)
-    assert any("bandit_serving/" in ins[i][1] for i in code_copies)
+    assert any("bandit_stack/bandit_serving/" in ins[i][1] for i in code_copies)
     # the builder sees only requirements.txt, so a code change never re-installs
     before = [a for k, a in ins[: installs[0]] if k == "COPY" and "--from" not in a]
-    assert before == ["bandit_serving/requirements.txt /build/requirements.txt"]
+    assert before == [
+        "bandit_stack/bandit_serving/requirements.txt /build/requirements.txt"
+    ]
 
 
 def test_serving_dockerfile_matches_cpr_sdk_contract():
@@ -152,7 +154,7 @@ def test_single_bandit_dockerfile():
     assert not (BANDIT_DIRS["bandit_traffic"] / "requirements.txt").exists()
     final = _final_stage(_instructions(SERVING_DOCKERFILE))
     copies = [a for k, a in final if k == "COPY" and "--from" not in a]
-    assert "bandit_traffic/*.py /usr/app/bandit_traffic/" in copies
+    assert "bandit_stack/bandit_traffic/*.py /usr/app/bandit_traffic/" in copies
 
 
 def test_dockerignore_allowlists_exactly_the_staged_sources(tmp_path):
@@ -164,15 +166,32 @@ def test_dockerignore_allowlists_exactly_the_staged_sources(tmp_path):
         ln[1:] for ln in ignore.splitlines() if ln.startswith("!") and "*" not in ln
     )
     globbed = [ln[1:] for ln in ignore.splitlines() if ln.startswith("!") and "*" in ln]
-    assert globbed == ["bandit/scenarios/*.yaml"]
+    assert globbed == ["bandit_stack/bandit/scenarios/*.yaml"]
     expected = [
         f
         for f in bi.staged_files(src)
-        if not f.startswith(("Dockerfile", "bandit/scenarios/"))
+        if not f.startswith(("Dockerfile", "bandit_stack/bandit/scenarios/"))
     ]
     assert allowed == expected
     head = ignore.split("\n!", 1)[0].splitlines()
     assert "**" in head  # deny everything before the allowlist
+
+
+def test_staged_dockerfile_copy_sources_exist_in_the_staged_tree(tmp_path):
+    """The staged context mirrors the repo (``bandit_stack/...``), so every COPY
+    source of the staged Dockerfile must match files in it, or ``docker build``
+    fails (and the repo-root Cloud Build context has the same layout)."""
+    src = bi.stage_src_dir(tmp_path / "src")
+    copies = [
+        a.split()
+        for k, a in _instructions(src / "Dockerfile")
+        if k == "COPY" and "--from" not in a
+    ]
+    sources = [s for args in copies for s in args[:-1]]
+    assert sources, copies
+    missing = [s for s in sources if not any(src.glob(s.rstrip("/")))]
+    assert missing == [], missing
+    assert all(s.startswith(f"{bi.STACK_DIR}/") for s in sources), sources
 
 
 def test_root_requirements_stay_jax_free():
@@ -186,9 +205,10 @@ def test_staged_tree_is_self_contained(tmp_path):
     art = tmp_path / "art"
     art.mkdir()
     (art / "experiment.json").write_text(json.dumps(bi.sample_experiment()))
-    root, src_s, art_s = str(bi.REPO_ROOT), str(src), str(art)
+    hidden = ("", str(bi.REPO_ROOT), str(bi.REPO_ROOT / bi.STACK_DIR))
+    src_s, art_s = str(bi.staged_package_root(src)), str(art)
     code = (
-        f"import sys, json; sys.path = [p for p in sys.path if p not in ('', {root!r})];"
+        f"import sys, json; sys.path = [p for p in sys.path if p not in {hidden!r}];"
         f"sys.path.insert(0, {src_s!r});"
         "import bandit, bandit_serving.predictor as m;"
         f"assert bandit.__file__.startswith({src_s!r}), bandit.__file__;"
@@ -211,14 +231,15 @@ def test_staged_tree_is_self_contained(tmp_path):
 
 def test_staged_tree_runs_the_traffic_job(tmp_path):
     """The staged copy runs ``python -m bandit_traffic.main`` (the job's command
-    override) from its root, the image's WORKDIR, with only its own files."""
+    override) from its package root (the image's WORKDIR), with only its own files."""
     src = bi.stage_src_dir(tmp_path / "src")
     cfg = tmp_path / "experiment.json"
     cfg.write_text(json.dumps({**bi.sample_experiment(), "horizon": 200}))
     out = tmp_path / "out"
-    root = str(bi.REPO_ROOT)
+    hidden = ("", str(bi.REPO_ROOT), str(bi.REPO_ROOT / bi.STACK_DIR))
+    pkg_root = bi.staged_package_root(src)
     code = (
-        f"import sys, runpy; sys.path = [p for p in sys.path if p not in ('', {root!r})];"
+        f"import sys, runpy; sys.path = [p for p in sys.path if p not in {hidden!r}];"
         "sys.path.insert(0, sys.argv[1]);"
         "import bandit, bandit_traffic;"
         "assert bandit_traffic.__file__.startswith(sys.argv[1]), bandit_traffic.__file__;"
@@ -228,10 +249,10 @@ def test_staged_tree_runs_the_traffic_job(tmp_path):
     )
     res = subprocess.run(
         [
-            sys.executable, "-c", code, str(src), "--in-process", "--dry-run",
+            sys.executable, "-c", code, str(pkg_root), "--in-process", "--dry-run",
             "--config", str(cfg), "--out", str(out),
         ],
-        cwd=src,
+        cwd=pkg_root,
         capture_output=True,
         text=True,
         check=False,
@@ -245,7 +266,8 @@ def test_load_staged_predictor_resolves_cpr_module_path(tmp_path):
 
     src = bi.stage_src_dir(tmp_path / "src")
     cls = bi.load_staged_predictor(src)
-    assert prediction_utils.inspect_source_from_class(cls, str(src)) == (
+    pkg_root = str(bi.staged_package_root(src))
+    assert prediction_utils.inspect_source_from_class(cls, pkg_root) == (
         bi.PREDICTOR_MODULE,
         "BanditPredictor",
     )
