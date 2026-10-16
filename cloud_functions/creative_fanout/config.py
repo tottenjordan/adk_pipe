@@ -10,7 +10,11 @@ bound), then cross-checks the settings that depend on each other:
   run budget still ends before Cloud Run's request timeout;
 - ``REAP_STALE_PROCESSING_MINUTES`` must be at least the worker timeout (the
   reaper must never re-queue a row whose worker can still be running); its
-  default is ``ceil(WORKER_TIMEOUT_SECS / 60) + 15``.
+  default is ``ceil(WORKER_TIMEOUT_SECS / 60) + 15``;
+- ``WORKER_TIMEOUT_SECS`` must not exceed ``TASK_DISPATCH_DEADLINE_SECS``
+  (logged only): a shorter deadline frees the queue's one dispatch slot while
+  the run continues, so the next task meets a busy worker. The worker's
+  Cloud Run ``--timeout`` must equal the deadline.
 
 Cloud Tasks is the only worker transport. Its settings (``CRF_WORKER_URL``,
 ``CRF_TASKS_INVOKER_SA``) are checked by the orchestrator when it dispatches
@@ -217,7 +221,8 @@ class CrfConfig:
     # ("" = unset and no project number to build the default compute SA).
     TASKS_INVOKER_SA: str
     # The task's dispatch_deadline: how long Cloud Tasks waits for the worker
-    # (default the worker timeout, clamped to Cloud Tasks' 15-1800 s).
+    # (default the worker timeout, clamped to Cloud Tasks' 15-1800 s; an
+    # ERROR when it is below the worker timeout, see the module doc).
     TASK_DISPATCH_DEADLINE_SECS: float
 
     @property
@@ -332,6 +337,22 @@ def _build(_env_key: tuple) -> CrfConfig:
     project_id = os.environ.get("GOOGLE_CLOUD_PROJECT", "").strip()
     project_number = os.environ.get("GOOGLE_CLOUD_PROJECT_NUMBER", "").strip()
     region = _str_env("GCP_REGION", "us-central1")
+
+    # Cross-check: the dispatch deadline covers the whole worker run.
+    dispatch_deadline = _float_env(
+        "CRF_TASK_DISPATCH_DEADLINE_SECS",
+        min(worker_timeout, MAX_DISPATCH_DEADLINE_SECS),
+        MIN_DISPATCH_DEADLINE_SECS,
+        MAX_DISPATCH_DEADLINE_SECS,
+    )
+    if worker_timeout > dispatch_deadline:
+        logger.error(
+            f"CRF_WORKER_TIMEOUT_SECS={worker_timeout:g} exceeds the task "
+            f"dispatch deadline ({dispatch_deadline:g} s): Cloud Tasks frees "
+            "the queue's dispatch slot while the run continues, so the next "
+            "task meets a busy worker. Set the worker's --timeout and "
+            "CRF_WORKER_TIMEOUT_SECS to the deadline."
+        )
     return CrfConfig(
         project_id=project_id,
         project_number=project_number,
@@ -360,12 +381,7 @@ def _build(_env_key: tuple) -> CrfConfig:
         TASKS_LOCATION=_str_env("CRF_TASKS_LOCATION", region),
         WORKER_URL=os.environ.get("CRF_WORKER_URL", "").strip(),
         TASKS_INVOKER_SA=_invoker_env(project_number),
-        TASK_DISPATCH_DEADLINE_SECS=_float_env(
-            "CRF_TASK_DISPATCH_DEADLINE_SECS",
-            min(worker_timeout, MAX_DISPATCH_DEADLINE_SECS),
-            MIN_DISPATCH_DEADLINE_SECS,
-            MAX_DISPATCH_DEADLINE_SECS,
-        ),
+        TASK_DISPATCH_DEADLINE_SECS=dispatch_deadline,
     )
 
 

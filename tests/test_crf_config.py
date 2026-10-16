@@ -16,6 +16,7 @@ import pytest
 from cloud_functions.creative_fanout import main
 from cloud_functions.creative_fanout.config import (
     CrfConfig,
+    _build,
     config,
     default_reap_minutes,
     load_config,
@@ -448,3 +449,42 @@ def test_dispatch_deadline(transport_env, worker_timeout, raw, expected):
     if raw is not None:
         transport_env.setenv("CRF_TASK_DISPATCH_DEADLINE_SECS", raw)
     assert load_config().TASK_DISPATCH_DEADLINE_SECS == expected
+
+
+@pytest.mark.parametrize(
+    "worker_timeout, raw",
+    [("3600", None), ("1800", "900"), ("901", "900")],
+)
+def test_worker_timeout_above_the_dispatch_deadline_logs_one_error(
+    transport_env, caplog, worker_timeout, raw
+):
+    """C10: a deadline shorter than the worker run frees the queue's dispatch
+    slot while the run continues; logged once (cached), never raised."""
+    transport_env.setenv("CRF_WORKER_TIMEOUT_SECS", worker_timeout)
+    if raw is not None:
+        transport_env.setenv("CRF_TASK_DISPATCH_DEADLINE_SECS", raw)
+    _build.cache_clear()  # another test may have cached this environment
+    with caplog.at_level(logging.ERROR):
+        load_config()
+        load_config()
+    errors = [r for r in caplog.records if r.levelno == logging.ERROR]
+    assert len(errors) == 1
+    message = errors[0].getMessage()
+    assert "CRF_WORKER_TIMEOUT_SECS" in message
+    assert "dispatch deadline" in message
+
+
+@pytest.mark.parametrize(
+    "worker_timeout, raw",
+    [(None, None), ("900", None), ("900", "900"), ("900", "1800")],
+)
+def test_worker_timeout_within_the_dispatch_deadline_is_silent(
+    transport_env, caplog, worker_timeout, raw
+):
+    if worker_timeout is not None:
+        transport_env.setenv("CRF_WORKER_TIMEOUT_SECS", worker_timeout)
+    if raw is not None:
+        transport_env.setenv("CRF_TASK_DISPATCH_DEADLINE_SECS", raw)
+    with caplog.at_level(logging.ERROR):
+        load_config()
+    assert caplog.records == []
