@@ -7,6 +7,8 @@ import json
 import logging
 import time
 
+from google.genai import errors as genai_errors
+
 from . import clients, status_store
 from .completion import RunMonitor, RunOutcome
 from .config import config
@@ -101,7 +103,7 @@ def session_user_id(row: dict) -> str:
 
 
 async def create_agent_run(
-    agent_id: str,
+    remote_agent,
     msg_dict: dict,
     user_id: str,
     *,
@@ -110,7 +112,9 @@ async def create_agent_run(
     """Invoke agent workflow and report whether the run finished.
 
     Args:
-        agent_id (str): resource ID for the deployed agent
+        remote_agent: the deployed agent's handle (``client.runtimes.get``,
+            resolved by ``process_row`` before the lock; its client is closed
+            there)
         msg_dict (dict): campaign metadata for the creative agent. Has following keys:
             brand: brand to generate creatives for
             target_audience: description of target audience
@@ -154,20 +158,12 @@ async def create_agent_run(
     # delete runs only after the check (it reads the session) and on every path
     # (agent_session's finally, best effort: bounded, never raises), so a
     # failed run never leaks a session and a failed delete never changes the
-    # outcome. A fresh client (and engine handle) per invocation, closed on
-    # this loop: see clients.new_vertex_client for why it can't be cached.
-    client = clients.new_vertex_client()
-    # Row state (C1): an error before the session exists (runtimes.get,
-    # async_create_session) is re-raised as SessionNotStarted, so process_row
-    # can re-queue the row on a transient one instead of failing it.
+    # outcome.
+    # Row state (C1): an error before the session exists (async_create_session,
+    # incl. its timeout) is re-raised as SessionNotStarted, so process_row can
+    # re-queue the row on a transient one instead of failing it.
     session_started = False
     try:
-        remote_agent = client.runtimes.get(
-            name=(
-                f"projects/{config.GOOGLE_CLOUD_PROJECT_NUMBER}/locations/"
-                f"{config.GCP_REGION}/reasoningEngines/{agent_id}"
-            )
-        )
         async with agent_session(
             remote_agent,
             user_id,
@@ -195,8 +191,6 @@ async def create_agent_run(
         if not session_started:
             raise SessionNotStarted(f"no session created: {e!r}") from e
         raise
-    finally:
-        await clients.aclose_vertex_client(client)
 
 
 class RunNotFinalizedError(RuntimeError):
@@ -229,7 +223,7 @@ def _log_run_duration(
 
 class SessionNotStarted(RuntimeError):
     """``create_agent_run`` failed before an Agent Engine session existed
-    (``runtimes.get`` or ``async_create_session``): nothing ran and nothing was
+    (``async_create_session``, or its timeout): nothing ran and nothing was
     spent. The original error is ``__cause__``; ``process_row`` re-queues the
     row when it is transient (``_is_transient``)."""
 
@@ -249,9 +243,9 @@ _TRANSIENT_TYPES = _transient_types()
 
 
 def _is_transient(exc: BaseException | None) -> bool:
-    """A timeout, a connection error or an HTTP 429 / 5xx anywhere in the
-    cause chain (``code`` is the HTTP status on google-api-core and genai /
-    agentplatform errors)."""
+    """A timeout, a connection error or an HTTP 408 / 429 / 5xx anywhere in
+    the cause chain (``code`` is the HTTP status on google-api-core and genai /
+    agentplatform errors; genai's own retryable set is 408/429/500/502/503/504)."""
     seen: set[int] = set()
     while exc is not None and id(exc) not in seen:
         seen.add(id(exc))
@@ -259,7 +253,7 @@ def _is_transient(exc: BaseException | None) -> bool:
             return True
         code = getattr(exc, "code", None)
         if isinstance(code, int) and not isinstance(code, bool):
-            if code == 429 or 500 <= code <= 599:
+            if code in (408, 429) or 500 <= code <= 599:
                 return True
         exc = exc.__cause__ or exc.__context__
     return False
@@ -312,8 +306,75 @@ async def _write_processed(bq_client, dataset, table, key, attempt, deadline):
             await _sleep(backoff)
 
 
+# Bound on the synchronous engine get (C7): google-genai's HTTP timeout
+# defaults to none. It runs in a thread (asyncio.to_thread) before the lock.
+ENGINE_GET_TIMEOUT_SECS = 30.0
+
+# HTTP statuses of an engine get that mean the engine id is stale (deleted, or
+# not this project's): the row is left QUEUED, like an unset engine id (C1).
+_ENGINE_UNAVAILABLE_CODES = (403, 404)
+
+
+def _engine_name(agent_id: str) -> str:
+    return (
+        f"projects/{config.GOOGLE_CLOUD_PROJECT_NUMBER}/locations/"
+        f"{config.GCP_REGION}/reasoningEngines/{agent_id}"
+    )
+
+
 async def process_row(
     trend_dict, agent_id, bq_client, dataset, table, *, deadline: float
+):
+    """Resolve the engine, then lock one row, re-read it, run the agent on it
+    and record the outcome (``_lock_and_run``).
+
+    The engine is resolved BEFORE the lock (C1): a 404/403 (a stale engine id,
+    e.g. one the engine handoff already deleted) is logged
+    (``reason=engine_unavailable``) and returns (ACK) with the row untouched,
+    so it stays QUEUED for a later dispatch; any other error raises (NACK /
+    retry) with no attempt burned. A fresh Agent Runtime client per
+    invocation, closed on this loop on every path: see
+    clients.new_vertex_client for why it can't be cached.
+    """
+    client = clients.new_vertex_client()
+    try:
+        try:
+            # runtimes.get is synchronous: run it off the event loop, bounded.
+            remote_agent = await asyncio.to_thread(
+                client.runtimes.get,
+                name=_engine_name(agent_id),
+                config={
+                    "http_options": {"timeout": int(ENGINE_GET_TIMEOUT_SECS * 1000)}
+                },
+            )
+        except genai_errors.ClientError as e:
+            if e.code not in _ENGINE_UNAVAILABLE_CODES:
+                raise
+            key = status_store.RowKey.from_mapping(trend_dict)
+            logger.error(
+                f"Agent engine {agent_id!r} is unavailable (HTTP {e.code}); "
+                f"leaving row {key} QUEUED. Point the worker at a live engine "
+                "with `deployment/engine_handoff.py apply --update-worker` "
+                "(see deployment/README.md).",
+                extra={
+                    "json_fields": {
+                        **key.log_fields(),
+                        "reason": "engine_unavailable",
+                        "http_status": e.code,
+                        "agent_id": agent_id,
+                    }
+                },
+            )
+            return
+        await _lock_and_run(
+            trend_dict, remote_agent, bq_client, dataset, table, deadline=deadline
+        )
+    finally:
+        await clients.aclose_vertex_client(client)
+
+
+async def _lock_and_run(
+    trend_dict, remote_agent, bq_client, dataset, table, *, deadline: float
 ):
     """Lock one row, re-read it, run the agent on it and record the outcome.
 
@@ -375,7 +436,7 @@ async def process_row(
         # 3. Run the agent and check it finished (finalize_done; at most one
         # retry). The row status is now 'PROCESSING'.
         outcome = await create_agent_run(
-            agent_id=agent_id,
+            remote_agent=remote_agent,
             msg_dict=msg_dict,
             user_id=session_user_id(msg_dict),
             deadline=deadline,
@@ -465,8 +526,10 @@ def handle_worker_message(
     The engine is ``config.CREATIVE_AGENT_ENGINE_ID`` (the worker's env var);
     while it is unset or invalid the message is ACKed before the lock, so its
     row stays QUEUED for the next trigger (locking it would only burn an
-    attempt or strand it). ``process_row`` returning = ACK; an exception from
-    it (or from building the BigQuery client) = RETRY, logged here.
+    attempt or strand it); a set id whose engine is gone (404/403) gets the
+    same treatment in ``process_row``. ``process_row`` returning = ACK; an
+    exception from it (or from building the BigQuery client) = RETRY, logged
+    here.
     """
     agent_id = config.CREATIVE_AGENT_ENGINE_ID
     if not agent_id:

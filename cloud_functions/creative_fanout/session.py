@@ -26,6 +26,13 @@ logger = logging.getLogger(__name__)
 # The delete is bounded by min(delete_timeout_secs, this).
 MAX_DELETE_TIMEOUT_SECS = 30.0
 
+# The create is bounded by this (C7): google-genai's HTTP timeout defaults to
+# none. A timeout here is a TimeoutError before the session exists, so the
+# worker re-queues the row (transient). Bounded with asyncio.timeout, never with
+# client-level retry_options: those would also retry stream_query and start a
+# second run.
+CREATE_TIMEOUT_SECS = 60.0
+
 
 async def delete_session_best_effort(
     remote_agent, user_id, session_id, timeout_secs: float = MAX_DELETE_TIMEOUT_SECS
@@ -72,13 +79,19 @@ async def agent_session(
             through to ``async_create_session(state=...)``.
         delete_timeout_secs: bound on the best-effort delete (<= 30 s).
 
+    Raises:
+        TimeoutError: the create took longer than ``CREATE_TIMEOUT_SECS``.
+
     Yields:
         The created session dict (has an ``"id"`` key).
     """
-    if state is None:
-        session = await remote_agent.async_create_session(user_id=user_id)
-    else:
-        session = await remote_agent.async_create_session(user_id=user_id, state=state)
+    async with asyncio.timeout(CREATE_TIMEOUT_SECS):
+        if state is None:
+            session = await remote_agent.async_create_session(user_id=user_id)
+        else:
+            session = await remote_agent.async_create_session(
+                user_id=user_id, state=state
+            )
     logger.info(f"Created session {session['id']} for user ID: {user_id}")
     try:
         yield session

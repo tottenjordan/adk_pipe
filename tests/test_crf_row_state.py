@@ -34,7 +34,13 @@ from cloud_functions.creative_fanout import (
 )
 from cloud_functions.creative_fanout.completion import RunOutcome
 from cloud_functions.creative_fanout.config import config
-from tests.crf_fakes import FakeStatusStore, bq_results, queued, row_for
+from tests.crf_fakes import (
+    FakeStatusStore,
+    bq_results,
+    fake_vertex_client,
+    queued,
+    row_for,
+)
 
 pytestmark = pytest.mark.usefixtures("gcp_project_env", "crf_engine_env")
 
@@ -73,6 +79,12 @@ def _instant_sleep(monkeypatch):
 
     monkeypatch.setattr(worker, "_clock", lambda: clock["now"])
     monkeypatch.setattr(worker, "_sleep", _sleep)
+
+
+@pytest.fixture(autouse=True)
+def _fake_agent_runtime(monkeypatch):
+    """process_row resolves the engine before the lock (C1): a stub client."""
+    monkeypatch.setattr(clients.agentplatform, "Client", fake_vertex_client)
 
 
 # ============================================================
@@ -529,6 +541,7 @@ def _vertex(monkeypatch, *, get_exc=None, create_exc=None):
     else:
         client.runtimes.get.return_value = agent
     monkeypatch.setattr(clients, "new_vertex_client", lambda: client)
+    return agent
 
 
 def _genai_503():
@@ -540,8 +553,6 @@ def _genai_503():
 @pytest.mark.parametrize(
     "where,exc",
     [
-        ("get", api_exceptions.TooManyRequests("quota")),
-        ("get", api_exceptions.ServiceUnavailable("down")),
         ("create", api_exceptions.TooManyRequests("quota")),
         ("create", TimeoutError()),
         ("create", _genai_503()),
@@ -563,7 +574,6 @@ def test_transient_error_before_a_session_requeues(monkeypatch, caplog, where, e
 @pytest.mark.parametrize(
     "where,exc",
     [
-        ("get", api_exceptions.NotFound("no such engine")),
         ("create", api_exceptions.PermissionDenied("nope")),
         ("create", ValueError("bad state")),
     ],
@@ -586,9 +596,9 @@ def test_transient_error_after_the_session_started_fails(monkeypatch):
 
 
 def test_create_agent_run_marks_only_pre_session_errors(monkeypatch):
-    _vertex(monkeypatch, create_exc=TimeoutError())
+    agent = _vertex(monkeypatch, create_exc=TimeoutError())
     with pytest.raises(worker.SessionNotStarted) as info:
-        asyncio.run(worker.create_agent_run("1", {**_TREND}, "u", deadline=1e9))
+        asyncio.run(worker.create_agent_run(agent, {**_TREND}, "u", deadline=1e9))
     assert isinstance(info.value.__cause__, TimeoutError)
 
 
@@ -612,7 +622,7 @@ def test_error_inside_a_started_session_is_not_session_not_started(monkeypatch):
 
     agent.async_delete_session = _delete
     with pytest.raises(api_exceptions.ServiceUnavailable):
-        asyncio.run(worker.create_agent_run("1", {**_TREND}, "u", deadline=1e9))
+        asyncio.run(worker.create_agent_run(agent, {**_TREND}, "u", deadline=1e9))
 
     store = FakeStatusStore(monkeypatch, _TREND)
     _run_row()

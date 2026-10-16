@@ -110,6 +110,7 @@ tests/
 ├── test_crf_worker_async.py         # async worker path of the CRF (issue #45)
 ├── test_crf_worker_http.py          # CRF worker HTTP entry agent_worker_task: 200 for done/permanent, 503 for retry, deadline at request start, task headers logged, image load path
 ├── test_crf_time_budget.py          # CRF worker budget: deadline from request start incl. the safety margin, best-effort bounded session delete, compact event logs, row-named session user ids
+├── test_crf_worker_resilience.py   # CRF worker reliability: engine resolved before the lock (404/403 leaves the row QUEUED, transient retries unlocked), engine get + session create timeouts, 408 transient, BigQuery calls bounded end to end, DML serialization-conflict retry
 ├── test_date_prompts.py            # the shared DATE_CONTEXT_LINE in trend research / brief / copy / art-direction prompts (optional tokens, no literal dates), scout as_of/event_hint, Current Moment section, TREND_SCOUT_HINT_BLOCK
 ├── test_cloudbuild_agents.py        # Cloud Build engine deploys: cloudbuild.agents.yaml structure, deploy.env profile drift, clean-env wrapper, engine_handoff.py
 ├── test_engine_handoff_worker.py    # engine_handoff.py apply --update-worker: PROCESSING-rows guard + shell-free gcloud update of the CRF worker's CREATIVE_AGENT_ENGINE_ID + pinned-traffic move to the new revision and its verification
@@ -297,7 +298,8 @@ tests/
   `test_crf_entrypoint.py`, `test_crf_worker_async.py`,
   `test_crf_config.py`, `test_crf_sql_params.py`, `test_crf_hardening.py`,
   `test_crf_completion.py`, `test_crf_row_state.py`, `test_crf_tasks_dispatch.py`,
-  `test_crf_worker_http.py`, `test_crf_time_budget.py` (+ `test_worker_retry_message_drift.py`, outside the CRF venv): deploy
+  `test_crf_worker_http.py`, `test_crf_time_budget.py`,
+  `test_crf_worker_resilience.py` (+ `test_worker_retry_message_drift.py`, outside the CRF venv): deploy
   mappings/env wiring, the `runtimes.create` path, and the orchestrator + worker Cloud
   Run Function paths (env-driven config, SQL identifier/parameter safety, malformed
   messages, client lifetimes, bounded BigQuery waits, JSON logs, the finalize_done

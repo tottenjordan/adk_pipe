@@ -24,10 +24,21 @@ from cloud_functions.creative_fanout import (
     worker,
 )
 from cloud_functions.creative_fanout.config import config
-from tests.crf_fakes import FakeStatusStore, bq_results, queued
+from tests.crf_fakes import (
+    FakeStatusStore,
+    bq_results,
+    fake_vertex_client,
+    queued,
+)
 
 # The CRF config reads the (required) project at use time; pin a dummy.
 pytestmark = pytest.mark.usefixtures("gcp_project_env", "crf_engine_env")
+
+
+@pytest.fixture(autouse=True)
+def _fake_agent_runtime(monkeypatch):
+    """process_row resolves the engine before the lock (C1): a stub client."""
+    monkeypatch.setattr(clients.agentplatform, "Client", fake_vertex_client)
 
 
 # ============================================================
@@ -319,7 +330,7 @@ class _FakeRuntimes:
     def __init__(self, client):
         self.client = client
 
-    def get(self, *, name):
+    def get(self, *, name, config=None):
         return _FakeAgent(self.client)
 
 
@@ -398,16 +409,11 @@ def test_agent_runtime_client_closed_even_when_the_run_fails(monkeypatch):
         raise RuntimeError("create boom")
 
     monkeypatch.setattr(_FakeAgent, "async_create_session", _boom)
+    row = {"index": 0, **_ROW_DATA}
+    store = FakeStatusStore(monkeypatch, row)
 
-    with pytest.raises(RuntimeError, match="create boom"):
-        asyncio.run(
-            worker.create_agent_run(
-                agent_id="123",
-                msg_dict={"index": 0, **_ROW_DATA},
-                user_id="u",
-                deadline=1e9,
-            )
-        )
+    asyncio.run(worker.process_row(row, "123", object(), "ds", "t", deadline=1e9))
+    assert store.statuses == ["FAILED"]
     (client,) = _LoopBoundFakeClient.instances
     assert client.closed
 
@@ -420,15 +426,11 @@ def test_agent_runtime_client_close_failure_does_not_fail_the_run(monkeypatch, c
         raise OSError("close boom")
 
     monkeypatch.setattr(_FakeAio, "aclose", _bad_close)
+    row = {"index": 0, **_ROW_DATA}
+    store = FakeStatusStore(monkeypatch, row)
     with caplog.at_level(logging.WARNING):
-        asyncio.run(
-            worker.create_agent_run(
-                agent_id="123",
-                msg_dict={"index": 0, **_ROW_DATA},
-                user_id="u",
-                deadline=1e9,
-            )
-        )
+        asyncio.run(worker.process_row(row, "123", object(), "ds", "t", deadline=1e9))
+    assert store.statuses == ["PROCESSED"]
     assert "close boom" in caplog.text
 
 
