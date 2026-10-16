@@ -1,8 +1,8 @@
 """Message parsing for the CRF functions.
 
 Decodes and validates the orchestrator's trigger message and the worker
-message (a Pub/Sub CloudEvent or a Cloud Tasks HTTP body; one validator), and
-builds the worker message's ``row_data`` from a BigQuery row.
+message (the trigger is a Pub/Sub CloudEvent, the worker message a Cloud Tasks
+HTTP body), and builds the worker message's ``row_data`` from a BigQuery row.
 """
 
 import base64
