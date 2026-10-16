@@ -28,11 +28,6 @@ const TRANSFORM_PROP = /\b(?:transform|scale|translate|rotate)\b/;
  * (no longer violating) fails the test, so the list only shrinks.
  */
 const ALLOWLIST: Record<string, string[]> = {
-  // PR-2 (overlays and disclosures)
-  "components/event-log.tsx": ["animate:animate-bounce"],
-  "components/quiet-disclosure.tsx": ["transform-without-motion-reduce"],
-  "components/creative-brief.tsx": ["transform-without-motion-reduce"],
-  "app/results/[sessionId]/results-header.tsx": ["transform-without-motion-reduce"],
   // PR-4 (page states and the home form)
   "app/page.tsx": ["transform-without-motion-reduce"],
 };
