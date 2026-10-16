@@ -6,7 +6,7 @@
 (seconds). They cannot be given thresholds in the eval config (ADK raises), and
 ``adk eval`` exits 0 even when cases FAIL — so this script is the CI signal.
 
-It reads the newest ``<agent>/.adk/eval_history/*.evalset_result.json`` and,
+It reads the newest ``agents/<agent>/.adk/eval_history/*.evalset_result.json`` and,
 per eval case:
 
 * FAILS if the case did not pass (baseline or not). A case passes when the
@@ -352,7 +352,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument(
         "--history-dir",
         default=None,
-        help="eval history dir (default: <agent>/.adk/eval_history)",
+        help="eval history dir (default: agents/<agent>/.adk/eval_history)",
     )
     parser.add_argument(
         "--update-baseline",
@@ -361,7 +361,9 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    history = Path(args.history_dir or Path(args.agent) / ".adk" / "eval_history")
+    history = Path(
+        args.history_dir or Path("agents") / args.agent / ".adk" / "eval_history"
+    )
     files = sorted(history.glob(HISTORY_GLOB), key=lambda p: p.stat().st_mtime)
     if not files:
         print(f"error: no {HISTORY_GLOB} under {history}", file=sys.stderr)
