@@ -41,9 +41,9 @@ Cloud Run Functions, which do **not** read `.env`). All vars are documented in
 | `GOOGLE_CLOUD_PROJECT_NUMBER` | CRF orchestrator (the default Cloud Tasks invoker SA when `CRF_TASKS_INVOKER_SA` is unset) + worker (Reasoning Engine path); `deploy_agent.py --delete` | Worker: **yes** — unset, the engine id resolves to unset with an ERROR and every row stays `QUEUED`; orchestrator: only without `CRF_TASKS_INVOKER_SA`; deploy scripts: yes | none |
 | `GCP_REGION` | CRFs (Agent Engine client), all deploy scripts | No | `us-central1` |
 | `CRF_WORKER_URL` | CRF orchestrator: the worker's `https://` Cloud Run URL (task target + OIDC audience). Cloud Tasks is the only transport: unset or not `https://` (or no invoker SA) → one ERROR per trigger and nothing dispatched, rows keep their status | **Yes** | none |
-| `CRF_TASKS_QUEUE` / `CRF_TASKS_LOCATION` | CRF orchestrator, `tasks` transport | No | `creative-worker-queue` / `GCP_REGION` |
+| `CRF_TASKS_QUEUE` / `CRF_TASKS_LOCATION` | CRF orchestrator: the Cloud Tasks queue | No | `creative-worker-queue` / `GCP_REGION` |
 | `CRF_TASKS_INVOKER_SA` | CRF orchestrator: the identity of the tasks' OIDC token (needs `run.invoker` on the worker; the orchestrator's SA needs `iam.serviceAccountUser` on it). Deployed as `tt-crf-invoker-sa@<project>.iam.gserviceaccount.com`, see [§1](#1-grant-service-account-required-permissions) | No (the deploy sets it) | `<GOOGLE_CLOUD_PROJECT_NUMBER>-compute@developer.gserviceaccount.com` |
-| `CRF_TASK_DISPATCH_DEADLINE_SECS` | CRF orchestrator, `tasks` transport: how long Cloud Tasks waits for the worker's response | No | `CRF_WORKER_TIMEOUT_SECS` (1800), clamped 15–1800 |
+| `CRF_TASK_DISPATCH_DEADLINE_SECS` | CRF orchestrator: how long Cloud Tasks waits for the worker's response | No | `CRF_WORKER_TIMEOUT_SECS` (1800), clamped 15–1800 |
 | `CREATIVE_AGENT_ENGINE_ID` | CRF worker (the creative engine it runs: the full `projects/<number>/locations/<GCP_REGION>/reasoningEngines/<id>` name, as `.env` stores it, or the bare id; another project/region or a malformed value is ignored with an ERROR); also `test_deployment.py` / `integration_test.py` (see below) | Worker: **yes** — while unset or invalid it logs an ERROR per message and leaves the row `QUEUED` (no lock taken). Set by `engine_handoff.py apply --update-worker` | none |
 | `AGENT_WORKER_USER_ID` | CRF worker (Agent Engine session owner, `<id>_<hash(uuid, target_trend)>`, else `<id>_<row index>`) | No | `crf_worker` |
 | `BQ_DATASET_ID` / `BQ_TABLE_TARGETS` | CRFs (SQL identifier allow-list) | No | `trend_trawler` / `target_trends_crf` |
@@ -906,7 +906,8 @@ gcloud run deploy $CREATIVE_WORKER_CRF_NAME \
   
   # Note:
   # FUNCTION_TARGET=agent_worker_task + FUNCTION_SIGNATURE_TYPE=http: the Cloud Tasks
-  #   entry point (200 = task done, 503 = Cloud Tasks retries it). No Eventarc trigger.
+  #   entry point (200 = task done, 500 = Cloud Tasks retries it under the queue's own
+  #   60–600 s backoff, not the 429/503 overload backoff). No Eventarc trigger.
   # --service-account: the dedicated worker SA (§1); --no-allow-unauthenticated keeps
   #   it private: only tt-crf-invoker-sa (the tasks' OIDC token) may invoke it (§3.4).
   # --set-env-vars: FUNCTION_TARGET, GOOGLE_CLOUD_PROJECT, GOOGLE_CLOUD_PROJECT_NUMBER and

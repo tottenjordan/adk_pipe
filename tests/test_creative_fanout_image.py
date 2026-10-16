@@ -246,8 +246,8 @@ def test_optional_deploy_rolls_both_crf_services_without_traffic():
 def test_optional_deploy_sets_only_the_orchestrator_target():
     """The orchestrator's target never changes, so the step re-asserts it. The
     worker's target and signature belong to the service (agent_worker_task +
-    http behind Cloud Tasks; agent_worker_entrypoint + cloudevent on the
-    Pub/Sub rollback path): the step must not overwrite either."""
+    http behind Cloud Tasks, the only transport): the step must not overwrite
+    either."""
     _, _, deploy = _step(_root_build(), "deploy")["args"][-1].partition("exit 0")
     orchestrator = _deploy_cmd(deploy, "creative-trawler-crf")
     assert "--update-env-vars FUNCTION_TARGET=crf_entrypoint" in orchestrator
