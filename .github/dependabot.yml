@@ -34,6 +34,15 @@ updates:
       - dependency-name: "google-genai"
         update-types: ["version-update:semver-major"]
 
+  # Bumps the direct pins in requirements.txt. requirements.lock.txt (what the
+  # image installs, hashed) is compiled from it by `uv pip compile`, which this
+  # pip updater does not run (it would re-resolve with pip-tools, which has no
+  # --universal mode). So a bump PR goes red on crf-deps.yml's lock drift check
+  # until the lock is regenerated on the PR branch with the command that check
+  # prints (uv 0.12.19). Deliberate: a red PR asking for one command beats a
+  # lock that silently diverges from requirements.txt. Dependabot's `uv`
+  # ecosystem reportedly runs `uv pip compile` itself; moving this directory
+  # there is a follow-up once that is verified on this file layout.
   - package-ecosystem: "pip"
     directory: "/cloud_functions/creative_fanout"
     schedule:
@@ -77,8 +86,10 @@ updates:
       actions-minor-patch:
         update-types: ["minor", "patch"]
 
+  # /cloud_functions/creative_fanout: the CRF base image (literal tag + digest
+  # FROM; Dependabot skips ARG FROMs).
   - package-ecosystem: "docker"
-    directories: ["/", "/frontend"]
+    directories: ["/", "/frontend", "/cloud_functions/creative_fanout"]
     schedule:
       interval: "weekly"
     groups:
