@@ -41,3 +41,10 @@ describe("--control-off (WCAG 1.4.11 non-text contrast)", () => {
     expect(track?.className).not.toMatch(/bg-\[#/);
   });
 });
+
+describe("--input (WCAG 1.4.11 form-field outline)", () => {
+  it("is at least 3:1 against the field's white fill, while --border stays the light rule", () => {
+    expect(contrast(token("input"), "#ffffff")).toBeGreaterThanOrEqual(3);
+    expect(css).toMatch(/--border:\s*var\(--rule\)/);
+  });
+});

@@ -99,9 +99,12 @@
   --destructive: var(--mark-fail);
   --rule: #d5dbe0;
   --border: var(--rule);
-  --input: var(--rule);
+  /* Form-field outline (WCAG 1.4.11): 3.05:1 on --card / #fff (the field's own
+     fill), 2.78:1 on --background; was --rule at 1.40:1. A neutral grey between
+     --rule and --control-off. --border stays on --rule so card outlines stay light. */
+  --input: #8a95a0;
   /* Off state of switches/toggles (WCAG 1.4.11): 3.57:1 on --card, 3.26:1 on
-     --background, 3.03:1 on --muted (hover). --input stays the light rule (1.40:1). */
+     --background, 3.03:1 on --muted (hover). */
   --control-off: #7d8995;
   --ring: var(--primary);
   --chart-1: #0077a8;
@@ -136,25 +139,38 @@
   }
 }
 
-/* ── Reduced motion ─────────────────────────────────────────── */
+/* ── Reduced motion: fewer and gentler, not none ───────────────
+   Transitions keep only their opacity/colour part (transform, scale, translate,
+   rotate, height and grid-rows changes snap), every token duration is capped at
+   150ms, keyframe animations run once at ~0 duration and scrolling is instant.
+   Components still add motion-reduce: fallbacks for their transform states
+   (e.g. motion-reduce:data-[starting-style]:scale-100) so nothing moves even
+   without a transition. */
 @media (prefers-reduced-motion: reduce) {
+  :root {
+    --dur-pop: 150ms;
+    --dur-dialog: 150ms;
+    --dur-drawer: 150ms;
+  }
   *,
   *::before,
   *::after {
+    transition-property: opacity, color, background-color, border-color,
+      outline-color, text-decoration-color, fill, stroke, box-shadow !important;
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
-  /* Static dots instead of collapsing to the keyframe's scale(0) end state. */
+  /* Static dots instead of collapsing to the keyframe's end state. */
   .processing-dots span {
     animation: none !important;
   }
 }
 
 /* ── Bouncing dots animation for processing indicator ───────── */
+/* Grows from scale(0.4), never from nothing. */
 @keyframes bounce-dot {
-  0%, 80%, 100% { transform: scale(0); opacity: 0.4; }
+  0%, 80%, 100% { transform: scale(0.4); opacity: 0.4; }
   40% { transform: scale(1); opacity: 1; }
 }
 .processing-dots span {
