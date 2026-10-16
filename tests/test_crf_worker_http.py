@@ -3,16 +3,13 @@
 Cloud Tasks retries a task on any non-2xx response, so the status code IS the
 ACK/NACK: a permanent problem (malformed body, unset engine) and every
 recorded outcome (lost lock, PROCESSED, FAILED, re-queued) answer 200; an error
-that today NACKs the Pub/Sub message (raise) answers 503. Both entry points
-share ``worker.handle_worker_message``; the run deadline is still taken at
-request start.
+before the status write answers 503. The run deadline is taken at request
+start.
 """
 
-import base64
 import json
 import logging
 import sys
-import types
 from unittest.mock import AsyncMock, MagicMock
 
 import flask
@@ -91,8 +88,9 @@ def run_row(monkeypatch):
 
 def test_registered_as_an_http_function():
     assert _function_registry.REGISTRY_MAP["agent_worker_task"] == "http"
-    # The CloudEvent entry stays registered for the Pub/Sub rollback path.
-    assert _function_registry.REGISTRY_MAP["agent_worker_entrypoint"] == "cloudevent"
+    # Cloud Tasks is the only transport: the Pub/Sub worker entry is gone.
+    assert "agent_worker_entrypoint" not in _function_registry.REGISTRY_MAP
+    assert not hasattr(main, "agent_worker_entrypoint")
 
 
 def test_valid_task_runs_the_row_and_answers_200(run_row):
@@ -199,7 +197,7 @@ def test_processed_answers_200(monkeypatch):
     assert _call(_payload())[1] == 200
 
 
-def test_error_that_nacks_today_answers_503(monkeypatch, caplog):
+def test_error_before_the_status_write_answers_503(monkeypatch, caplog):
     """A BigQuery error before the lock (process_row raises): Cloud Tasks
     must retry the task under its policy."""
     monkeypatch.setattr(clients, "get_bigquery_client", MagicMock)
@@ -219,19 +217,6 @@ def test_client_construction_error_answers_503(monkeypatch):
     monkeypatch.setattr(clients, "get_bigquery_client", _boom)
     monkeypatch.setattr(worker, "process_row", AsyncMock())
     assert _call(_payload())[1] == 503
-
-
-def test_cloudevent_entry_still_nacks_the_same_error(monkeypatch):
-    """The Pub/Sub entry (rollback path) keeps raising on the same error."""
-    monkeypatch.setattr(clients, "get_bigquery_client", MagicMock)
-    monkeypatch.setattr(
-        worker, "process_row", AsyncMock(side_effect=RuntimeError("bq 500"))
-    )
-    data = base64.b64encode(json.dumps(_payload()).encode()).decode()
-    with pytest.raises(RuntimeError):
-        main.agent_worker_entrypoint(
-            types.SimpleNamespace(data={"message": {"data": data}})
-        )
 
 
 def test_deadline_is_taken_at_request_start(monkeypatch):

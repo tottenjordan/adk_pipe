@@ -139,6 +139,24 @@ class FakeStatusStore:
         return [c[2] for c in self.calls if c[0] == "mark_final"]
 
 
+def call_worker_task(body) -> int:
+    """POST ``body`` (dict -> JSON; str/bytes as-is) to the worker's Cloud Tasks
+    entry point (``main.agent_worker_task``) and return the HTTP status: 200 =
+    done (ACK), 500 = retry (Cloud Tasks redelivers)."""
+    import json
+
+    import flask
+
+    from cloud_functions.creative_fanout import main
+
+    data = json.dumps(body) if isinstance(body, dict | list) else body
+    app = flask.Flask(__name__)
+    with app.test_request_context(
+        "/", method="POST", data=data, headers={"Content-Type": "application/json"}
+    ):
+        return app.make_response(main.agent_worker_task(flask.request)).status_code
+
+
 class FakeTasksClient:
     """A Cloud Tasks client stand-in: records every ``create_task`` call.
 

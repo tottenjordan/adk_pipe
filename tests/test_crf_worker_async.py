@@ -13,10 +13,10 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from cloud_functions.creative_fanout import clients, logs, main, status_store, worker
+from cloud_functions.creative_fanout import clients, logs, status_store, worker
 from cloud_functions.creative_fanout.config import config
 from cloud_functions.creative_fanout.session import agent_session
-from tests.crf_fakes import FakeStatusStore, fake_vertex_client
+from tests.crf_fakes import FakeStatusStore, call_worker_task, fake_vertex_client
 
 # The CRF config reads the (required) project at use time; pin a dummy.
 pytestmark = pytest.mark.usefixtures("gcp_project_env", "crf_engine_env")
@@ -336,12 +336,6 @@ def test_error_before_status_write_reraises(monkeypatch):
 
 def test_worker_entrypoint_acks_after_failed_write(monkeypatch):
     """Through the real entrypoint: agent failure + successful FAILED write → ACK."""
-    import base64
-    import json
-    import types
-
-    from cloud_functions.creative_fanout.config import config
-
     store = _failing_agent_run(monkeypatch)
     monkeypatch.setattr(clients, "get_bigquery_client", MagicMock)
 
@@ -350,10 +344,7 @@ def test_worker_entrypoint_acks_after_failed_write(monkeypatch):
         "bq_table": config.BQ_TABLE_TARGETS,
         "row_data": _TREND,
     }
-    encoded = base64.b64encode(json.dumps(payload).encode()).decode()
-    main.agent_worker_entrypoint(
-        types.SimpleNamespace(data={"message": {"data": encoded}})
-    )  # must NOT raise
+    assert call_worker_task(payload) == 200  # ACK: not retried
     assert store.statuses == ["FAILED"]
 
 

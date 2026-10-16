@@ -19,7 +19,7 @@ from .session import agent_session
 logger = logging.getLogger(__name__)
 
 # Indirection so tests drive the completion check's polling without waiting.
-# `main.agent_worker_entrypoint` takes the run deadline from `_clock` too.
+# `main.agent_worker_task` takes the run deadline from `_clock` too.
 _clock = time.monotonic
 _sleep = asyncio.sleep
 

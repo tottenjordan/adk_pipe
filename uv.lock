@@ -47,7 +47,6 @@ dev = [
     { name = "functions-framework" },
     { name = "gepa" },
     { name = "google-cloud-aiplatform", extra = ["agent-engines", "evaluation"] },
-    { name = "google-cloud-pubsub" },
     { name = "google-cloud-tasks" },
     { name = "google-cloud-texttospeech" },
     { name = "jax" },
@@ -109,7 +108,6 @@ dev = [
     { name = "functions-framework", specifier = ">=3.10.2,<4.0.0" },
     { name = "gepa", specifier = ">=0.1" },
     { name = "google-cloud-aiplatform", extras = ["agent-engines", "evaluation"], specifier = ">=2.4.0,<3.0.0" },
-    { name = "google-cloud-pubsub", specifier = ">=2.41.0,<3.0.0" },
     { name = "google-cloud-tasks", specifier = ">=2.26.0,<3.0.0" },
     { name = "google-cloud-texttospeech", specifier = ">=2.37" },
     { name = "jax", extras = ["cpu"], specifier = ">=0.11.2" },
@@ -1226,26 +1224,6 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/8d/68/6a109ae46d3e22b9572996be85762cbed244d24165cc361214a0a2204043/google_cloud_modelarmor-0.7.2.tar.gz", hash = "sha256:31dff476580b7ea2eff3889e1169d6b4521aa51885a7abcc369e522b3ac22abf", size = 168839, upload-time = "2026-10-01T18:17:13.992Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/93/55/98723ed4e82678ee8c3928e2b769eb56c0d47314569f8b14ee2fff0294b8/google_cloud_modelarmor-0.7.2-py3-none-any.whl", hash = "sha256:fa98c39c3847fd653dc0c15662bbfc7ca00d23438d9a62c7c4048911b18c6a03", size = 144346, upload-time = "2026-10-01T18:11:05.111Z" },
-]
-
-[[package]]
-name = "google-cloud-pubsub"
-version = "2.42.0"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "google-api-core", extra = ["grpc"] },
-    { name = "google-auth" },
-    { name = "grpc-google-iam-v1" },
-    { name = "grpcio" },
-    { name = "grpcio-status" },
-    { name = "opentelemetry-api" },
-    { name = "opentelemetry-sdk" },
-    { name = "proto-plus" },
-    { name = "protobuf" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/41/60/21e7de2ae629d8a025838b4e53f197aea2b45d878c6e37f222187b2ecf84/google_cloud_pubsub-2.42.0.tar.gz", hash = "sha256:92ed998c41ce7d4f6b5b7c950df8291abd27c4d50116714e5c46fac47313e74d", size = 397642, upload-time = "2026-10-01T18:17:44.845Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/79/7d/a3db64849bc41a52b9c8625f5c76fbdbba02ad2d89b91d38c80a304ade51/google_cloud_pubsub-2.42.0-py3-none-any.whl", hash = "sha256:6eff5d2155b5f6967885b0e7f3da6fda91d2cfb15227fffeaef39b7339044a3d", size = 322310, upload-time = "2026-10-01T18:11:47.708Z" },
 ]
 
 [[package]]

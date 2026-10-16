@@ -13,7 +13,7 @@ import logging
 
 import pytest
 
-from cloud_functions.creative_fanout import main, orchestrator
+from cloud_functions.creative_fanout import main
 from cloud_functions.creative_fanout.config import (
     CrfConfig,
     config,
@@ -70,19 +70,9 @@ def test_worker_user_id_read_lazily(monkeypatch):
     assert config.AGENT_WORKER_USER_ID == "batch_bot"
 
 
-def test_region_and_topic_defaults(monkeypatch):
+def test_region_default(monkeypatch):
     monkeypatch.delenv("GCP_REGION", raising=False)
-    monkeypatch.delenv("CREATIVE_WORKER_TOPIC_NAME", raising=False)
     assert config.GCP_REGION == "us-central1"
-    assert config.CREATIVE_WORKER_TOPIC_NAME == "creative-worker-queue-topic"
-
-
-def test_worker_topic_path_resolved_from_env(monkeypatch):
-    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "my-proj")
-    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT_NUMBER", "42")
-    assert orchestrator._worker_topic_path() == (
-        f"projects/42/topics/{config.CREATIVE_WORKER_TOPIC_NAME}"
-    )
 
 
 def test_config_is_frozen():
@@ -353,10 +343,9 @@ def test_engine_id_busts_the_config_cache(engine_env):
 
 
 # ------------------------------------------------------------
-# Worker transport: Pub/Sub (default) or Cloud Tasks
+# Worker transport: Cloud Tasks only
 # ------------------------------------------------------------
 _TRANSPORT_ENV = (
-    "CRF_WORKER_TRANSPORT",
     "CRF_TASKS_QUEUE",
     "CRF_TASKS_LOCATION",
     "CRF_WORKER_URL",
@@ -380,7 +369,6 @@ def transport_env(monkeypatch):
 
 def test_transport_defaults(transport_env):
     cfg = load_config()
-    assert cfg.WORKER_TRANSPORT == "pubsub"
     assert cfg.TASKS_QUEUE == "creative-worker-queue"
     assert cfg.TASKS_LOCATION == "us-central1"
     assert cfg.WORKER_URL == ""
@@ -395,16 +383,25 @@ def test_transport_names_bust_the_config_cache():
         assert name in config_module._ENV_NAMES
 
 
-def test_tasks_transport_with_url(transport_env, caplog):
-    transport_env.setenv("CRF_WORKER_TRANSPORT", " Tasks ")
-    transport_env.setenv("CRF_WORKER_URL", _URL)
+def test_no_pubsub_transport_settings():
+    """The Pub/Sub worker path is gone: no transport switch, no worker topic."""
+    from cloud_functions.creative_fanout import config as config_module
+
+    for name in ("CRF_WORKER_TRANSPORT", "CREATIVE_WORKER_TOPIC_NAME"):
+        assert name not in config_module._ENV_NAMES
+    names = {f.name for f in dataclasses.fields(CrfConfig)}
+    assert not names & {"WORKER_TRANSPORT", "CREATIVE_WORKER_TOPIC_NAME"}
+    assert not hasattr(config_module, "TRANSPORTS")
+
+
+def test_tasks_settings(transport_env, caplog):
+    transport_env.setenv("CRF_WORKER_URL", f"  {_URL} ")
     transport_env.setenv("CRF_TASKS_QUEUE", "q1")
     transport_env.setenv("CRF_TASKS_LOCATION", "europe-west1")
     transport_env.setenv("CRF_TASKS_INVOKER_SA", "inv@p.iam.gserviceaccount.com")
     with caplog.at_level(logging.ERROR):
         cfg = load_config()
     assert caplog.records == []
-    assert cfg.WORKER_TRANSPORT == "tasks"
     assert cfg.WORKER_URL == _URL
     assert cfg.TASKS_QUEUE == "q1"
     assert cfg.TASKS_LOCATION == "europe-west1"
@@ -416,36 +413,21 @@ def test_tasks_location_follows_the_region(transport_env):
     assert load_config().TASKS_LOCATION == "europe-west4"
 
 
-@pytest.mark.parametrize("url", [None, "", "   ", "http://insecure", "not-a-url"])
-def test_tasks_without_a_usable_url_falls_back_to_pubsub(transport_env, caplog, url):
-    transport_env.setenv("CRF_WORKER_TRANSPORT", "tasks")
+@pytest.mark.parametrize("url", [None, "", "http://insecure", "not-a-url"])
+def test_tasks_settings_are_not_checked_at_load(transport_env, caplog, url):
+    """The worker loads this config too and never sets CRF_WORKER_URL: no ERROR
+    here (``orchestrator.dispatch`` checks the settings before sending)."""
     if url is not None:
         transport_env.setenv("CRF_WORKER_URL", url)
     with caplog.at_level(logging.ERROR):
-        assert load_config().WORKER_TRANSPORT == "pubsub"  # never raises
-        assert load_config().WORKER_TRANSPORT == "pubsub"  # cached: logged once
-    errors = [r for r in caplog.records if r.levelno == logging.ERROR]
-    assert len(errors) == 1
-    assert "CRF_WORKER_URL" in errors[0].getMessage()
+        assert load_config().WORKER_URL == (url or "")
+    assert caplog.records == []
 
 
-def test_tasks_without_an_invoker_falls_back_to_pubsub(transport_env, caplog):
+def test_no_invoker_without_sa_or_project_number(transport_env):
     """No CRF_TASKS_INVOKER_SA and no project number: no default compute SA."""
     transport_env.delenv("GOOGLE_CLOUD_PROJECT_NUMBER")
-    transport_env.setenv("CRF_WORKER_TRANSPORT", "tasks")
-    transport_env.setenv("CRF_WORKER_URL", _URL)
-    with caplog.at_level(logging.ERROR):
-        cfg = load_config()
-    assert cfg.TASKS_INVOKER_SA == ""
-    assert cfg.WORKER_TRANSPORT == "pubsub"
-    assert "CRF_TASKS_INVOKER_SA" in caplog.text
-
-
-def test_unknown_transport_falls_back_to_pubsub(transport_env, caplog):
-    transport_env.setenv("CRF_WORKER_TRANSPORT", "carrier-pigeon")
-    with caplog.at_level(logging.ERROR):
-        assert load_config().WORKER_TRANSPORT == "pubsub"
-    assert "CRF_WORKER_TRANSPORT" in caplog.text
+    assert load_config().TASKS_INVOKER_SA == ""
 
 
 @pytest.mark.parametrize(

@@ -1,8 +1,8 @@
 """Tests for the real `crf_entrypoint` orchestrator (issue #46).
 
 These import the real `cloud_functions.creative_fanout.main` and drive
-`crf_entrypoint` with fake CloudEvents, monkeypatching the BigQuery / Pub/Sub
-client factories (`clients.get_bigquery_client` / `get_pubsub_client`). They guard
+`crf_entrypoint` with fake CloudEvents, monkeypatching the BigQuery / Cloud Tasks
+client factories (`clients.get_bigquery_client` / `get_tasks_client`). They guard
 the fix for #46: a malformed or empty trigger message must not raise
 `NameError`/`UnboundLocalError` (which NACKs and causes a redelivery loop).
 """
@@ -19,7 +19,7 @@ from google.cloud.bigquery import Row
 
 from cloud_functions.creative_fanout import clients, main, status_store
 from cloud_functions.creative_fanout.config import config
-from tests.crf_fakes import bq_results, queued
+from tests.crf_fakes import FakeTasksClient, bq_results, queued
 
 # Allow-listed identifiers (the SQL builders reject anything else).
 DS = config.BQ_DATASET_ID
@@ -27,7 +27,9 @@ TBL = config.BQ_TABLE_TARGETS
 
 
 # The CRF config reads the (required) project at use time; pin a dummy.
-pytestmark = pytest.mark.usefixtures("gcp_project_env", "crf_engine_env")
+pytestmark = pytest.mark.usefixtures(
+    "gcp_project_env", "crf_engine_env", "crf_tasks_env"
+)
 
 
 def _event(data):
@@ -44,13 +46,19 @@ def _pubsub_event(payload):
 
 @pytest.fixture
 def mocked_clients(monkeypatch):
-    """Patch the BigQuery and Pub/Sub factories with MagicMocks."""
+    """Patch the BigQuery factory with a MagicMock and the Cloud Tasks one with
+    a recording ``FakeTasksClient``."""
     bq = MagicMock()
     bq.project = "test-project"
-    publisher = MagicMock()
+    tasks = FakeTasksClient()
     monkeypatch.setattr(clients, "get_bigquery_client", lambda: bq)
-    monkeypatch.setattr(clients, "get_pubsub_client", lambda: publisher)
-    return bq, publisher
+    monkeypatch.setattr(clients, "get_tasks_client", lambda: tasks)
+    return bq, tasks
+
+
+def _bodies(tasks) -> list[bytes]:
+    """The raw JSON body of every task created, in order."""
+    return [r["task"]["http_request"]["body"] for r in tasks.requests]
 
 
 _ROW_FIELDS = (
@@ -93,36 +101,36 @@ def _two_rows():
 
 def test_no_message_returns_cleanly(mocked_clients):
     """A CloudEvent with no `message` must not raise and must not dispatch."""
-    bq, publisher = mocked_clients
+    bq, tasks = mocked_clients
     main.crf_entrypoint(_event({}))
-    publisher.publish.assert_not_called()
+    assert tasks.requests == []
     bq.query_and_wait.assert_not_called()
 
 
 def test_non_json_message_returns_cleanly(mocked_clients):
     """Non-JSON message data must not raise and must not dispatch."""
-    bq, publisher = mocked_clients
+    bq, tasks = mocked_clients
     main.crf_entrypoint(_pubsub_event("this is not json"))
-    publisher.publish.assert_not_called()
+    assert tasks.requests == []
     bq.query_and_wait.assert_not_called()
 
 
 def test_json_without_bq_dataset_returns_cleanly(mocked_clients):
     """Valid JSON lacking `bq_dataset` must not raise and must not query/dispatch."""
-    bq, publisher = mocked_clients
+    bq, tasks = mocked_clients
     main.crf_entrypoint(_pubsub_event({"foo": "bar"}))
-    publisher.publish.assert_not_called()
+    assert tasks.requests == []
     bq.query_and_wait.assert_not_called()
 
 
 def test_valid_payload_no_rows_no_dispatch(mocked_clients, caplog):
     """Valid payload but no unprocessed rows → query runs, nothing dispatched."""
-    bq, publisher = mocked_clients
+    bq, tasks = mocked_clients
     _set_rows(bq, [])
     payload = {"bq_dataset": DS, "bq_table": TBL}
     with caplog.at_level(logging.INFO):
         main.crf_entrypoint(_pubsub_event(payload))
-    publisher.publish.assert_not_called()
+    assert tasks.requests == []
     assert "No new rows found to process" in caplog.text
     assert "Loaded 0" not in caplog.text
     assert (
@@ -131,13 +139,13 @@ def test_valid_payload_no_rows_no_dispatch(mocked_clients, caplog):
 
 
 def test_valid_payload_with_rows_dispatches_one_message_per_row(mocked_clients):
-    """Valid payload with N unprocessed rows → N worker messages published."""
-    bq, publisher = mocked_clients
+    """Valid payload with N unprocessed rows → N worker tasks created."""
+    bq, tasks = mocked_clients
     _set_rows(bq, _two_rows())
     payload = {"bq_dataset": DS, "bq_table": TBL}
     main.crf_entrypoint(_pubsub_event(payload))
-    assert publisher.publish.call_count == 2
-    sent = [json.loads(c.args[1]) for c in publisher.publish.call_args_list]
+    sent = [json.loads(b) for b in _bodies(tasks)]
+    assert len(sent) == 2
     assert [m["row_data"]["entry_timestamp"] for m in sent] == [
         "2026-07-12T00:00:00+00:00",
         "2026-07-12T01:00:00+00:00",
@@ -150,11 +158,11 @@ def test_valid_payload_with_rows_dispatches_one_message_per_row(mocked_clients):
 
 def test_legacy_trigger_engine_id_is_not_forwarded(mocked_clients):
     """A trigger still carrying ``agent_resource_id`` dispatches without it."""
-    bq, publisher = mocked_clients
+    bq, tasks = mocked_clients
     _set_rows(bq, _two_rows())
     payload = {"bq_dataset": DS, "bq_table": TBL, "agent_resource_id": "123"}
     main.crf_entrypoint(_pubsub_event(payload))
-    sent = [json.loads(c.args[1]) for c in publisher.publish.call_args_list]
+    sent = [json.loads(b) for b in _bodies(tasks)]
     assert len(sent) == 2
     assert all("agent_resource_id" not in m for m in sent)
 
@@ -162,12 +170,12 @@ def test_legacy_trigger_engine_id_is_not_forwarded(mocked_clients):
 def test_null_brand_dispatches_json_null(mocked_clients):
     """A NULL campaign string is sent as JSON null (pandas made it NaN, which
     the worker then seeded as the string "nan")."""
-    bq, publisher = mocked_clients
+    bq, tasks = mocked_clients
     _set_rows(bq, [_row(datetime(2026, 7, 12, tzinfo=UTC), "trend A", brand=None)])
     payload = {"bq_dataset": DS, "bq_table": TBL}
     main.crf_entrypoint(_pubsub_event(payload))
-    (call,) = publisher.publish.call_args_list
-    raw = call.args[1].decode("utf-8")
+    (body,) = _bodies(tasks)
+    raw = body.decode("utf-8")
     assert '"brand": null' in raw
     assert "NaN" not in raw
     assert json.loads(raw)["row_data"]["brand"] is None
@@ -175,9 +183,9 @@ def test_null_brand_dispatches_json_null(mocked_clients):
 
 def test_requery_recovers_stuck_queued_rows(mocked_clients):
     """The unprocessed-rows SELECT must recover rows orphaned in QUEUED (a prior
-    run set them QUEUED then crashed / partially published), not only IS NULL —
+    run set them QUEUED then crashed / partially dispatched), not only IS NULL —
     otherwise those rows are never re-selected and never dispatched again."""
-    bq, publisher = mocked_clients
+    bq, tasks = mocked_clients
     _set_rows(bq, [])
     payload = {"bq_dataset": DS, "bq_table": TBL}
     main.crf_entrypoint(_pubsub_event(payload))
@@ -193,7 +201,7 @@ def test_crf_entrypoint_reaps_before_requery(mocked_clients):
     """The orchestrator must reap stale PROCESSING rows BEFORE the unprocessed
     re-query, so any reaped (re-queued) rows are picked up and re-dispatched in
     the same invocation."""
-    bq, publisher = mocked_clients
+    bq, tasks = mocked_clients
     _set_rows(bq, [])  # nothing to dispatch
     payload = {"bq_dataset": DS, "bq_table": TBL}
     main.crf_entrypoint(_pubsub_event(payload))
@@ -202,23 +210,28 @@ def test_crf_entrypoint_reaps_before_requery(mocked_clients):
     assert "TIMESTAMP_SUB" in first_sql
 
 
-def test_publish_failure_is_counted_and_does_not_crash(mocked_clients, caplog):
-    """A worker-message publish that fails must not crash the batch. The failure
-    is logged/counted; the row stays QUEUED and is recovered on the next run."""
-    bq, publisher = mocked_clients
+def test_task_failure_is_counted_and_does_not_crash(mocked_clients, caplog):
+    """A worker task that can't be created must not crash the batch. The
+    failure is logged/counted; the row stays QUEUED and is recovered on the
+    next run."""
+    bq, tasks = mocked_clients
     _set_rows(bq, _two_rows())
+    real_create = tasks.create_task
 
-    ok_future = MagicMock()
-    bad_future = MagicMock()
-    bad_future.result.side_effect = RuntimeError("publish boom")
-    publisher.publish.side_effect = [ok_future, bad_future]
+    def _second_fails(request=None, **kwargs):
+        if tasks.requests:
+            tasks.requests.append(request)
+            raise RuntimeError("create_task boom")
+        return real_create(request, **kwargs)
+
+    tasks.create_task = _second_fails
 
     payload = {"bq_dataset": DS, "bq_table": TBL}
     with caplog.at_level(logging.WARNING):
         main.crf_entrypoint(_pubsub_event(payload))  # must NOT raise
 
-    assert publisher.publish.call_count == 2  # both rows attempted
-    assert "publishes failed" in caplog.text  # failure surfaced, not swallowed
+    assert len(tasks.requests) == 2  # both rows attempted
+    assert "1/2 worker tasks failed" in caplog.text  # surfaced, not swallowed
 
 
 _KEY = status_store.RowKey("uuid-1", "trend A", "2026-07-12T00:00:00")

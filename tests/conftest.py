@@ -43,6 +43,16 @@ def crf_engine_env(monkeypatch):
     monkeypatch.setenv("CREATIVE_AGENT_ENGINE_ID", "123")
 
 
+@pytest.fixture
+def crf_tasks_env(monkeypatch, gcp_project_env):
+    """Usable Cloud Tasks settings for the CRF orchestrator (an https worker URL
+    and an invoker SA): without them ``orchestrator.dispatch`` sends nothing."""
+    monkeypatch.setenv("CRF_WORKER_URL", "https://creative-worker-crf-test.a.run.app")
+    monkeypatch.setenv(
+        "CRF_TASKS_INVOKER_SA", "invoker@test-project.iam.gserviceaccount.com"
+    )
+
+
 def _no_live_client():
     raise RuntimeError("tests must not read the live brand history")
 
