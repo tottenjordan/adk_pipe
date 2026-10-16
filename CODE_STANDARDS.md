@@ -102,10 +102,12 @@ resource, target `GCP_REGION`.
   Regenerate after dependency changes with
   `uv export --format requirements-txt --no-hashes --no-dev -o requirements.txt`
   (the exact command recorded in its header).
-- **`cloud_functions/creative_fanout/requirements.txt`** — the Cloud Function buildpack's
-  dependency manifest. The function deliberately ships a small, separately pinned dependency
-  set (it is not part of the uv project), so this file is its own pin list: bumps come via
-  Dependabot's `pip` ecosystem (`.github/dependabot.yml`) or a deliberate edit, not `uv add`.
+- **`cloud_functions/creative_fanout/requirements.txt`** + **`requirements.lock.txt`** — the
+  Cloud Function image's direct pins and their fully hashed lock (the Dockerfile installs the
+  lock with `--require-hashes`). The function deliberately ships a small, separately pinned
+  dependency set (it is not part of the uv project): bump `requirements.txt` (Dependabot's `pip`
+  ecosystem or a deliberate edit, not `uv add`), then regenerate the lock with the command in its
+  header; `crf-deps.yml` fails on drift.
 
 ## 8. Current State / Known Gaps
 

@@ -40,6 +40,6 @@ docs/
 !/cloud_functions/creative_fanout/
 /cloud_functions/creative_fanout/*
 !/cloud_functions/creative_fanout/*.py
-!/cloud_functions/creative_fanout/requirements.txt
+!/cloud_functions/creative_fanout/requirements.lock.txt
 !/cloud_functions/creative_fanout/Dockerfile
 !/cloud_functions/creative_fanout/Dockerfile.dockerignore

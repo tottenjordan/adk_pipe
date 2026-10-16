@@ -1,16 +1,21 @@
 name: Cloud Function deps
 
-# The Cloud Function deploys from its own requirements.txt (not uv.lock), so
-# Python CI never exercises it. Install it alone into a clean venv and run the
-# CRF tests there: catches unsatisfiable pins (e.g. a Dependabot cloudevents
-# 2.x bump vs functions-framework's <=1.12 pin) and missing deps. Gated to the
-# files that can change that outcome; PR-only for the same reason as python-ci.yml.
+# The Cloud Function image installs its own hashed requirements.lock.txt
+# (compiled from requirements.txt; not uv.lock), so Python CI never exercises
+# it. Check the lock is in sync with requirements.txt, install it alone into a
+# clean venv and run the CRF tests there: catches unsatisfiable pins (e.g. a
+# Dependabot cloudevents 2.x bump vs functions-framework's <=1.12 pin), a stale
+# lock and missing deps. Gated to the files that can change that outcome
+# (crf_fakes.py + conftest.py are imported by the CRF tests); PR-only for the
+# same reason as python-ci.yml.
 on:
   workflow_dispatch:
   pull_request:
     paths:
       - "cloud_functions/**"
       - "tests/test_crf_*.py"
+      - "tests/crf_fakes.py"
+      - "tests/conftest.py"
       - ".github/workflows/crf-deps.yml"
 
 permissions:
@@ -35,10 +40,24 @@ jobs:
           python-version: "3.13"
           enable-cache: true
 
-      - name: Install Cloud Function requirements (+ pytest)
+      # Re-running the compile keeps the existing pins, so it changes the lock
+      # only when requirements.txt moved (or the lock was hand-edited).
+      - name: Lock drift check
+        working-directory: cloud_functions/creative_fanout
+        run: |
+          uv pip compile requirements.txt --universal --generate-hashes --python-version 3.13 -o requirements.lock.txt -q
+          git diff --exit-code -- requirements.lock.txt || {
+            echo "::error file=cloud_functions/creative_fanout/requirements.lock.txt::requirements.lock.txt is out of sync with requirements.txt. Regenerate it with uv 0.12.19: cd cloud_functions/creative_fanout && uv pip compile requirements.txt --universal --generate-hashes --python-version 3.13 -o requirements.lock.txt"
+            exit 1
+          }
+
+      # The image's exact install (hash-checked lock); pytest separately, since
+      # --require-hashes applies to the whole install command.
+      - name: Install the Cloud Function lock (+ pytest)
         run: |
           uv venv .crf-venv
-          VIRTUAL_ENV=.crf-venv uv pip install -r cloud_functions/creative_fanout/requirements.txt pytest
+          VIRTUAL_ENV=.crf-venv uv pip install --require-hashes -r cloud_functions/creative_fanout/requirements.lock.txt
+          VIRTUAL_ENV=.crf-venv uv pip install pytest
 
       - name: CRF tests against the function's own deps
         run: .crf-venv/bin/python -m pytest tests/test_crf_*.py -q
