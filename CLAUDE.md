@@ -17,6 +17,8 @@ Trend Trawler is a multi-agent system that automates trend-to-creative ad genera
 
 ## Commands
 
+`make help` lists shortcuts for the commands below.
+
 ```bash
 # Install dependencies
 uv sync

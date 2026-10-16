@@ -11,6 +11,7 @@ on:
       - "pyproject.toml"
       - "uv.lock"
       - "requirements*.txt"
+      - "Makefile"
       - "agents/**"
       - ".github/workflows/python-ci.yml"
 
@@ -56,6 +57,9 @@ jobs:
           # Agent Engine must never get a `-e .` line.
           uv export --format requirements-txt --no-hashes --no-dev --no-emit-project -o requirements.txt
           git diff --exit-code requirements.txt
+
+      - name: Makefile dry run (every target)
+        run: for t in $(make -s help | awk '{print $1}'); do make -n "$t" CREATIVE_VERSION=v0 INTERACTIVE_VERSION=v0 SCOUT_VERSION=v0 >/dev/null || exit 1; done
 
       - name: Ruff lint
         run: uv run ruff check .
