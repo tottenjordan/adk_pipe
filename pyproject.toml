@@ -47,11 +47,11 @@ dev-mode-dirs = [".", "agents", "libs", "bandit_stack"]
 # --no-emit-project, plus extra_packages; the api image syncs --no-install-project).
 # Listed so the wheel/editable build has explicit package roots.
 packages = [
-    "trend_scout",
-    "creative_agent",
-    "interactive_creative",
-    "agent_common",
-    "creative_eval",
+    "agents/trend_scout",
+    "agents/creative_agent",
+    "agents/interactive_creative",
+    "libs/agent_common",
+    "libs/creative_eval",
     "bandit",
     "bandit_serving",
     "bandit_traffic",
