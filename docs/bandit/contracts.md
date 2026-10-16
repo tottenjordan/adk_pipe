@@ -16,7 +16,11 @@ build against. A change to any contract here must update this file in the same P
 **CTR modes:** `demo` (about 4% mean) or `realistic` (about 0.8% mean).
 **Reward modes:** `click` (0/1) or `engaged` (click × dwell seconds).
 
-## 1. Core Python API (`bandit/`, PR 1). JAX only, never imported by `runserver/` or the agents
+**Code layout:** the packages `bandit`, `bandit_serving` and `bandit_traffic` live under
+`bandit_stack/` (import names unchanged). File paths in this document such as `bandit/config.py`
+are relative to `bandit_stack/`.
+
+## 1. Core Python API (`bandit_stack/bandit/`, PR 1). JAX only, never imported by `runserver/` or the agents
 
 ```python
 # bandit/config.py  (scenario / calibration / shift names live in bandit/scenario.py, bandit/calibration.py, bandit/shifts.py; re-exported here, so these paths are the contract)

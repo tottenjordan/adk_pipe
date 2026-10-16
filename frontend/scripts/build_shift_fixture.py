@@ -18,8 +18,7 @@ shapes (contracts §5 / §8 / §10 on the PR C branch):
 
 Regenerate with::
 
-    GOOGLE_CLOUD_PROJECT=test-project PYTHONPATH="$PWD" \
-        uv run python frontend/scripts/build_shift_fixture.py
+    GOOGLE_CLOUD_PROJECT=test-project uv run python frontend/scripts/build_shift_fixture.py
 """
 
 from __future__ import annotations

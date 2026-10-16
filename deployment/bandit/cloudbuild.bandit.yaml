@@ -1,5 +1,5 @@
-# Cached Cloud Build for the bandit image (bandit_serving/Dockerfile ->
-# ${_BANDIT_IMAGE}), built with BuildKit (docker buildx) and a registry layer cache
+# Cached Cloud Build for the bandit image (bandit_stack/bandit_serving/Dockerfile
+# -> ${_BANDIT_IMAGE}), built with BuildKit (docker buildx) and a registry layer cache
 # (same pattern as the repo-root cloudbuild.yaml). One image does both jobs: its
 # default entrypoint serves the CPR bandit endpoint, and the synthetic-traffic
 # Cloud Run Job runs it with a command override (python -m bandit_traffic.main).
@@ -9,7 +9,7 @@
 #     --ignore-file deployment/bandit/bandit.gcloudignore \
 #     --substitutions=SHORT_SHA=$(git rev-parse --short HEAD) .
 #
-# The ignore file uploads only bandit/, bandit_serving/ and bandit_traffic/.
+# The ignore file uploads only bandit_stack/ (bandit/, bandit_serving/, bandit_traffic/).
 # Pushes <image>:$SHORT_SHA + <image>:latest and prints the digest
 # (BANDIT_IMAGE=…@sha256:…; regional builds don't stream logs, read them with
 # `gcloud builds log <ID> --region us-central1`). Nothing is deployed: set the
@@ -40,8 +40,8 @@ steps:
           --driver-opt image=mirror.gcr.io/moby/buildkit:buildx-stable-1 --use
         docker buildx inspect --bootstrap
 
-  # Context is the repo root; bandit_serving/Dockerfile.dockerignore narrows it to
-  # the endpoint + traffic sources.
+  # Context is the repo root; bandit_stack/bandit_serving/Dockerfile.dockerignore
+  # narrows it to the endpoint + traffic sources.
   - id: build-bandit
     name: gcr.io/cloud-builders/docker
     waitFor: [buildx-setup]
@@ -49,7 +49,7 @@ steps:
     args:
       - -euc
       - |
-        docker buildx build --builder tt --file bandit_serving/Dockerfile \
+        docker buildx build --builder tt --file bandit_stack/bandit_serving/Dockerfile \
           --tag ${_BANDIT_IMAGE}:${SHORT_SHA} --tag ${_BANDIT_IMAGE}:latest \
           --cache-from type=registry,ref=${_BANDIT_IMAGE}:buildcache \
           --cache-to type=registry,ref=${_BANDIT_IMAGE}:buildcache,mode=max,image-manifest=true,oci-mediatypes=true \

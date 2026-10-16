@@ -80,7 +80,7 @@ jobs:
         uses: actions/cache@v6
         with:
           path: .pytest_cache/jax
-          key: jax-cache-${{ runner.os }}-py3.13-${{ hashFiles('uv.lock', 'bandit/**', 'bandit_serving/**', 'bandit_traffic/**') }}
+          key: jax-cache-${{ runner.os }}-py3.13-${{ hashFiles('uv.lock', 'bandit_stack/**') }}
           restore-keys: |
             jax-cache-${{ runner.os }}-py3.13-
 

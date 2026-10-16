@@ -154,7 +154,7 @@ Key ADK patterns used: `Agent`, graph `Workflow`s (`google.adk.workflow`: fan-ou
 - **Public surface:** `trend-trawler-share` (`SHARE_MODE`) is the only public service. Never add `allUsers` / IAP changes to web or api. Details: [docs/reference/frontend.md](docs/reference/frontend.md).
 - **Agent Engine pickles at deploy:** anything read at agent-module import (models, knobs, Model Armor, temperature profile, timeouts) comes from the deployer's env (`deployment/deploy.env` in Cloud Build). Never seed per-run state at import.
 - **Locations:** gemini-3.x models only at `global` (`GOOGLE_CLOUD_LOCATION=global`, pinned in code by `agent_common.models.build_gemini`); Agent Engine SDK clients use `GCP_REGION` (default `us-central1`); BigQuery, GCS and Pub/Sub live in `us-central1` (their clients take no location). Bucket name: `GOOGLE_CLOUD_STORAGE_BUCKET` (not `GCS_BUCKET_NAME`, no `BUCKET`).
-- **JAX is dev-group only:** never add `jax` to `[project] dependencies` or `requirements.txt` (api image + engines stay JAX-free); `runserver/` never imports `bandit/`. Runtime code never imports group-only packages (`tests/test_dependency_groups.py`).
+- **JAX is dev-group only:** never add `jax` to `[project] dependencies` or `requirements.txt` (api image + engines stay JAX-free); `runserver/` never imports `bandit_stack/`. Runtime code never imports group-only packages (`tests/test_dependency_groups.py`).
 - **Package layout** (above) and `AGENT_EXTRA_PACKAGES` in `deployment/deploy_agent.py` (checked by `tests/test_deploy_import_graph.py`).
 - **Prompts:** instruction texts spliced into ADK prompts must be brace-free (`{x}` is a state token; use `[x]`). Optional rule blocks (`{timely_rules?}`, `{person_casting_rules?}`, `{rating_limits?}`, safer-angle rules) keep runs without them **byte-identical**, pinned by sha tests (`tests/test_timely_rules.py`, `tests/test_safer_angle.py`). Render and judge prompts have goldens (`tests/test_render_parity.py`, `tests/test_judge_prompt_golden.py`).
 - **Completion:** creative apps are finished only at `finalize_done` (runserver auto-continue, the CRF worker and the smoke test all key on it).
@@ -169,7 +169,7 @@ Key ADK patterns used: `Agent`, graph `Workflow`s (`google.adk.workflow`: fan-ou
 
 Next.js 16 app: async-job polling run page, results contact sheet, ratings, shares, people, experiments; IAP-gated, per-user authz via the `/api/adk` proxy + `runserver/authz.py`; the public share viewer is the `SHARE_MODE` service. Details: [docs/reference/frontend.md](docs/reference/frontend.md).
 
-### Bandit experiments — `bandit/`, `bandit_serving/`, `bandit_traffic/`
+### Bandit experiments — `bandit_stack/` (`bandit/`, `bandit_serving/`, `bandit_traffic/`)
 
 JAX LinTS endpoint (CPR, one worker, one replica) + synthetic traffic job + `/experiments` UI; [docs/bandit/contracts.md](docs/bandit/contracts.md) is the interface source of truth (change it in the same PR as any interface change). Details: [docs/reference/bandit.md](docs/reference/bandit.md).
 

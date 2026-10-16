@@ -33,9 +33,7 @@ docs/
 /notebook-examples/
 /imgs/
 /*.md
-/bandit/
-/bandit_serving/
-/bandit_traffic/
+/bandit_stack/
 /cloud_functions/*
 !/cloud_functions/creative_fanout/
 /cloud_functions/creative_fanout/*

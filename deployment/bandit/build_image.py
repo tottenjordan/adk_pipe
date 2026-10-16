@@ -6,12 +6,15 @@
 
 One image serves the CPR endpoint (its default entrypoint) and runs the
 synthetic-traffic job (command override ``python -m bandit_traffic.main``).
-Stages a temporary build context with the repo layout: ``bandit_serving/`` (the
-predictor + ``requirements.txt``), ``bandit_traffic/``, the runtime modules of
-``bandit/`` (everything but the CLI, + ``scenarios/*.yaml``) and
-``bandit_serving/Dockerfile`` (+ its ``Dockerfile.dockerignore``) at the root, then
-runs ``docker build`` on it. The same Dockerfile builds from the repo root in
-Cloud Build (``deployment/bandit/cloudbuild.bandit.yaml``, the release path).
+Stages a temporary build context that mirrors the repo layout:
+``bandit_stack/bandit_serving/`` (the predictor + ``requirements.txt``),
+``bandit_stack/bandit_traffic/``, the runtime modules of ``bandit_stack/bandit/``
+(everything but the CLI, + ``scenarios/*.yaml``) and
+``bandit_stack/bandit_serving/Dockerfile`` (+ its ``Dockerfile.dockerignore``) at
+the root, then runs ``docker build`` on it. The same Dockerfile (COPY sources
+prefixed ``bandit_stack/``) builds from the repo root in Cloud Build
+(``deployment/bandit/cloudbuild.bandit.yaml``, the release path); the image layout
+stays flat (``/usr/app/bandit``, ``/usr/app/bandit_serving``, ...).
 
 The image is ``{region}-docker.pkg.dev/{project}/{repository}/trend-trawler-bandit:{git_sha}``.
 ``--image <uri>`` skips the build and tests an existing image instead (e.g. a
@@ -37,6 +40,9 @@ from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 IMAGE_NAME = "trend-trawler-bandit"
+#: The repo directory holding ``bandit/``, ``bandit_serving/`` and ``bandit_traffic/``
+#: (mirrored in the staged context, so the Dockerfile's COPY sources match both).
+STACK_DIR = "bandit_stack"
 DEFAULT_BASE_IMAGE = "python:3.13-slim"
 SERVING_ENV = {"VERTEX_CPR_WEB_CONCURRENCY": "1"}  # == endpoint.SERVING_ENV
 SERVING_FILES = (
@@ -121,27 +127,38 @@ def git_sha(repo: Path = REPO_ROOT) -> str:
 
 def stage_src_dir(dest: Path, repo: Path = REPO_ROOT) -> Path:
     """Copy the serving + traffic sources and the Dockerfile into ``dest`` (the
-    build context), mirroring the repo layout so the Dockerfile's COPY paths work
-    in both."""
-    dest.mkdir(parents=True, exist_ok=True)
-    (dest / "bandit_serving").mkdir(exist_ok=True)
+    build context), mirroring the repo layout (``bandit_stack/<pkg>/...``, the
+    Dockerfile and its ignore file at the root) so the Dockerfile's COPY paths
+    work in both."""
+    src_stack, dst_stack = repo / STACK_DIR, dest / STACK_DIR
+    (dst_stack / "bandit_serving").mkdir(parents=True, exist_ok=True)
     for name in SERVING_FILES:
-        shutil.copy2(repo / "bandit_serving" / name, dest / "bandit_serving" / name)
-    (dest / "bandit_traffic").mkdir(exist_ok=True)
+        shutil.copy2(
+            src_stack / "bandit_serving" / name, dst_stack / "bandit_serving" / name
+        )
+    (dst_stack / "bandit_traffic").mkdir(exist_ok=True)
     for name in TRAFFIC_FILES:
-        shutil.copy2(repo / "bandit_traffic" / name, dest / "bandit_traffic" / name)
-    (dest / "bandit" / "scenarios").mkdir(parents=True, exist_ok=True)
+        shutil.copy2(
+            src_stack / "bandit_traffic" / name, dst_stack / "bandit_traffic" / name
+        )
+    (dst_stack / "bandit" / "scenarios").mkdir(parents=True, exist_ok=True)
     for name in BANDIT_RUNTIME_FILES:
-        shutil.copy2(repo / "bandit" / name, dest / "bandit" / name)
-    for yaml_file in sorted((repo / "bandit" / "scenarios").glob("*.yaml")):
-        shutil.copy2(yaml_file, dest / "bandit" / "scenarios" / yaml_file.name)
+        shutil.copy2(src_stack / "bandit" / name, dst_stack / "bandit" / name)
+    for yaml_file in sorted((src_stack / "bandit" / "scenarios").glob("*.yaml")):
+        shutil.copy2(yaml_file, dst_stack / "bandit" / "scenarios" / yaml_file.name)
     shutil.copy2(
-        repo / "bandit_serving" / "requirements.txt",
-        dest / "bandit_serving" / "requirements.txt",
+        src_stack / "bandit_serving" / "requirements.txt",
+        dst_stack / "bandit_serving" / "requirements.txt",
     )
     for name in ("Dockerfile", "Dockerfile.dockerignore"):
-        shutil.copy2(repo / "bandit_serving" / name, dest / name)
+        shutil.copy2(src_stack / "bandit_serving" / name, dest / name)
     return dest
+
+
+def staged_package_root(src_dir: Path) -> Path:
+    """The staged directory whose children are the importable packages (the
+    image's ``/usr/app``)."""
+    return src_dir / STACK_DIR
 
 
 def staged_files(src_dir: Path) -> list[str]:
@@ -154,7 +171,7 @@ def load_staged_predictor(src_dir: Path) -> Any:
     """Import ``BanditPredictor`` from the *staged* file (tests check that the
     CPR SDK derives ``PREDICTOR_MODULE``, the module the Dockerfile's
     ``PREDICTOR_MODULE`` env names, from its staged path)."""
-    path = src_dir / "bandit_serving" / "predictor.py"
+    path = staged_package_root(src_dir) / "bandit_serving" / "predictor.py"
     name = f"_staged_bandit_predictor_{abs(hash(str(src_dir)))}"
     spec = importlib.util.spec_from_file_location(name, path)
     assert spec is not None and spec.loader is not None
@@ -459,6 +476,7 @@ def main(argv: list[str]) -> None:  # pragma: no cover - manual CLI
 if __name__ == "__main__":  # pragma: no cover - manual CLI
     from absl import app
 
-    sys.path.insert(0, str(REPO_ROOT))  # run as a script: make `bandit` importable
+    # run as a script without the editable install: make `bandit` importable
+    sys.path.insert(0, str(REPO_ROOT / STACK_DIR))
     _define_flags()
     app.run(main)
