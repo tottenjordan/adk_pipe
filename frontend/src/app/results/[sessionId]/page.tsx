@@ -3,8 +3,7 @@
 import { useEffect, useState, useCallback, useMemo, useRef, use } from "react";
 import { useSearchParams } from "next/navigation";
 import dynamic from "next/dynamic";
-import { ChevronDownIcon } from "lucide-react";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Collapsible } from "@/components/ui/collapsible";
 import { ErrorState } from "@/components/ui/error-state";
 import { Skeleton } from "@/components/ui/skeleton";
 import { getSession, listArtifacts, SELF_USER_ID } from "@/lib/api";
@@ -38,7 +37,12 @@ import { imagesNotRendered, sessionStoppedEarly } from "@/lib/run-completion";
 import { CreativeBrief } from "@/components/creative-brief";
 import { parseCreativeBrief } from "@/lib/creative-brief";
 import type { ReportSources } from "@/lib/research-report";
-import { QuietDisclosure } from "@/components/quiet-disclosure";
+import {
+  DisclosureChevron,
+  DisclosurePanel,
+  DisclosureTrigger,
+  QuietDisclosure,
+} from "@/components/quiet-disclosure";
 import { ArtifactsPanel, type ArtifactData } from "./artifacts-panel";
 import { ProofDetail } from "./proof-detail";
 import { ProofGrid } from "./proof-grid";
@@ -69,28 +73,25 @@ const DeployPanel = dynamic(() => import("./deploy-panel").then((m) => m.DeployP
 
 /**
  * The experiment set-up, collapsed by default below the review sections: a one-line
- * summary, and the lazily loaded Deploy panel once opened (Collapsible's panel
- * unmounts its children while closed, so the panel's chunk loads on first open).
+ * summary, and the lazily loaded Deploy panel once opened (the panel unmounts its
+ * children while closed, so the Deploy panel's chunk loads on first open).
  */
 function DeployDisclosure({ children }: { children: React.ReactNode }) {
   return (
     <section aria-labelledby="deploy-heading" className="mb-4 overflow-hidden rounded-lg border border-border bg-card">
       <Collapsible>
         <h2 id="deploy-heading" className="text-sm font-semibold text-foreground">
-          <CollapsibleTrigger className="group flex w-full items-center justify-between gap-3 px-4 pt-2.5 text-left transition-colors hover:text-primary">
+          <DisclosureTrigger className="flex w-full items-center justify-between gap-3 px-4 pt-2.5 text-left transition-colors hover:text-primary">
             Deploy creatives as a live experiment
-            <ChevronDownIcon
-              aria-hidden="true"
-              className="size-4 shrink-0 text-muted-foreground transition-transform duration-(--dur-dialog) ease-(--ease-out) group-data-panel-open:rotate-180 motion-reduce:transition-none"
-            />
-          </CollapsibleTrigger>
+            <DisclosureChevron className="size-4" />
+          </DisclosureTrigger>
         </h2>
         <p className="px-4 pb-2.5 text-xs text-muted-foreground">
           Test 2–4 of these creatives on simulated readers; a bandit learns which works for whom.
         </p>
-        <CollapsibleContent className="h-(--collapsible-panel-height) overflow-hidden transition-[height] duration-(--dur-dialog) ease-(--ease-out) data-ending-style:h-0 data-ending-style:duration-(--dur-exit) data-starting-style:h-0 motion-reduce:transition-none">
+        <DisclosurePanel>
           <div className="border-t border-border px-4 py-4">{children}</div>
-        </CollapsibleContent>
+        </DisclosurePanel>
       </Collapsible>
     </section>
   );
