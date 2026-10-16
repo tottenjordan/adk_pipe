@@ -125,3 +125,34 @@ Each annotated frame is preceded by a 0.6 s un-annotated beat (`GIF_TRANSITION_M
 disables it); `GIF_EXPORT_DIR=/tmp/x` also writes the annotated frames as PNGs for review. To harvest a fresh run's fixtures (new campaign
 or trend), re-run `creative_agent` headless and dump `session.state` + curated
 `session.events` + the eval report + the concept images into `screenshot-fixtures/`.
+
+## Gallery
+
+Moved from the root README (2026-10-16), which now shows two of these. Click for full size.
+
+<table>
+  <tr>
+    <td align="center"><a href="01-home-form.png"><img src="01-home-form.png" alt="Home page campaign form" width="420"></a><br><sub>New run: agent tiles, brief and recent runs</sub></td>
+    <td align="center"><a href="05-runs.png"><img src="05-runs.png" alt="Run history page" width="420"></a><br><sub>Run history with duplicate brief</sub></td>
+  </tr>
+  <tr>
+    <td align="center"><a href="02-run-creative.png"><img src="02-run-creative.png" alt="Completed creative run" width="420"></a><br><sub>Completed run with the stage spine and outputs</sub></td>
+    <td align="center"><a href="07-run-research-review.png"><img src="07-run-research-review.png" alt="Research review checkpoint" width="420"></a><br><sub>Review 1: cited research report</sub></td>
+  </tr>
+  <tr>
+    <td align="center"><a href="04-run-interactive-review.png"><img src="04-run-interactive-review.png" alt="Ad copy review checkpoint" width="420"></a><br><sub>Review 2: ad copy</sub></td>
+    <td align="center"><a href="06-run-trend-pick.png"><img src="06-run-trend-pick.png" alt="Trend pick review" width="420"></a><br><sub>Trend scout: pick your trends</sub></td>
+  </tr>
+  <tr>
+    <td align="center"><a href="03-results-creative.png"><img src="03-results-creative.png" alt="Results contact sheet" width="420"></a><br><sub>Results contact sheet with judge scores</sub></td>
+    <td align="center"><a href="09-results-proof-detail.png"><img src="09-results-proof-detail.png" alt="Proof detail dialog" width="420"></a><br><sub>Proof detail for one creative</sub></td>
+  </tr>
+  <tr>
+    <td align="center"><a href="08-run-stopped-early.png"><img src="08-run-stopped-early.png" alt="Stopped-early run recovery" width="420"></a><br><sub>A run that stopped early, with continue run</sub></td>
+    <td></td>
+  </tr>
+  <tr>
+    <td align="center"><a href="12-experiment-detail.png"><img src="12-experiment-detail.png" alt="Bandit experiment detail page" width="420"></a><br><sub>Experiment detail: controls, arms and bandit charts</sub></td>
+    <td align="center"><a href="10-deploy-panel.png"><img src="10-deploy-panel.png" alt="Deploy creatives panel" width="420"></a><br><sub>Deploy creatives as a live experiment</sub></td>
+  </tr>
+</table>

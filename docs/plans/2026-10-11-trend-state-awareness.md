@@ -4,7 +4,7 @@
 
 **Goal:** creatives become aware of a trend's current state, and one concept per slate (configurable 0–2) may reference it with phase-appropriate tone. Examples: "game tomorrow" → anticipation; "lost yesterday" → empathy; unknown or sensitive → no timely concept, which is exactly today's behaviour.
 
-**Architecture** (`TREND_STATE_RESEARCH.md` Ideas 1–4):
+**Architecture** (`docs/research/TREND_STATE_RESEARCH.md` Ideas 1–4):
 1. **Date awareness:** every run seeds `current_date` / `current_datetime` / `current_timezone`, and prompts read them. trend_scout's detection date and research context are forwarded to creative runs through BigQuery, the CRF and the UI.
 2. **Situation:** a grounded, date-aware **trend situation** branch in `combined_research_pipeline`'s START fan-out produces a draft. A **deterministic validator** turns it into `trend_situation`, abstaining to `unknown` unless the dates and outcome are source-backed and inside the window. It also derives `timely_ok`, `valid_until` and a `tone_rule`.
 3. **Timely slot:** a capped timely slot reuses the person-casting pattern: rules in state only when relevant, a per-concept flag plus reason, and deterministic cap enforcement. A temporal-word lexicon keeps evergreen concepts free of dated or outcome claims.
@@ -18,7 +18,7 @@
 
 **Why:** the user wants 1–2 creatives per slate to reflect a trend's current state (e.g. "Texas Football": lost yesterday, or the game is tomorrow).
 
-**What `TREND_STATE_RESEARCH.md` found:**
+**What `docs/research/TREND_STATE_RESEARCH.md` found:**
 - **No agent knows today's date.**
 - **Only the trend term reaches the creative run:** trend_scout's research and `refresh_date` are dropped by the CRF (`cloud_functions/creative_fanout/main.py:680-688`, `:342-352`) and by the frontend trend cards (`frontend/src/components/trend-cards.tsx:66-77`).
 - **The brief has no state:** `TrendBridge` (`creative_agent/schemas.py:364-383`) has no state field.
@@ -341,7 +341,7 @@ Update CLAUDE.md and GEMINI.md (the situation branch, validator rules, state key
 Update:
 - CLAUDE.md, GEMINI.md: the timely slot, lexicon, tone playbook, knobs, state keys `timely_rules`, flags;
 - `docs/notes/creative-quality-gates.md`;
-- the `TREND_STATE_RESEARCH.md` status line ("Ideas 1–4 implemented in #…").
+- the `docs/research/TREND_STATE_RESEARCH.md` status line ("Ideas 1–4 implemented in #…").
 
 **Deploy:** engines + smoke, api, web.
 
