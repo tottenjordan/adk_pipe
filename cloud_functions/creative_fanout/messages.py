@@ -1,8 +1,8 @@
 """Message parsing for the CRF functions.
 
 Decodes and validates the orchestrator's trigger message and the worker
-message (a Pub/Sub CloudEvent or a Cloud Tasks HTTP body; one validator), and
-builds the worker message's ``row_data`` from a BigQuery row.
+message (the trigger is a Pub/Sub CloudEvent, the worker message a Cloud Tasks
+HTTP body), and builds the worker message's ``row_data`` from a BigQuery row.
 """
 
 import base64
@@ -127,24 +127,14 @@ def parse_trigger_message(cloud_event) -> dict | None:
     return message_payload
 
 
-def parse_worker_message(cloud_event) -> tuple[str, str, dict]:
-    """``(dataset, table, row_data)`` from a Pub/Sub worker message.
-
-    A legacy ``agent_resource_id`` (a message published before the engine
-    moved to the worker's env) is ignored.
-
-    Raises ValueError (MalformedMessageError, or the identifier / timestamp
-    validators' ValueError) for a message that can never be processed.
-    """
-    return _validate_worker_payload(_decode_pubsub_json(cloud_event))
-
-
 def parse_task_request(body: bytes) -> tuple[str, str, dict]:
     """``(dataset, table, row_data)`` from a Cloud Tasks HTTP task body (the
-    same JSON worker message the Pub/Sub transport sends as message data).
+    JSON worker message ``orchestrator.dispatch`` sends).
 
-    Raises ValueError like ``parse_worker_message`` for a body that can never
-    be processed (not UTF-8 JSON, not an object, or an invalid message).
+    Raises ValueError (MalformedMessageError, or the identifier / timestamp
+    validators' ValueError) for a body that can never be processed (not UTF-8
+    JSON, not an object, or an invalid message). A legacy
+    ``agent_resource_id`` is ignored.
     """
     try:
         payload = json.loads(body.decode("utf-8"))
@@ -160,7 +150,7 @@ def parse_task_request(body: bytes) -> tuple[str, str, dict]:
 
 
 def _validate_worker_payload(payload: dict) -> tuple[str, str, dict]:
-    """The shared worker-message validation of both transports."""
+    """The worker-message validation (``parse_task_request``)."""
     _require_fields(payload, _WORKER_FIELDS, "worker message")
     row_data = payload["row_data"]
     if not isinstance(row_data, dict):

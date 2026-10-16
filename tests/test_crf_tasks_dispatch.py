@@ -1,10 +1,11 @@
-"""The orchestrator's Cloud Tasks transport (``CRF_WORKER_TRANSPORT=tasks``).
+"""The orchestrator's Cloud Tasks transport (the only one).
 
 One HTTP task per selected row (OIDC to the worker URL, the worker message as
 the JSON body, a deterministic name per row attempt so a re-dispatch of the
 same attempt is de-duplicated by Cloud Tasks), created only after the rows are
 marked QUEUED. ``AlreadyExists`` counts as dispatched; any other error is
-logged and leaves the row QUEUED for the next trigger.
+logged and leaves the row QUEUED for the next trigger. Unusable settings (no
+https worker URL, no invoker SA) send nothing, never fall back.
 """
 
 import base64
@@ -61,7 +62,6 @@ def _expected_name(*parts):
 
 @pytest.fixture
 def tasks_env(monkeypatch):
-    monkeypatch.setenv("CRF_WORKER_TRANSPORT", "tasks")
     monkeypatch.setenv("CRF_WORKER_URL", URL)
     monkeypatch.setenv("CRF_TASKS_INVOKER_SA", INVOKER)
     for name in ("CRF_TASKS_QUEUE", "CRF_TASKS_LOCATION", "GCP_REGION"):
@@ -83,11 +83,7 @@ def _wire(monkeypatch, rows, errors=None):
 
     bq.query_and_wait.side_effect = _query
     tasks = FakeTasksClient(errors=errors, events=events)
-    publisher = types.SimpleNamespace(
-        publish=lambda *a, **k: pytest.fail("tasks transport must not publish")
-    )
     monkeypatch.setattr(clients, "get_bigquery_client", lambda: bq)
-    monkeypatch.setattr(clients, "get_pubsub_client", lambda: publisher)
     monkeypatch.setattr(clients, "get_tasks_client", lambda: tasks)
     return events, tasks
 
@@ -117,8 +113,8 @@ def test_one_task_per_row_with_oidc_body_and_deadline(tasks_env):
     assert tasks.timeouts == [30, 30]
 
 
-def test_task_body_equals_the_pubsub_message(tasks_env):
-    """Both transports send the same worker message (one shared builder)."""
+def test_task_body_is_the_worker_message(tasks_env):
+    """The task body is the worker message (one shared builder)."""
     _, tasks = _wire(tasks_env, ROWS[:1])
     main.crf_entrypoint(_trigger())
     body = json.loads(tasks.requests[0]["task"]["http_request"]["body"])
@@ -229,28 +225,50 @@ def test_queue_location_and_deadline_from_config(tasks_env):
     assert request["task"]["dispatch_deadline"] == timedelta(seconds=900)
 
 
-def test_pubsub_transport_creates_no_task(monkeypatch):
-    monkeypatch.delenv("CRF_WORKER_TRANSPORT", raising=False)
-    bq = bq_results(0, list(ROWS), 2)
-    published = []
+@pytest.mark.parametrize(
+    "env, needle",
+    [
+        ({"CRF_WORKER_URL": None}, "CRF_WORKER_URL"),
+        ({"CRF_WORKER_URL": "   "}, "CRF_WORKER_URL"),
+        ({"CRF_WORKER_URL": "http://insecure"}, "CRF_WORKER_URL"),
+        ({"CRF_WORKER_URL": "not-a-url"}, "CRF_WORKER_URL"),
+        (
+            {"CRF_TASKS_INVOKER_SA": None, "GOOGLE_CLOUD_PROJECT_NUMBER": None},
+            "CRF_TASKS_INVOKER_SA",
+        ),
+    ],
+    ids=["no url", "blank url", "http url", "not a url", "no invoker"],
+)
+def test_unusable_tasks_settings_send_nothing(tasks_env, caplog, env, needle):
+    """No fallback transport: an ERROR, no BigQuery work (every row keeps its
+    status, QUEUED rows stay QUEUED) and no task."""
+    for name, value in env.items():
+        if value is None:
+            tasks_env.delenv(name, raising=False)
+        else:
+            tasks_env.setenv(name, value)
+    events, tasks = _wire(tasks_env, ROWS)
+    with caplog.at_level(logging.ERROR):
+        assert orchestrator.dispatch({"bq_dataset": DS, "bq_table": TBL}) == 0
+    assert events == []
+    assert tasks.requests == []
+    errors = [
+        r
+        for r in caplog.records
+        if r.levelno == logging.ERROR and r.name == orchestrator.__name__
+    ]
+    assert len(errors) == 1
+    assert needle in errors[0].getMessage()
 
-    class _Publisher:
-        def publish(self, topic, data):
-            published.append(json.loads(data))
-            return types.SimpleNamespace(result=lambda timeout=None: "id")
 
-    monkeypatch.setattr(clients, "get_bigquery_client", lambda: bq)
-    monkeypatch.setattr(clients, "get_pubsub_client", lambda: _Publisher())
-    monkeypatch.setattr(
-        clients, "get_tasks_client", lambda: pytest.fail("pubsub must not use tasks")
-    )
-    assert orchestrator.dispatch({"bq_dataset": DS, "bq_table": TBL}) == 2
-    assert [p["row_data"]["uuid"] for p in published] == ["u-a", "u-b"]
-
-
-def test_tasks_without_url_falls_back_to_pubsub(tasks_env):
-    tasks_env.delenv("CRF_WORKER_URL")
-    assert config.WORKER_TRANSPORT == "pubsub"
+def test_default_invoker_is_the_compute_sa(tasks_env):
+    """No CRF_TASKS_INVOKER_SA: the project number's compute SA signs the token."""
+    tasks_env.delenv("CRF_TASKS_INVOKER_SA")
+    tasks_env.setenv("GOOGLE_CLOUD_PROJECT_NUMBER", "42")
+    _, tasks = _wire(tasks_env, ROWS[:1])
+    main.crf_entrypoint(_trigger())
+    oidc = tasks.requests[0]["task"]["http_request"]["oidc_token"]
+    assert oidc["service_account_email"] == "42-compute@developer.gserviceaccount.com"
 
 
 def test_select_unprocessed_returns_processing_attempts():

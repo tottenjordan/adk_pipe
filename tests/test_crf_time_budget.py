@@ -13,11 +13,9 @@ nothing but ``cloud_functions/creative_fanout/requirements.txt`` + pytest).
 """
 
 import asyncio
-import base64
 import inspect
 import json
 import logging
-import types
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -25,13 +23,12 @@ import pytest
 from cloud_functions.creative_fanout import (
     clients,
     logs,
-    main,
     session,
     status_store,
     worker,
 )
 from cloud_functions.creative_fanout.config import config
-from tests.crf_fakes import FakeStatusStore, fake_vertex_client
+from tests.crf_fakes import FakeStatusStore, call_worker_task, fake_vertex_client
 
 pytestmark = pytest.mark.usefixtures("gcp_project_env", "crf_engine_env")
 
@@ -46,14 +43,13 @@ _ROW = {
 }
 
 
-def _event(row=None):
-    payload = {
+def _payload(row=None):
+    """The worker message (the Cloud Tasks body) for ``row``."""
+    return {
         "bq_dataset": config.BQ_DATASET_ID,
         "bq_table": config.BQ_TABLE_TARGETS,
         "row_data": row or _ROW,
     }
-    data = base64.b64encode(json.dumps(payload).encode()).decode()
-    return types.SimpleNamespace(data={"message": {"data": data}})
 
 
 # ============================================================
@@ -93,7 +89,7 @@ def test_entrypoint_takes_the_deadline_at_request_start(monkeypatch):
 
     monkeypatch.setattr(worker, "create_agent_run", _run)
 
-    main.agent_worker_entrypoint(_event())
+    assert call_worker_task(_payload()) == 200
 
     expected = 5000.0 + config.WORKER_TIMEOUT_SECS - config.BUDGET_SAFETY_SECS
     assert seen["deadline"] == expected
@@ -109,7 +105,7 @@ def test_entrypoint_passes_the_deadline_to_process_row(monkeypatch):
         seen.update(kwargs)
 
     monkeypatch.setattr(worker, "process_row", _process_row)
-    main.agent_worker_entrypoint(_event())
+    assert call_worker_task(_payload()) == 200
     assert seen["deadline"] == worker.run_deadline(42.0)
 
 
@@ -130,7 +126,7 @@ def test_entrypoint_runs_the_engine_from_the_env(monkeypatch):
         seen.update(kwargs)
 
     monkeypatch.setattr(worker, "process_row", _process_row)
-    main.agent_worker_entrypoint(_event())
+    assert call_worker_task(_payload()) == 200
     assert seen["agent_id"] == "6183205068745998336"
     assert seen["agent_id"] == config.CREATIVE_AGENT_ENGINE_ID
 
@@ -148,7 +144,7 @@ def test_entrypoint_without_an_engine_acks_before_the_lock(monkeypatch, caplog, 
     process_row = AsyncMock()
     monkeypatch.setattr(worker, "process_row", process_row)
     with caplog.at_level(logging.ERROR):
-        main.agent_worker_entrypoint(_event())  # must NOT raise (ACK)
+        assert call_worker_task(_payload()) == 200  # ACK: no retry
     process_row.assert_not_called()
     bq.query_and_wait.assert_not_called()
     bq.query.assert_not_called()

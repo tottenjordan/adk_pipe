@@ -28,7 +28,6 @@ from cloud_functions.creative_fanout import (
     clients,
     main,
     messages,
-    orchestrator,
     status_store,
     worker,
 )
@@ -42,7 +41,9 @@ from tests.crf_fakes import (
     row_for,
 )
 
-pytestmark = pytest.mark.usefixtures("gcp_project_env", "crf_engine_env")
+pytestmark = pytest.mark.usefixtures(
+    "gcp_project_env", "crf_engine_env", "crf_tasks_env"
+)
 
 DS = config.BQ_DATASET_ID
 TBL = config.BQ_TABLE_TARGETS
@@ -253,7 +254,7 @@ def test_read_locked_row_of_two_rows_raises():
 
 
 # ============================================================
-# Orchestrator: keys, QUEUED before publish, bounded publish
+# Orchestrator: keys, QUEUED before the first task
 # ============================================================
 def _bq_row(ts, trend, uuid):
     return {
@@ -283,7 +284,7 @@ def _trigger(**extra):
 @pytest.fixture
 def orchestrator_env(monkeypatch):
     """reap (0) → SELECT (_ROWS) → QUEUED mark (2), with every BigQuery call
-    and publish recorded in one ordered log."""
+    and task created recorded in one ordered log."""
     events = []
     bq = bq_results(0, list(_ROWS), 2)
     results = bq.query_and_wait.side_effect  # an iterator over the results
@@ -293,27 +294,27 @@ def orchestrator_env(monkeypatch):
         return next(results)
 
     bq.query_and_wait.side_effect = _query
-    publisher = MagicMock()
 
-    def _publish(topic, data):
-        events.append(("publish", json.loads(data)))
-        return MagicMock()
+    class _Tasks:
+        def create_task(self, request=None, **_):
+            body = request["task"]["http_request"]["body"]
+            events.append(("task", json.loads(body)))
+            return request["task"]
 
-    publisher.publish.side_effect = _publish
     monkeypatch.setattr(clients, "get_bigquery_client", lambda: bq)
-    monkeypatch.setattr(clients, "get_pubsub_client", lambda: publisher)
-    return events, bq, publisher
+    monkeypatch.setattr(clients, "get_tasks_client", _Tasks)
+    return events, bq
 
 
-def test_rows_marked_queued_before_the_first_publish(orchestrator_env):
+def test_rows_marked_queued_before_the_first_task(orchestrator_env):
     """M24/M24b: the QUEUED mark targets exactly the dispatched rows' keys and
-    runs before any worker message is published (the worker's lock only takes
-    a QUEUED row, so an unmarked brand-new row would never run)."""
-    events, bq, _ = orchestrator_env
+    runs before any worker task is created (the worker's lock only takes a
+    QUEUED row, so an unmarked brand-new row would never run)."""
+    events, bq = orchestrator_env
     main.crf_entrypoint(_trigger())
 
     kinds = [e[0] for e in events]
-    assert kinds == ["bq", "bq", "bq", "publish", "publish"]
+    assert kinds == ["bq", "bq", "bq", "task", "task"]
     mark_sql = events[2][1]
     assert (
         mark_sql.startswith("UPDATE") and "SET processed_status = 'QUEUED'" in mark_sql
@@ -323,14 +324,14 @@ def test_rows_marked_queued_before_the_first_publish(orchestrator_env):
         (v.struct_values["uuid"], v.struct_values["target_trend"])
         for v in _params(mark_call)["row_keys"].values
     ]
-    published = [
+    dispatched = [
         (e[1]["row_data"]["uuid"], e[1]["row_data"]["target_trend"]) for e in events[3:]
     ]
-    assert keys == published == [("u-a", "trend A"), ("u-b", "trend B")]
+    assert keys == dispatched == [("u-a", "trend A"), ("u-b", "trend B")]
 
 
 def test_worker_message_carries_the_row_key(orchestrator_env):
-    events, _, _ = orchestrator_env
+    events, _ = orchestrator_env
     main.crf_entrypoint(_trigger())
     row_data = events[3][1]["row_data"]
     assert row_data["uuid"] == "u-a"
@@ -338,37 +339,21 @@ def test_worker_message_carries_the_row_key(orchestrator_env):
     assert row_data["entry_timestamp"] == "2026-10-13T00:00:00+00:00"
 
 
-def test_publish_wait_is_bounded(orchestrator_env, caplog):
-    """C7: each publish future is awaited with a timeout; one that times out
-    is counted as failed (its row stays QUEUED for the next re-query)."""
-    _, _, publisher = orchestrator_env
-    ok, slow = MagicMock(), MagicMock()
-    slow.result.side_effect = TimeoutError()
-    publisher.publish.side_effect = [ok, slow]
-    with caplog.at_level(logging.WARNING):
-        main.crf_entrypoint(_trigger())  # must not raise
-    for future in (ok, slow):
-        future.result.assert_called_once_with(timeout=30.0)
-    assert orchestrator.PUBLISH_TIMEOUT_SECS == 30.0
-    assert "1/2 worker publishes failed" in caplog.text
-
-
 # ============================================================
 # Worker messages: the row key, and the legacy fallback
 # ============================================================
-def _worker_event(row_data):
+def _task_body(row_data) -> bytes:
     payload = {
         "bq_dataset": DS,
         "bq_table": TBL,
         "row_data": row_data,
     }
-    data = base64.b64encode(json.dumps(payload).encode()).decode()
-    return types.SimpleNamespace(data={"message": {"data": data}})
+    return json.dumps(payload).encode()
 
 
 def test_parse_accepts_a_legacy_message_without_the_key():
     legacy = {k: v for k, v in _TREND.items() if k not in ("uuid", "target_trend")}
-    *_, row_data = messages.parse_worker_message(_worker_event(legacy))
+    *_, row_data = messages.parse_task_request(_task_body(legacy))
     assert status_store.RowKey.from_mapping(row_data).legacy
 
 
@@ -378,7 +363,7 @@ def test_parse_accepts_a_legacy_message_without_the_key():
 )
 def test_parse_rejects_a_malformed_key(bad):
     with pytest.raises(messages.MalformedMessageError):
-        messages.parse_worker_message(_worker_event({**_TREND, **bad}))
+        messages.parse_task_request(_task_body({**_TREND, **bad}))
 
 
 # ============================================================

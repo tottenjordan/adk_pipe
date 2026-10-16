@@ -2,7 +2,7 @@
 # One image for both CRF Cloud Run functions: creative-trawler-crf (orchestrator,
 # FUNCTION_TARGET=crf_entrypoint, a CloudEvent) and creative-worker-crf (worker:
 # FUNCTION_TARGET=agent_worker_task + FUNCTION_SIGNATURE_TYPE=http behind Cloud
-# Tasks, or agent_worker_entrypoint, a CloudEvent, on the Pub/Sub rollback path).
+# Tasks).
 # Built from the repo root by the root cloudbuild.yaml (build-crf step), or locally:
 #   docker build -f cloud_functions/creative_fanout/Dockerfile -t crf .
 # Dependencies are installed once, in a builder stage that sees only
@@ -43,8 +43,7 @@ USER app
 # Shell form so $FUNCTION_TARGET / $FUNCTION_SIGNATURE_TYPE / $PORT expand at
 # start; no FUNCTION_TARGET default, so a service without it exits at once
 # instead of running the wrong entry point. FUNCTION_SIGNATURE_TYPE defaults to
-# cloudevent (the orchestrator and the Pub/Sub worker); the Cloud Tasks worker
-# sets it to http. --source=main.py is the buildpack-style package load
+# cloudevent (the orchestrator); the Cloud Tasks worker sets it to http. --source=main.py is the buildpack-style package load
 # (functions-framework registers main.py with its directory as the package
 # path), which main.py's relative imports (`from .config import config`) need;
 # `python main.py` would fail on them.

@@ -11,9 +11,18 @@ bound), then cross-checks the settings that depend on each other:
 - ``REAP_STALE_PROCESSING_MINUTES`` must be at least the worker timeout (the
   reaper must never re-queue a row whose worker can still be running); its
   default is ``ceil(WORKER_TIMEOUT_SECS / 60) + 15``;
-- ``CRF_WORKER_TRANSPORT=tasks`` needs an ``https://`` ``CRF_WORKER_URL`` and
-  an invoker service account (``CRF_TASKS_INVOKER_SA``, default the project's
-  compute SA); without them the orchestrator falls back to ``pubsub``.
+- ``WORKER_TIMEOUT_SECS`` must not exceed ``TASK_DISPATCH_DEADLINE_SECS``
+  (logged only): a shorter deadline frees the queue's one dispatch slot while
+  the run continues, so the next task meets a busy worker. The worker's
+  Cloud Run ``--timeout`` must equal the deadline;
+- a nonblank ``CREATIVE_AGENT_ENGINE_ID`` needs ``GOOGLE_CLOUD_PROJECT_NUMBER``
+  (the worker builds the Reasoning Engine path from it): without it the engine
+  resolves to unset, so rows stay QUEUED.
+
+Cloud Tasks is the only worker transport. Its settings (``CRF_WORKER_URL``,
+``CRF_TASKS_INVOKER_SA``) are checked by the orchestrator when it dispatches
+(``orchestrator.dispatch`` logs an ERROR and sends nothing), not here: the
+worker loads this config too and never sets them.
 
 An invalid combination logs an ERROR and falls back to safe values; nothing
 here raises at import or load time, so a bad env var can't crash-loop the
@@ -45,8 +54,7 @@ DEFAULT_SESSION_READ_TIMEOUT_SECS = 60.0
 DEFAULT_SESSION_DELETE_TIMEOUT_SECS = 30.0
 # The reaper's margin over the worker timeout, in minutes.
 REAP_MARGIN_MINUTES = 15
-# How the orchestrator reaches the worker (`orchestrator.dispatch`).
-TRANSPORTS = ("pubsub", "tasks")
+# The Cloud Tasks queue the orchestrator sends worker tasks to.
 DEFAULT_TASKS_QUEUE = "creative-worker-queue"
 # Cloud Tasks' bounds on an HTTP task's dispatch_deadline.
 MIN_DISPATCH_DEADLINE_SECS = 15.0
@@ -63,23 +71,32 @@ _ENGINE_NAME_RE = re.compile(
 )
 
 
-def _engine_id_env(region: str, projects: set[str]) -> str:
+def _engine_id_env(region: str, project_id: str, project_number: str) -> str:
     """``CREATIVE_AGENT_ENGINE_ID`` as a bare engine id ("" when unusable).
 
     Accepts a bare id or the full resource name
     ``projects/<project>/locations/<region>/reasoningEngines/<id>``, whose
-    project (number or id) and region must be this function's (``projects``
-    empty = the project is unset, not checked here: it fails loudly on use).
-    Unset/blank -> ""; anything else unusable -> "" plus one ERROR (never
-    raises: the worker then refuses rows without taking their lock).
+    project (the number or the id) and region must be this function's.
+    Requires ``GOOGLE_CLOUD_PROJECT_NUMBER``: the worker builds the engine
+    path from it. Unset/blank -> ""; anything else unusable (incl. no project
+    number) -> "" plus one ERROR (never raises: the worker then refuses rows
+    without taking their lock, so they stay QUEUED).
     """
     raw = os.environ.get("CREATIVE_AGENT_ENGINE_ID", "").strip()
     if not raw:
         return ""
+    if not project_number:
+        logger.error(
+            f"CREATIVE_AGENT_ENGINE_ID={raw!r} is set but "
+            "GOOGLE_CLOUD_PROJECT_NUMBER is not (the worker builds the "
+            "Reasoning Engine path from it); ignoring the engine."
+        )
+        return ""
+    projects = {p for p in (project_id, project_number) if p}
     engine_id = raw
     match = _ENGINE_NAME_RE.fullmatch(raw)
     if match:
-        if (projects and match["project"] not in projects) or match["region"] != region:
+        if match["project"] not in projects or match["region"] != region:
             logger.error(
                 f"CREATIVE_AGENT_ENGINE_ID={raw!r} names another project or "
                 f"region (expected one of {sorted(projects)} in {region}); "
@@ -96,42 +113,16 @@ def _engine_id_env(region: str, projects: set[str]) -> str:
     return engine_id
 
 
-def _transport_env(project_number: str) -> tuple[str, str, str]:
-    """``(transport, worker_url, invoker_sa)`` after the transport cross-check.
-
-    ``tasks`` needs an ``https://`` worker URL (the task's target and OIDC
-    audience) and an invoker service account (the OIDC token's identity;
-    default ``<project number>-compute@developer.gserviceaccount.com``).
-    Missing either, or an unknown transport, logs one ERROR and falls back to
-    ``pubsub`` (the old path keeps working; never raises).
-    """
-    raw = os.environ.get("CRF_WORKER_TRANSPORT", "").strip().lower() or "pubsub"
-    url = os.environ.get("CRF_WORKER_URL", "").strip()
-    invoker = os.environ.get("CRF_TASKS_INVOKER_SA", "").strip() or (
+def _invoker_env(project_number: str) -> str:
+    """The service account whose OIDC token Cloud Tasks sends to the worker:
+    ``CRF_TASKS_INVOKER_SA``, default
+    ``<project number>-compute@developer.gserviceaccount.com`` ("" when
+    neither is set; ``orchestrator.dispatch`` then sends nothing)."""
+    return os.environ.get("CRF_TASKS_INVOKER_SA", "").strip() or (
         f"{project_number}-compute@developer.gserviceaccount.com"
         if project_number
         else ""
     )
-    if raw not in TRANSPORTS:
-        logger.error(
-            f"CRF_WORKER_TRANSPORT={raw!r} is not one of {TRANSPORTS}; using pubsub."
-        )
-        return "pubsub", url, invoker
-    if raw == "tasks":
-        if not url.startswith("https://"):
-            logger.error(
-                f"CRF_WORKER_TRANSPORT=tasks needs an https:// CRF_WORKER_URL "
-                f"(got {url!r}); using pubsub."
-            )
-            return "pubsub", url, invoker
-        if not invoker:
-            logger.error(
-                "CRF_WORKER_TRANSPORT=tasks needs CRF_TASKS_INVOKER_SA (or "
-                "GOOGLE_CLOUD_PROJECT_NUMBER for the default compute SA); "
-                "using pubsub."
-            )
-            return "pubsub", url, invoker
-    return raw, url, invoker
 
 
 def _csv_env(name: str) -> set[str]:
@@ -188,7 +179,6 @@ class CrfConfig:
     # Agent Engine is a *regional* resource — this is us-central1, NOT the
     # `global` model location used for the gemini-3.x endpoints.
     GCP_REGION: str
-    CREATIVE_WORKER_TOPIC_NAME: str
     # The creative engine the worker runs (bare id; "" = unset or invalid, the
     # worker then leaves rows QUEUED). Set by `engine_handoff.py apply
     # --update-worker`; accepts the full resource name or a bare id.
@@ -199,7 +189,7 @@ class CrfConfig:
     # The engine's root agent name (= its events' author): the completion
     # check's end-of-invocation signal is that agent's final text.
     ROOT_AGENT_NAME: str
-    # BigQuery status-tracking table. The Pub/Sub payloads name the
+    # BigQuery status-tracking table. The trigger and task payloads name the
     # dataset/table, and BigQuery can't parameterize identifiers, so every SQL
     # builder validates them against these allow-lists before quoting.
     BQ_DATASET_ID: str
@@ -233,20 +223,18 @@ class CrfConfig:
     MAX_PROCESSING_ATTEMPTS: int
     # The most rows one trigger message dispatches (oldest first, >= 1).
     CRF_MAX_ROWS_PER_RUN: int
-    # How the orchestrator reaches the worker: "pubsub" (worker topic +
-    # Eventarc) or "tasks" (Cloud Tasks HTTP tasks; cross-checked, see
-    # `_transport_env`).
-    WORKER_TRANSPORT: str
     # The Cloud Tasks queue (id) and its location (default GCP_REGION).
     TASKS_QUEUE: str
     TASKS_LOCATION: str
-    # The worker's Cloud Run URL: the task target and the OIDC audience.
+    # The worker's Cloud Run URL: the task target and the OIDC audience
+    # (must be https://; checked by `orchestrator.dispatch`).
     WORKER_URL: str
     # The service account whose OIDC token Cloud Tasks sends to the worker
     # ("" = unset and no project number to build the default compute SA).
     TASKS_INVOKER_SA: str
     # The task's dispatch_deadline: how long Cloud Tasks waits for the worker
-    # (default the worker timeout, clamped to Cloud Tasks' 15-1800 s).
+    # (default the worker timeout, clamped to Cloud Tasks' 15-1800 s; an
+    # ERROR when it is below the worker timeout, see the module doc).
     TASK_DISPATCH_DEADLINE_SECS: float
 
     @property
@@ -258,8 +246,9 @@ class CrfConfig:
 
     @property
     def GOOGLE_CLOUD_PROJECT_NUMBER(self) -> str:
-        """Project number for resource paths (Pub/Sub topic, Reasoning Engine);
-        falls back to the project ID (both APIs accept either)."""
+        """Project number for the Reasoning Engine path (``worker.py``); falls
+        back to the project ID, but the worker's engine id requires the number
+        (``_engine_id_env``), so the worker never runs on the fallback."""
         return self.project_number or self.GOOGLE_CLOUD_PROJECT
 
 
@@ -268,7 +257,6 @@ _ENV_NAMES = (
     "GOOGLE_CLOUD_PROJECT",
     "GOOGLE_CLOUD_PROJECT_NUMBER",
     "GCP_REGION",
-    "CREATIVE_WORKER_TOPIC_NAME",
     "CREATIVE_AGENT_ENGINE_ID",
     "AGENT_WORKER_USER_ID",
     "CRF_ROOT_AGENT_NAME",
@@ -286,7 +274,6 @@ _ENV_NAMES = (
     "REAP_STALE_PROCESSING_MINUTES",
     "MAX_PROCESSING_ATTEMPTS",
     "CRF_MAX_ROWS_PER_RUN",
-    "CRF_WORKER_TRANSPORT",
     "CRF_TASKS_QUEUE",
     "CRF_TASKS_LOCATION",
     "CRF_WORKER_URL",
@@ -363,17 +350,27 @@ def _build(_env_key: tuple) -> CrfConfig:
     project_id = os.environ.get("GOOGLE_CLOUD_PROJECT", "").strip()
     project_number = os.environ.get("GOOGLE_CLOUD_PROJECT_NUMBER", "").strip()
     region = _str_env("GCP_REGION", "us-central1")
-    transport, worker_url, invoker = _transport_env(project_number)
+
+    # Cross-check: the dispatch deadline covers the whole worker run.
+    dispatch_deadline = _float_env(
+        "CRF_TASK_DISPATCH_DEADLINE_SECS",
+        min(worker_timeout, MAX_DISPATCH_DEADLINE_SECS),
+        MIN_DISPATCH_DEADLINE_SECS,
+        MAX_DISPATCH_DEADLINE_SECS,
+    )
+    if worker_timeout > dispatch_deadline:
+        logger.error(
+            f"CRF_WORKER_TIMEOUT_SECS={worker_timeout:g} exceeds the task "
+            f"dispatch deadline ({dispatch_deadline:g} s): Cloud Tasks frees "
+            "the queue's dispatch slot while the run continues, so the next "
+            "task meets a busy worker. Set the worker's --timeout and "
+            "CRF_WORKER_TIMEOUT_SECS to the deadline."
+        )
     return CrfConfig(
         project_id=project_id,
         project_number=project_number,
         GCP_REGION=region,
-        CREATIVE_WORKER_TOPIC_NAME=_str_env(
-            "CREATIVE_WORKER_TOPIC_NAME", "creative-worker-queue-topic"
-        ),
-        CREATIVE_AGENT_ENGINE_ID=_engine_id_env(
-            region, {p for p in (project_id, project_number) if p}
-        ),
+        CREATIVE_AGENT_ENGINE_ID=_engine_id_env(region, project_id, project_number),
         AGENT_WORKER_USER_ID=_str_env("AGENT_WORKER_USER_ID", "crf_worker"),
         ROOT_AGENT_NAME=_str_env("CRF_ROOT_AGENT_NAME", "root_agent"),
         BQ_DATASET_ID=dataset,
@@ -391,17 +388,11 @@ def _build(_env_key: tuple) -> CrfConfig:
         REAP_STALE_PROCESSING_MINUTES=reap,
         MAX_PROCESSING_ATTEMPTS=_int_env("MAX_PROCESSING_ATTEMPTS", 3, 1, 10),
         CRF_MAX_ROWS_PER_RUN=_int_env("CRF_MAX_ROWS_PER_RUN", 3, 1, 100),
-        WORKER_TRANSPORT=transport,
         TASKS_QUEUE=_str_env("CRF_TASKS_QUEUE", DEFAULT_TASKS_QUEUE),
         TASKS_LOCATION=_str_env("CRF_TASKS_LOCATION", region),
-        WORKER_URL=worker_url,
-        TASKS_INVOKER_SA=invoker,
-        TASK_DISPATCH_DEADLINE_SECS=_float_env(
-            "CRF_TASK_DISPATCH_DEADLINE_SECS",
-            min(worker_timeout, MAX_DISPATCH_DEADLINE_SECS),
-            MIN_DISPATCH_DEADLINE_SECS,
-            MAX_DISPATCH_DEADLINE_SECS,
-        ),
+        WORKER_URL=os.environ.get("CRF_WORKER_URL", "").strip(),
+        TASKS_INVOKER_SA=_invoker_env(project_number),
+        TASK_DISPATCH_DEADLINE_SECS=dispatch_deadline,
     )
 
 

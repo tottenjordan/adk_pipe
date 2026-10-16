@@ -27,6 +27,7 @@ from cloud_functions.creative_fanout.config import config
 from tests.crf_fakes import (
     FakeStatusStore,
     bq_results,
+    call_worker_task,
     fake_vertex_client,
     queued,
 )
@@ -226,7 +227,7 @@ def test_status_writes_and_reaper_use_bounded_query():
 
 
 # ============================================================
-# BigQuery / Pub/Sub clients: lazy, thread-safe, reused singletons
+# BigQuery / Cloud Tasks clients: lazy, thread-safe, reused singletons
 # ============================================================
 def _slow_ctor(calls):
     """A constructor that yields the GIL mid-construction (widens any race)."""
@@ -244,7 +245,7 @@ def _slow_ctor(calls):
     ("getter", "cache_attr", "module_attr", "ctor_name"),
     [
         ("get_bigquery_client", "_bigquery_client", "bigquery", "Client"),
-        ("get_pubsub_client", "_pubsub_publisher", "pubsub_v1", "PublisherClient"),
+        ("get_tasks_client", "_tasks_client", "tasks_v2", "CloudTasksClient"),
     ],
 )
 def test_client_built_once_across_threads(
@@ -281,7 +282,7 @@ def test_import_builds_no_clients():
     code = (
         "from cloud_functions.creative_fanout import clients, main\n"
         "assert clients._bigquery_client is None\n"
-        "assert clients._pubsub_publisher is None\n"
+        "assert clients._tasks_client is None\n"
     )
     env = {k: v for k, v in os.environ.items() if k != "GOOGLE_CLOUD_PROJECT"}
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -389,8 +390,8 @@ def test_two_worker_invocations_in_one_process_both_succeed(monkeypatch):
     monkeypatch.setattr(clients, "get_bigquery_client", lambda: _bq_mock())
     store = FakeStatusStore(monkeypatch, _worker_payload()["row_data"])
 
-    main.agent_worker_entrypoint(_event(_worker_payload(0)))
-    main.agent_worker_entrypoint(_event(_worker_payload(1)))
+    assert call_worker_task(_worker_payload(0)) == 200
+    assert call_worker_task(_worker_payload(1)) == 200
 
     assert store.statuses == ["PROCESSED", "PROCESSED"]
     assert len(_LoopBoundFakeClient.instances) == 2
@@ -438,19 +439,20 @@ def test_agent_runtime_client_close_failure_does_not_fail_the_run(monkeypatch, c
 # Malformed messages are permanent: log an error and ACK (return)
 # ============================================================
 @pytest.fixture
-def no_side_effects(monkeypatch):
-    """BigQuery / Pub/Sub / Agent Runtime doubles that must stay untouched."""
+def no_side_effects(monkeypatch, crf_tasks_env):
+    """BigQuery / Cloud Tasks / Agent Runtime doubles that must stay untouched
+    (with usable Cloud Tasks settings, so only the parse can stop a dispatch)."""
     from unittest.mock import MagicMock
 
     bq = _bq_mock()
-    publisher = MagicMock()
+    tasks = MagicMock()
     vertex = MagicMock(side_effect=AssertionError("no agent run expected"))
     monkeypatch.setattr(clients, "get_bigquery_client", lambda: bq)
-    monkeypatch.setattr(clients, "get_pubsub_client", lambda: publisher)
+    monkeypatch.setattr(clients, "get_tasks_client", lambda: tasks)
     monkeypatch.setattr(clients.agentplatform, "Client", vertex)
     yield
     bq.query_and_wait.assert_not_called()
-    publisher.publish.assert_not_called()
+    tasks.create_task.assert_not_called()
 
 
 def _drop(payload, key):
@@ -488,30 +490,23 @@ _BAD_WORKER_MESSAGES = {
 def test_worker_acks_malformed_message(payload, caplog):
     raw = payload if isinstance(payload, str) else json.dumps(payload)
     with caplog.at_level(logging.ERROR):
-        main.agent_worker_entrypoint(_event(raw))  # must NOT raise (ACK)
+        assert call_worker_task(raw) == 200  # ACK: never retried
     assert any(
-        r.levelno == logging.ERROR and "Rejecting worker message" in r.getMessage()
+        r.levelno == logging.ERROR and "Rejecting worker task" in r.getMessage()
         for r in caplog.records
     )
 
 
 @pytest.mark.usefixtures("no_side_effects")
 @pytest.mark.parametrize(
-    "data",
-    [
-        {},
-        {"message": {}},
-        {"message": {"data": "%%% not base64 %%%"}},
-        {"message": {"data": base64.b64encode(b"\xff\xfe").decode()}},
-        {"message": {"data": base64.b64encode(b"{not json").decode()}},
-        None,
-    ],
-    ids=["no message", "no data", "bad base64", "not utf-8", "not json", "null"],
+    "body",
+    [b"", b"\xff\xfe", b"{not json", b"null"],
+    ids=["empty", "not utf-8", "not json", "null"],
 )
-def test_worker_acks_undecodable_message(data, caplog):
+def test_worker_acks_undecodable_body(body, caplog):
     with caplog.at_level(logging.ERROR):
-        main.agent_worker_entrypoint(types.SimpleNamespace(data=data))
-    assert "Rejecting worker message" in caplog.text
+        assert call_worker_task(body) == 200  # ACK: never retried
+    assert "Rejecting worker task" in caplog.text
 
 
 def _trigger(**overrides):
@@ -569,7 +564,7 @@ def test_valid_worker_message_still_runs(monkeypatch):
         },
     )
     store = FakeStatusStore(monkeypatch, row)
-    main.agent_worker_entrypoint(_event(_worker_payload(row_data=row)))
+    assert call_worker_task(_worker_payload(row_data=row)) == 200
     assert store.statuses == ["PROCESSED"]
     (_, key) = store.calls[0]
     assert key == status_store.RowKey("uuid-3", "t", row["entry_timestamp"])
@@ -608,17 +603,23 @@ def test_trigger_legacy_engine_id_equal_to_the_env_is_silent(monkeypatch, caplog
     assert "agent_resource_id" not in caplog.text
 
 
-def test_parse_worker_message_returns_dataset_table_row():
-    dataset, table, row_data = messages.parse_worker_message(_event(_worker_payload(3)))
+def _task_body(payload) -> bytes:
+    return json.dumps(payload).encode()
+
+
+def test_parse_task_request_returns_dataset_table_row():
+    dataset, table, row_data = messages.parse_task_request(
+        _task_body(_worker_payload(3))
+    )
     assert (dataset, table) == (config.BQ_DATASET_ID, config.BQ_TABLE_TARGETS)
     assert row_data == {"index": 3, **_ROW_DATA}
 
 
 @pytest.mark.parametrize("legacy", ["123", "1/../../x", 123])
-def test_parse_worker_message_ignores_a_legacy_engine_id(legacy):
+def test_parse_task_request_ignores_a_legacy_engine_id(legacy):
     """Messages already in flight across the deploy still carry the id."""
-    parsed = messages.parse_worker_message(
-        _event(_worker_payload(agent_resource_id=legacy))
+    parsed = messages.parse_task_request(
+        _task_body(_worker_payload(agent_resource_id=legacy))
     )
     assert len(parsed) == 3
     assert parsed[2] == {"index": 0, **_ROW_DATA}

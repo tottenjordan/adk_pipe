@@ -1,6 +1,6 @@
-"""The orchestrator's fan-out: one worker message per unprocessed trend row,
-sent over ``CRF_WORKER_TRANSPORT``: a Pub/Sub message on the worker topic
-(``pubsub``, the default) or a Cloud Tasks HTTP task (``tasks``)."""
+"""The orchestrator's fan-out: one Cloud Tasks HTTP task (the worker message)
+per unprocessed trend row. Cloud Tasks is the only transport: without a usable
+worker URL and invoker service account nothing is sent (never a fallback)."""
 
 import hashlib
 import json
@@ -17,8 +17,6 @@ from .messages import build_row_dict
 
 logger = logging.getLogger(__name__)
 
-# How long to wait for each worker publish to resolve.
-PUBLISH_TIMEOUT_SECS = 30.0
 # How long each Cloud Tasks create_task call may take.
 CREATE_TASK_TIMEOUT_SECS = 30.0
 # create_task has no default retry (unlike get_task); retry the transient
@@ -31,14 +29,22 @@ CREATE_TASK_RETRY = Retry(
 )
 
 
-def _worker_topic_path() -> str:
-    """Fully-qualified worker topic, resolved at use time (the project is a
-    required env var, so resolving it at import would break credential-free
-    imports)."""
-    return (
-        f"projects/{config.GOOGLE_CLOUD_PROJECT_NUMBER}"
-        f"/topics/{config.CREATIVE_WORKER_TOPIC_NAME}"
-    )
+def _tasks_config_error() -> str | None:
+    """Why the Cloud Tasks settings can't send a task, or None when they can.
+
+    A task needs an ``https://`` ``CRF_WORKER_URL`` (its target and OIDC
+    audience) and an invoker service account (the OIDC token's identity:
+    ``CRF_TASKS_INVOKER_SA``, or ``GOOGLE_CLOUD_PROJECT_NUMBER`` for the
+    default compute SA).
+    """
+    if not config.WORKER_URL.startswith("https://"):
+        return f"CRF_WORKER_URL must be an https:// URL (got {config.WORKER_URL!r})"
+    if not config.TASKS_INVOKER_SA:
+        return (
+            "no invoker service account (set CRF_TASKS_INVOKER_SA, or "
+            "GOOGLE_CLOUD_PROJECT_NUMBER for the default compute SA)"
+        )
+    return None
 
 
 def _resolve_max_rows(requested, cap):
@@ -60,13 +66,20 @@ def _resolve_max_rows(requested, cap):
 
 
 def dispatch(payload: dict) -> int:
-    """Reap → select → mark QUEUED → publish → count, for one validated
+    """Reap → select → mark QUEUED → create tasks → count, for one validated
     trigger payload (``messages.parse_trigger_message``).
 
-    Returns the number of worker messages dispatched (published, or tasks
-    created/already existing). A BigQuery error raises (the trigger NACKs and
-    retries); a failed publish or task is only logged.
+    Returns the number of worker tasks dispatched (created or already
+    existing). Unusable Cloud Tasks settings log an ERROR and return 0 before
+    any BigQuery work, so every row keeps its status (a QUEUED row stays
+    QUEUED) for the trigger after the fix. A BigQuery error raises (the
+    trigger NACKs and retries); a failed task is only logged.
     """
+    problem = _tasks_config_error()
+    if problem:
+        logger.error(f"Not dispatching any worker task: {problem}.")
+        return 0
+
     dataset = payload["bq_dataset"]
     table = payload["bq_table"]
 
@@ -80,7 +93,7 @@ def dispatch(payload: dict) -> int:
 
     # 1. Fetch unprocessed rows: brand-new (processed_status IS NULL) AND rows
     # orphaned in QUEUED by a prior run that set them QUEUED then crashed or only
-    # partially published (a failed publish leaves the row QUEUED), plus rows the
+    # partially dispatched (a failed task leaves the row QUEUED), plus rows the
     # reap step above just re-queued. Re-dispatch is safe: a row a worker already
     # grabbed is PROCESSING/PROCESSED (not selected here), and a genuinely-stuck
     # QUEUED row is re-sent — the worker's atomic QUEUED->PROCESSING lock
@@ -104,68 +117,31 @@ def dispatch(payload: dict) -> int:
     row_keys = [status_store.RowKey.from_mapping(d) for d in row_list]
 
     # --- LOCK STEP ---
-    # 4. Mark the batch 'QUEUED' BEFORE the first publish/task: the worker's lock
-    # only takes a QUEUED row, so a brand-new (NULL) row published unmarked
+    # 4. Mark the batch 'QUEUED' BEFORE the first task: the worker's lock
+    # only takes a QUEUED row, so a brand-new (NULL) row dispatched unmarked
     # would never run. Only NULL/QUEUED rows change, so a row a worker locked
     # or finished since the SELECT is never set back to QUEUED (its message is
     # a no-op). If this raises, the trigger NACKs and retries.
     status_store.mark_queued(bq_client, dataset, table, row_keys)
 
-    # 5. Dispatch: one worker message per row, over the configured transport
-    # (Pub/Sub topic or Cloud Tasks queue). A row whose send fails stays
+    # 5. Dispatch: one Cloud Tasks task per row. A row whose task fails stays
     # QUEUED and is re-selected by the next orchestrator run, so a failure is
     # only surfaced, never fatal for the batch.
-    if config.WORKER_TRANSPORT == "tasks":
-        dispatched_count, failed_count = _send_tasks(dataset, table, rows, row_list)
-        unit = "tasks"
-    else:
-        dispatched_count, failed_count = _send_pubsub(dataset, table, row_list)
-        unit = "publishes"
+    dispatched_count, failed_count = _send_tasks(dataset, table, rows, row_list)
 
     if failed_count:
-        logging.warning(
-            f"{failed_count}/{len(row_list)} worker {unit} failed; those rows "
+        logger.warning(
+            f"{failed_count}/{len(row_list)} worker tasks failed; those rows "
             "remain QUEUED and will be recovered on the next orchestrator run."
         )
-    logging.info(
-        f"Successfully dispatched {dispatched_count} tasks to the worker "
-        f"({config.WORKER_TRANSPORT})."
-    )
+    logger.info(f"Successfully dispatched {dispatched_count} tasks to the worker.")
     return dispatched_count
 
 
 def _worker_payload(dataset: str, table: str, row_dict: dict) -> dict:
-    """The worker message (Pub/Sub data or Cloud Tasks body; identical on both
-    transports). No engine id: the worker runs its CREATIVE_AGENT_ENGINE_ID."""
+    """The worker message (the Cloud Tasks body). No engine id: the worker
+    runs its CREATIVE_AGENT_ENGINE_ID."""
     return {"bq_dataset": dataset, "bq_table": table, "row_data": row_dict}
-
-
-def _send_pubsub(dataset: str, table: str, row_list: list[dict]) -> tuple[int, int]:
-    """Publish one message per row to the worker topic, then confirm each
-    publish resolved. Returns ``(dispatched, failed)``."""
-    pubsub_publisher = clients.get_pubsub_client()
-    worker_topic = _worker_topic_path()
-    publish_futures = [
-        pubsub_publisher.publish(
-            worker_topic,
-            json.dumps(_worker_payload(dataset, table, row_dict)).encode("utf-8"),
-        )
-        for row_dict in row_list
-    ]
-
-    dispatched_count = 0
-    failed_count = 0
-    for future in publish_futures:
-        try:
-            # Bounded: an unbounded wait can block for the publisher's whole
-            # retry deadline (about the orchestrator's timeout). A publish that
-            # times out leaves its row QUEUED, recovered by the next re-query.
-            future.result(timeout=PUBLISH_TIMEOUT_SECS)
-            dispatched_count += 1
-        except Exception as e:  # noqa: BLE001 — one bad publish shouldn't sink the batch
-            failed_count += 1
-            logging.error(f"Failed to publish a worker message: {e}")
-    return dispatched_count, failed_count
 
 
 def _queue_path() -> str:

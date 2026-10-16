@@ -19,7 +19,7 @@ from .session import agent_session
 logger = logging.getLogger(__name__)
 
 # Indirection so tests drive the completion check's polling without waiting.
-# `main.agent_worker_entrypoint` takes the run deadline from `_clock` too.
+# `main.agent_worker_task` takes the run deadline from `_clock` too.
 _clock = time.monotonic
 _sleep = asyncio.sleep
 
@@ -506,12 +506,11 @@ async def _lock_and_run(
 
 
 class Outcome(enum.Enum):
-    """How a worker delivery ends, whatever the transport.
+    """How a worker task ends (``main.agent_worker_task`` maps it to HTTP).
 
     ``ACK``: done (a recorded status, a lost lock, or a message that can never
-    run): Pub/Sub ACK / HTTP 200. ``RETRY``: an error before the row's status
-    was recorded: Pub/Sub NACK (raise) / HTTP 503, so the transport redelivers
-    under its retry policy.
+    run): HTTP 200. ``RETRY``: an error before the row's status was recorded:
+    HTTP 500, so Cloud Tasks redelivers under the queue's retry policy.
     """
 
     ACK = "ack"
@@ -553,7 +552,7 @@ def handle_worker_message(
                 deadline=deadline,
             )
         )
-    except Exception as e:  # noqa: BLE001 — mapped to a NACK / 503 by the caller
+    except Exception as e:  # noqa: BLE001 — mapped to a 500 (retry) by the caller
         logger.exception(f"Fatal error in worker entrypoint: {e!r}")
         return Outcome.RETRY
     return Outcome.ACK
