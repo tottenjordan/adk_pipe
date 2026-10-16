@@ -15,13 +15,13 @@ Not named ``test_crf_*``: the CRF-only CI venv has no ``creative_agent``.
 from __future__ import annotations
 
 import re
-from pathlib import Path
 
 from cloud_functions.creative_fanout import worker as crf_worker
 from creative_agent import prompts
 from creative_agent.trend_situation import trend_situation_state_delta
+from tests.repo_layout import package_dir
 
-ROOT = Path(__file__).resolve().parent.parent
+CREATIVE_AGENT = package_dir("creative_agent")
 HINT_KEYS = ("trend_scout_context", "trend_detected_on")
 SITUATION_KEYS = {"trend_situation", "trend_situation_md", "timely_rules"}
 
@@ -55,8 +55,8 @@ def _delta(state):
 
 def test_situation_code_never_reads_the_hint_keys():
     files = [
-        ROOT / "creative_agent" / "trend_situation.py",
-        *sorted((ROOT / "creative_agent/sub_agents/trend_situation").glob("*.py")),
+        CREATIVE_AGENT / "trend_situation.py",
+        *sorted((CREATIVE_AGENT / "sub_agents" / "trend_situation").glob("*.py")),
     ]
     assert len(files) >= 2
     for path in files:

@@ -11,6 +11,8 @@ from unittest.mock import MagicMock
 import dotenv
 import pytest
 
+from tests.repo_layout import REPO_ROOT, package_dir
+
 
 # --- update_env_file (the real function; _import_deploy_agent is defined below) ---
 class TestUpdateEnvFile:
@@ -132,38 +134,41 @@ def _import_deploy_agent():
     return deploy_agent
 
 
+def _bundle_path(name: str) -> str:
+    """The AGENT_EXTRA_PACKAGES entry for a package: its repo-relative dir."""
+    return f"./{package_dir(name).relative_to(REPO_ROOT).as_posix()}"
+
+
 class TestAgentExtraPackages:
     def test_creative_agent_bundles_sibling_deps(self):
         """creative_agent imports creative_eval + agent_common → must bundle both."""
         da = _import_deploy_agent()
         pkgs = da.AGENT_EXTRA_PACKAGES["creative_agent"]
-        assert "./creative_agent" in pkgs
-        assert "./creative_eval" in pkgs
-        assert "./agent_common" in pkgs
+        assert _bundle_path("creative_agent") in pkgs
+        assert _bundle_path("creative_eval") in pkgs
+        assert _bundle_path("agent_common") in pkgs
 
     def test_interactive_creative_bundles_full_graph(self):
         """interactive_creative imports creative_agent + creative_eval + agent_common."""
         da = _import_deploy_agent()
         pkgs = da.AGENT_EXTRA_PACKAGES["interactive_creative"]
-        for dep in (
-            "./interactive_creative",
-            "./creative_agent",
-            "./creative_eval",
-            "./agent_common",
+        for dep in map(
+            _bundle_path,
+            ("interactive_creative", "creative_agent", "creative_eval", "agent_common"),
         ):
             assert dep in pkgs, f"{dep} missing from interactive_creative bundle"
 
     def test_trend_scout_bundles_agent_common(self):
         da = _import_deploy_agent()
         pkgs = da.AGENT_EXTRA_PACKAGES["trend_scout"]
-        assert "./trend_scout" in pkgs
-        assert "./agent_common" in pkgs
+        assert _bundle_path("trend_scout") in pkgs
+        assert _bundle_path("agent_common") in pkgs
 
     def test_root_package_listed_first(self):
         """The agent's own package should be the first bundled dir (root first)."""
         da = _import_deploy_agent()
         for name, pkgs in da.AGENT_EXTRA_PACKAGES.items():
-            assert pkgs[0] == f"./{name}", f"{name}: root pkg not first ({pkgs})"
+            assert pkgs[0] == _bundle_path(name), f"{name}: root pkg not first ({pkgs})"
 
     def test_mapping_covers_every_deployable_agent(self):
         """The extra_packages map and deploy specs must cover the same agent set,
@@ -604,12 +609,14 @@ class TestDeployAgentCreate:
         spec = da.AGENT_DEPLOY_SPECS[name]
         config = kwargs["config"]
         assert config["requirements"] == da.load_requirements(da.REQUIREMENTS_PATH)
-        assert config["extra_packages"] == da.AGENT_EXTRA_PACKAGES[name]
+        # Staged flat: each entry under its own folder name (= import name).
+        assert config["extra_packages"] == [
+            f"./{os.path.basename(p)}" for p in da.AGENT_EXTRA_PACKAGES[name]
+        ]
         # The SDK tars from a filtered staging copy, never the repo checkout.
         files = self.create_cwd_files
         assert files, "create() saw an empty staging dir"
-        pkg = da.AGENT_EXTRA_PACKAGES[name][0]
-        assert f"{pkg}/agent.py" in files
+        assert f"./{name}/agent.py" in files
         assert not [f for f in files if "/.adk/" in f or "__pycache__" in f]
         assert config["staging_bucket"] == "gs://my-bucket"
         assert config["gcs_dir_name"] == f"adk-pipe/{spec['gcs_subdir']}/v9/staging"
