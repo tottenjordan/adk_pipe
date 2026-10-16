@@ -14,7 +14,10 @@ bound), then cross-checks the settings that depend on each other:
 - ``WORKER_TIMEOUT_SECS`` must not exceed ``TASK_DISPATCH_DEADLINE_SECS``
   (logged only): a shorter deadline frees the queue's one dispatch slot while
   the run continues, so the next task meets a busy worker. The worker's
-  Cloud Run ``--timeout`` must equal the deadline.
+  Cloud Run ``--timeout`` must equal the deadline;
+- a nonblank ``CREATIVE_AGENT_ENGINE_ID`` needs ``GOOGLE_CLOUD_PROJECT_NUMBER``
+  (the worker builds the Reasoning Engine path from it): without it the engine
+  resolves to unset, so rows stay QUEUED.
 
 Cloud Tasks is the only worker transport. Its settings (``CRF_WORKER_URL``,
 ``CRF_TASKS_INVOKER_SA``) are checked by the orchestrator when it dispatches
@@ -68,23 +71,32 @@ _ENGINE_NAME_RE = re.compile(
 )
 
 
-def _engine_id_env(region: str, projects: set[str]) -> str:
+def _engine_id_env(region: str, project_id: str, project_number: str) -> str:
     """``CREATIVE_AGENT_ENGINE_ID`` as a bare engine id ("" when unusable).
 
     Accepts a bare id or the full resource name
     ``projects/<project>/locations/<region>/reasoningEngines/<id>``, whose
-    project (number or id) and region must be this function's (``projects``
-    empty = the project is unset, not checked here: it fails loudly on use).
-    Unset/blank -> ""; anything else unusable -> "" plus one ERROR (never
-    raises: the worker then refuses rows without taking their lock).
+    project (the number or the id) and region must be this function's.
+    Requires ``GOOGLE_CLOUD_PROJECT_NUMBER``: the worker builds the engine
+    path from it. Unset/blank -> ""; anything else unusable (incl. no project
+    number) -> "" plus one ERROR (never raises: the worker then refuses rows
+    without taking their lock, so they stay QUEUED).
     """
     raw = os.environ.get("CREATIVE_AGENT_ENGINE_ID", "").strip()
     if not raw:
         return ""
+    if not project_number:
+        logger.error(
+            f"CREATIVE_AGENT_ENGINE_ID={raw!r} is set but "
+            "GOOGLE_CLOUD_PROJECT_NUMBER is not (the worker builds the "
+            "Reasoning Engine path from it); ignoring the engine."
+        )
+        return ""
+    projects = {p for p in (project_id, project_number) if p}
     engine_id = raw
     match = _ENGINE_NAME_RE.fullmatch(raw)
     if match:
-        if (projects and match["project"] not in projects) or match["region"] != region:
+        if match["project"] not in projects or match["region"] != region:
             logger.error(
                 f"CREATIVE_AGENT_ENGINE_ID={raw!r} names another project or "
                 f"region (expected one of {sorted(projects)} in {region}); "
@@ -235,7 +247,8 @@ class CrfConfig:
     @property
     def GOOGLE_CLOUD_PROJECT_NUMBER(self) -> str:
         """Project number for the Reasoning Engine path (``worker.py``); falls
-        back to the project ID (the API accepts either)."""
+        back to the project ID, but the worker's engine id requires the number
+        (``_engine_id_env``), so the worker never runs on the fallback."""
         return self.project_number or self.GOOGLE_CLOUD_PROJECT
 
 
@@ -357,9 +370,7 @@ def _build(_env_key: tuple) -> CrfConfig:
         project_id=project_id,
         project_number=project_number,
         GCP_REGION=region,
-        CREATIVE_AGENT_ENGINE_ID=_engine_id_env(
-            region, {p for p in (project_id, project_number) if p}
-        ),
+        CREATIVE_AGENT_ENGINE_ID=_engine_id_env(region, project_id, project_number),
         AGENT_WORKER_USER_ID=_str_env("AGENT_WORKER_USER_ID", "crf_worker"),
         ROOT_AGENT_NAME=_str_env("CRF_ROOT_AGENT_NAME", "root_agent"),
         BQ_DATASET_ID=dataset,

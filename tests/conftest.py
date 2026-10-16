@@ -37,9 +37,13 @@ def gcp_project_env(monkeypatch):
 
 
 @pytest.fixture
-def crf_engine_env(monkeypatch):
+def crf_engine_env(monkeypatch, gcp_project_env):
     """Pin the CRF worker's ``CREATIVE_AGENT_ENGINE_ID`` (the engine it runs;
-    without one the worker leaves every row QUEUED) to a dummy bare id."""
+    without one the worker leaves every row QUEUED) to a dummy bare id, plus
+    the ``GOOGLE_CLOUD_PROJECT_NUMBER`` the worker requires alongside it.
+    Requests ``gcp_project_env`` so it always runs after that fixture clears
+    the number."""
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT_NUMBER", "123456789")
     monkeypatch.setenv("CREATIVE_AGENT_ENGINE_ID", "123")
 
 

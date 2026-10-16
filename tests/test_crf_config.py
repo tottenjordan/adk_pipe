@@ -333,6 +333,26 @@ def test_engine_id_invalid_is_empty_with_one_error(engine_env, caplog, raw):
     assert "CREATIVE_AGENT_ENGINE_ID" in errors[0].getMessage()
 
 
+@pytest.mark.parametrize(
+    "raw",
+    [_ENGINE, f"projects/my-proj/locations/us-central1/reasoningEngines/{_ENGINE}"],
+)
+def test_engine_id_without_project_number_is_empty_with_one_error(
+    engine_env, caplog, raw
+):
+    """The worker builds the Reasoning Engine path from the project number, so
+    an engine without it is unusable: unset + one ERROR (rows stay QUEUED)."""
+    engine_env.delenv("GOOGLE_CLOUD_PROJECT_NUMBER")
+    engine_env.setenv("CREATIVE_AGENT_ENGINE_ID", raw)
+    _build.cache_clear()  # another test may have cached this environment
+    with caplog.at_level(logging.ERROR):
+        assert load_config().CREATIVE_AGENT_ENGINE_ID == ""  # never raises
+        assert load_config().CREATIVE_AGENT_ENGINE_ID == ""  # cached: logged once
+    errors = [r for r in caplog.records if r.levelno == logging.ERROR]
+    assert len(errors) == 1
+    assert "GOOGLE_CLOUD_PROJECT_NUMBER" in errors[0].getMessage()
+
+
 def test_engine_id_busts_the_config_cache(engine_env):
     from cloud_functions.creative_fanout import config as config_module
 
