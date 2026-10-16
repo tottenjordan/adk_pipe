@@ -1674,7 +1674,7 @@ async function shiftShots(context) {
     await forms.nth(1).getByRole("button", { name: "Ergonomic Lumbar Relief" }).click();
     await page.getByText("What readers will want, period by period").waitFor();
     await settle(page);
-    const panel = page.locator('section[aria-label="Experiment controls"]');
+    const panel = page.getByRole("region", { name: "Experiment controls" });
     await page.screenshot({ path: join(OUT, "18-shift-timeline.png"), fullPage: true, clip: await clipOf(page, panel, 12) });
     console.log("  wrote 18-shift-timeline.png");
     await page.close();
@@ -1734,7 +1734,7 @@ async function continuousShot(context) {
   await page.getByRole("button", { name: "Keep learning" }).click();
   await page.getByText("rounds in one stream").waitFor();
   await settle(page);
-  const controls = await clipOf(page, page.locator("section[aria-label='Experiment controls']"), 0);
+  const controls = await clipOf(page, page.getByRole("region", { name: "Experiment controls" }), 0);
   const heading = await clipOf(page, page.locator("#scoreboard-heading").locator(".."), 24);
   const top = { x: 0, y: Math.max(0, controls.y - 16), width: 1440, height: heading.y + heading.height - controls.y + 24 };
   const overview = await page.screenshot({ fullPage: true, clip: top });
