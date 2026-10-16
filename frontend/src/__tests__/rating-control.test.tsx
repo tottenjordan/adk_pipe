@@ -383,19 +383,29 @@ describe("RatingControl feedback", () => {
     expect(screen.getByText(/Couldn.t save your rating/)).toBeInTheDocument();
   });
 
-  it("reserves the fail-reason space on a pass so switching verdict doesn't shift the layout", () => {
+  it("collapses the fail reasons until Fail, then reveals them with a height + opacity transition", () => {
     render(<Harness />);
     const reasons = screen.getByTestId("fail-reasons-visual");
-    // present but invisible and out of the tab order / accessibility tree
-    expect(reasons).toHaveClass("opacity-0");
+    // collapsed: zero rows, invisible, inert (out of the tab order) and hidden from AT
+    expect(reasons).toHaveClass("grid-rows-[0fr]", "opacity-0");
     expect(reasons).toHaveAttribute("aria-hidden", "true");
     expect(reasons).toHaveAttribute("inert");
+    expect(screen.queryByRole("button", { name: "Product hard to see" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Fail" }));
     expect(screen.getByTestId("fail-reasons-visual")).toBe(reasons);
-    expect(reasons).toHaveClass("opacity-100");
+    expect(reasons).toHaveClass("grid-rows-[1fr]", "opacity-100");
     expect(reasons).not.toHaveAttribute("inert");
-    // a click fades (opacity only, token duration)
-    expect(reasons.className).toMatch(/transition-opacity/);
-    expect(reasons.className).toMatch(/duration-\(--dur-pop\)/);
+    expect(reasons).not.toHaveAttribute("aria-hidden");
+    expect(screen.getByRole("button", { name: "Product hard to see" })).toBeVisible();
+    // a click animates rows + opacity on the tokens, snapping under reduced motion
+    expect(reasons).toHaveClass(
+      "transition-[grid-template-rows,opacity]",
+      "duration-(--dur-dialog)",
+      "ease-(--ease-out)",
+      "motion-reduce:transition-none"
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Pass" }));
+    expect(reasons).toHaveClass("grid-rows-[0fr]", "duration-(--dur-exit)");
+    expect(reasons).toHaveAttribute("inert");
   });
 });

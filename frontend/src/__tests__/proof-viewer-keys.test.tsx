@@ -109,8 +109,8 @@ describe("proof viewer rating keys", () => {
     expect(pressed(visualVerdict(), "Fail")).toBe(true);
     // key actions never animate: the fail reasons appear without the fade
     const reasons = screen.getByTestId("fail-reasons-visual");
-    expect(reasons).toHaveClass("opacity-100");
-    expect(reasons.className).not.toMatch(/transition/);
+    expect(reasons).toHaveClass("grid-rows-[1fr]", "opacity-100");
+    expect(reasons.className).not.toMatch(/transition|duration-/);
     expect(visualVerdict()).toHaveClass("[&>button]:transition-none");
     const score = group("Your score for the visual, 1 to 5 (optional)");
     press("4");

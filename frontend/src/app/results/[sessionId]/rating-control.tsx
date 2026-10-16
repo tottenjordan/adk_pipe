@@ -101,50 +101,55 @@ function FailReasonChips({
   selected: readonly FailReason[];
   onToggle: (reason: FailReason) => void;
   disabled: boolean;
-  /** Only on a fail; otherwise the group keeps its space (no layout shift) but is invisible and inert. */
+  /** Only on a fail; collapsed otherwise (zero height, inert, hidden from AT). */
   shown: boolean;
-  /** Skip the fade (the verdict was set by a key: key actions never animate). */
+  /** Snap open/closed (the verdict was set by a key: key actions never animate). */
   instant: boolean;
 }) {
   const id = useId();
+  // Height reveal: grid rows 0fr -> 1fr (the inner cell clips) plus opacity.
+  // mb-0 cancels the parent's space-y gap so a collapsed group takes no room;
+  // the gap sits inside the clip (pb-2) instead. -mx-1/px-1 keeps focus rings unclipped.
   return (
     <div
-      role="group"
-      aria-labelledby={`${id}-label`}
       aria-hidden={!shown || undefined}
       inert={!shown}
       data-testid={`fail-reasons-${kind}`}
       className={cn(
-        shown ? "opacity-100" : "opacity-0",
+        "mb-0 grid",
+        shown ? "grid-rows-[1fr] opacity-100" : "grid-rows-[0fr] opacity-0",
         !instant &&
-          (shown
-            ? "transition-opacity duration-(--dur-pop) ease-(--ease-out)"
-            : "transition-opacity duration-(--dur-exit) ease-(--ease-out)")
+          "transition-[grid-template-rows,opacity] ease-(--ease-out) motion-reduce:transition-none",
+        !instant && (shown ? "duration-(--dur-dialog)" : "duration-(--dur-exit)")
       )}
     >
-      <FieldLabel id={`${id}-label`}>Why did it fail? (optional)</FieldLabel>
-      <div className="mt-1 flex flex-wrap gap-1.5">
-        {failReasonsFor(kind).map((reason) => {
-          const on = selected.includes(reason);
-          return (
-            <button
-              key={reason}
-              type="button"
-              aria-pressed={on}
-              disabled={disabled}
-              onClick={() => onToggle(reason)}
-              className={cn(
-                "inline-flex h-7 items-center gap-1 rounded-sm border px-2 text-xs transition-colors disabled:opacity-50",
-                on
-                  ? "border-foreground bg-muted font-medium text-foreground"
-                  : "border-border bg-card text-muted-foreground hover:bg-muted hover:text-foreground"
-              )}
-            >
-              {on && <Check className="size-3" aria-hidden="true" />}
-              {FAIL_REASON_LABELS[reason]}
-            </button>
-          );
-        })}
+      <div className="-mx-1 min-h-0 overflow-hidden px-1">
+        <div role="group" aria-labelledby={`${id}-label`} className="pb-2">
+          <FieldLabel id={`${id}-label`}>Why did it fail? (optional)</FieldLabel>
+          <div className="mt-1 flex flex-wrap gap-1.5">
+            {failReasonsFor(kind).map((reason) => {
+              const on = selected.includes(reason);
+              return (
+                <button
+                  key={reason}
+                  type="button"
+                  aria-pressed={on}
+                  disabled={disabled}
+                  onClick={() => onToggle(reason)}
+                  className={cn(
+                    "inline-flex h-7 items-center gap-1 rounded-sm border px-2 text-xs transition-colors disabled:opacity-50",
+                    on
+                      ? "border-foreground bg-muted font-medium text-foreground"
+                      : "border-border bg-card text-muted-foreground hover:bg-muted hover:text-foreground"
+                  )}
+                >
+                  {on && <Check className="size-3" aria-hidden="true" />}
+                  {FAIL_REASON_LABELS[reason]}
+                </button>
+              );
+            })}
+          </div>
+        </div>
       </div>
     </div>
   );
