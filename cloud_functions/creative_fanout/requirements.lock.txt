@@ -860,9 +860,9 @@ opentelemetry-semantic-conventions==0.66b1 \
     #   opentelemetry-instrumentation-google-genai
     #   opentelemetry-sdk
     #   opentelemetry-util-genai
-opentelemetry-util-genai==0.3b0 \
-    --hash=sha256:83e127789a9ad615b8ca65f05fc36955a67ce257b06142bfd46159a3b7ed73d3 \
-    --hash=sha256:ebc2b01bcb891ddc7218452470d189d3321cd742653299ff8e7de45debcfb986
+opentelemetry-util-genai==1.2b0 \
+    --hash=sha256:1de6cadafc86f0c1a9c6d4495859d954652a5a48485e261a0506f15f9ede01a1 \
+    --hash=sha256:2ac7ef06eb7f31396532cbdef7a53ee128b9fdf37f39098b8e2140bac31d9abb
     # via opentelemetry-instrumentation-google-genai
 packaging==26.3 \
     --hash=sha256:94edc256424af38762eb31306eed28beb9f0efc50a8837492c9d6fd6004aed79 \
