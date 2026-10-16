@@ -71,4 +71,20 @@ describe("AddShiftMenu", () => {
     const { trigger } = setup(true);
     expect(trigger).toBeDisabled();
   });
+
+  it("pops from its trigger: scale + fade from --transform-origin, faster out, fade-only under reduced motion", async () => {
+    const { trigger } = setup();
+    const menu = await openWithKeyboard(trigger);
+    for (const c of [
+      // scale-* sets the `scale` property, so it must be named (transform would not cover it).
+      "transition-[scale,opacity]",
+      "origin-(--transform-origin)",
+      "duration-(--dur-pop)",
+      "data-ending-style:duration-(--dur-exit)",
+      "motion-safe:data-starting-style:scale-[0.97]",
+      "motion-reduce:transition-opacity",
+    ]) {
+      expect(menu).toHaveClass(c);
+    }
+  });
 });

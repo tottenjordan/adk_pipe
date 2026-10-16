@@ -1,7 +1,8 @@
 "use client";
 
-import React, { useEffect, useRef, useState } from "react";
+import React from "react";
 import { Badge } from "@/components/ui/badge";
+import { Dialog, DialogClose, DialogContent, DialogTrigger } from "@/components/ui/dialog";
 import { FieldLabel } from "@/components/field-label";
 import {
   FIELD_LABELS,
@@ -133,87 +134,55 @@ export function PipelineWidget({
   noun: [string, string];
   data: unknown;
 }) {
-  const [open, setOpen] = useState(false);
-  const triggerRef = useRef<HTMLButtonElement>(null);
   const items = extractItems(data);
   const itemCount = items ? items.length : 0;
   const summary = items ? countLabel(itemCount, noun) : `${label} details`;
 
-  // Escape closes the overlay (keyboard users have no other close path besides the button).
-  useEffect(() => {
-    if (!open) return;
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
-    };
-    document.addEventListener("keydown", onKey);
-    const trigger = triggerRef.current;
-    return () => {
-      document.removeEventListener("keydown", onKey);
-      trigger?.focus(); // return focus to the open button on close
-    };
-  }, [open]);
-
+  // Base UI Dialog: focus trap, scroll lock, Escape and outside-click close, and
+  // focus returned to the open button on close.
   return (
-    <>
-      <button
-        ref={triggerRef}
-        type="button"
-        className="block w-full rounded-lg border border-border bg-card px-4 py-3 text-left transition-colors hover:border-primary/40"
-        onClick={() => setOpen(true)}
-      >
+    <Dialog>
+      <DialogTrigger className="block w-full rounded-lg border border-border bg-card px-4 py-3 text-left transition-colors hover:border-primary/40">
         <span className="block text-xs font-medium text-muted-foreground">{label}</span>
         <span className="mt-0.5 block text-sm font-medium text-primary">{summary}</span>
-      </button>
-
-      {open && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-foreground/30"
-          onClick={() => setOpen(false)}
-        >
-          <div
-            className="relative mx-4 w-full max-w-3xl max-h-[85vh] overflow-hidden flex flex-col
-                       rounded-lg border border-border bg-card shadow-lg"
-            onClick={(e) => e.stopPropagation()}
-            role="dialog"
-            aria-modal="true"
-            aria-label={`${label}: ${summary}`}
+      </DialogTrigger>
+      <DialogContent
+        showCloseButton={false}
+        aria-label={`${label}: ${summary}`}
+        className="flex max-h-[85vh] max-w-[calc(100%-2rem)] flex-col gap-0 overflow-hidden bg-card p-0 shadow-lg sm:max-w-3xl"
+      >
+        <div className="flex items-center justify-between border-b border-border px-5 py-4">
+          <h2 className="text-lg font-bold flex items-center gap-2">
+            <span>{label}</span>
+            {items && (
+              <span className="text-sm font-normal text-muted-foreground">
+                {summary}
+              </span>
+            )}
+          </h2>
+          <DialogClose
+            className="flex h-7 w-7 items-center justify-center rounded-sm text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+            aria-label="Close"
           >
-            <div className="flex items-center justify-between border-b border-border px-5 py-4">
-              <h2 className="text-lg font-bold flex items-center gap-2">
-                <span>{label}</span>
-                {items && (
-                  <span className="text-sm font-normal text-muted-foreground">
-                    {summary}
-                  </span>
-                )}
-              </h2>
-              <button
-                autoFocus
-                onClick={() => setOpen(false)}
-                className="flex h-7 w-7 items-center justify-center rounded-sm text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-                aria-label="Close"
-              >
-                &times;
-              </button>
-            </div>
-            <div className="flex-1 overflow-auto p-5">
-              {items ? (
-                <div className="space-y-3">
-                  {items.map((item, i) => (
-                    <ItemCard key={i} item={item} index={i} widgetKey={stateKey} />
-                  ))}
-                </div>
-              ) : (
-                <pre className="whitespace-pre-wrap break-words rounded-md bg-muted/60 p-4 text-sm font-mono leading-relaxed text-foreground/80">
-                  {typeof data === "string"
-                    ? data
-                    : JSON.stringify(data, null, 2)}
-                </pre>
-              )}
-            </div>
-          </div>
+            &times;
+          </DialogClose>
         </div>
-      )}
-    </>
+        <div className="flex-1 overflow-auto p-5">
+          {items ? (
+            <div className="space-y-3">
+              {items.map((item, i) => (
+                <ItemCard key={i} item={item} index={i} widgetKey={stateKey} />
+              ))}
+            </div>
+          ) : (
+            <pre className="whitespace-pre-wrap break-words rounded-md bg-muted/60 p-4 text-sm font-mono leading-relaxed text-foreground/80">
+              {typeof data === "string"
+                ? data
+                : JSON.stringify(data, null, 2)}
+            </pre>
+          )}
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }

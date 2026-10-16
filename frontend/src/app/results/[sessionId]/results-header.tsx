@@ -2,13 +2,9 @@
 
 import { useState, type ReactNode } from "react";
 import Link from "next/link";
-import { ChevronDownIcon } from "lucide-react";
 import { buttonVariants } from "@/components/ui/button";
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible";
+import { Collapsible } from "@/components/ui/collapsible";
+import { DisclosureChevron, DisclosurePanel, DisclosureTrigger } from "@/components/quiet-disclosure";
 import { FieldLabel } from "@/components/field-label";
 import { GcsWidget } from "@/components/gcs-widget";
 import { cn } from "@/lib/utils";
@@ -70,13 +66,10 @@ export function ResultsHeader({
           <p className="mt-1 text-sm text-foreground/85">
             {summary || <span className="font-mono text-muted-foreground">{appName} / {sessionId}</span>}
             {hasDetails && (
-              <CollapsibleTrigger className="ml-2 inline-flex items-center gap-0.5 rounded-sm text-sm font-medium text-primary hover:underline">
+              <DisclosureTrigger className="ml-2 inline-flex items-center gap-0.5 rounded-sm text-sm font-medium text-primary hover:underline">
                 {open ? "Hide details" : "Campaign details"}
-                <ChevronDownIcon
-                  aria-hidden="true"
-                  className={cn("size-3.5 transition-transform", open && "rotate-180")}
-                />
-              </CollapsibleTrigger>
+                <DisclosureChevron className="size-3.5 text-current" />
+              </DisclosureTrigger>
             )}
           </p>
         </div>
@@ -99,7 +92,7 @@ export function ResultsHeader({
       </div>
 
       {hasDetails && (
-        <CollapsibleContent>
+        <DisclosurePanel>
           <div className="mt-3 space-y-4 rounded-lg border border-border bg-card px-4 py-4">
             {campaignFields.length > 0 && <FieldGrid fields={campaignFields} />}
             {visualDirectionFields.length > 0 && (
@@ -118,7 +111,7 @@ export function ResultsHeader({
               </div>
             </div>
           </div>
-        </CollapsibleContent>
+        </DisclosurePanel>
       )}
     </Collapsible>
   );

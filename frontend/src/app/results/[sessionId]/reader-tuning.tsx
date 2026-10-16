@@ -1,9 +1,9 @@
 "use client";
 
 import { useMemo, type ReactNode } from "react";
-import { ChevronRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Collapsible } from "@/components/ui/collapsible";
+import { DisclosureChevron, DisclosurePanel, DisclosureTrigger } from "@/components/quiet-disclosure";
 import { FieldLabel } from "@/components/field-label";
 import { InfoTip } from "@/components/ui/info-tip";
 import { Slider } from "@/components/ui/slider";
@@ -69,13 +69,10 @@ export function ReaderTuning({
   return (
     <Collapsible className="mt-5 border-t border-border pt-4">
       <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
-        <CollapsibleTrigger className="group inline-flex items-center gap-1.5 rounded-sm text-sm font-semibold text-foreground outline-hidden focus-visible:ring-3 focus-visible:ring-ring/50">
-          <ChevronRight
-            aria-hidden
-            className="size-4 text-muted-foreground transition-transform group-data-[panel-open]:rotate-90 motion-reduce:transition-none"
-          />
+        <DisclosureTrigger className="inline-flex items-center gap-1.5 rounded-sm text-sm font-semibold text-foreground outline-hidden focus-visible:ring-3 focus-visible:ring-ring/50">
+          <DisclosureChevron direction="right" className="size-4" />
           Advanced: tune the simulated readers
-        </CollapsibleTrigger>
+        </DisclosureTrigger>
         <span className="text-xs text-muted-foreground">
           {changed === 0
             ? "Using the scenario's defaults"
@@ -83,7 +80,7 @@ export function ReaderTuning({
         </span>
       </div>
 
-      <CollapsibleContent>
+      <DisclosurePanel>
         <div className="mt-2 flex flex-wrap items-start justify-between gap-3">
           <p className="max-w-[68ch] text-sm text-muted-foreground">{TUNE_HELP.section}</p>
           <Button
@@ -221,7 +218,7 @@ export function ReaderTuning({
           {/* Live preview */}
           <PreviewGrid scenario={scenario} ctrMode={ctrMode} values={values} creatives={creatives} />
         </div>
-      </CollapsibleContent>
+      </DisclosurePanel>
     </Collapsible>
   );
 }
