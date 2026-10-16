@@ -453,7 +453,7 @@ gcloud services enable run.googleapis.com eventarc.googleapis.com \
 
 | SA | Runs | Roles |
 |---|---|---|
-| `tt-crf-orchestrator-sa` | orchestrator `$CREATIVE_CRF_NAME` | `roles/bigquery.jobUser` (project); `roles/bigquery.dataEditor` on the table `trend_trawler.target_trends_crf`; `roles/cloudtasks.enqueuer` on the queue `creative-worker-queue` (§3.4); `roles/iam.serviceAccountUser` on `tt-crf-invoker-sa` (to put its OIDC token on a task) |
+| `tt-crf-orchestrator-sa` | orchestrator `$CREATIVE_CRF_NAME` | `roles/bigquery.jobUser` (project); `roles/bigquery.dataEditor` on the table `trend_trawler.target_trends_crf`; `roles/cloudtasks.enqueuer` + `roles/cloudtasks.viewer` on the queue `creative-worker-queue` (§3.4; the viewer role lets it `get_task` on `AlreadyExists` to tell a waiting task from a tombstoned name); `roles/iam.serviceAccountUser` on `tt-crf-invoker-sa` (to put its OIDC token on a task) |
 | `tt-crf-invoker-sa` | the Cloud Tasks OIDC token (`CRF_TASKS_INVOKER_SA`) | `roles/run.invoker` on the worker service `$CREATIVE_WORKER_CRF_NAME` only (§3.4) |
 | `tt-crf-worker-sa` | worker `$CREATIVE_WORKER_CRF_NAME` | `roles/aiplatform.user` (project; Agent Engine sessions + stream queries); `roles/bigquery.jobUser` (project); `roles/bigquery.dataEditor` on the table `trend_trawler.target_trends_crf` |
 
@@ -499,6 +499,9 @@ done
 # The orchestrator acts as the invoker SA when it creates a task (OIDC token).
 gcloud iam service-accounts add-iam-policy-binding $INVOKER_SA \
   --member=serviceAccount:$ORCH_SA --role=roles/iam.serviceAccountUser
+
+# Queue grants (cloudtasks.enqueuer + cloudtasks.viewer for the orchestrator) and the
+# worker's run.invoker need the queue / worker to exist: they are in §3.4.
 ```
 
 The deployer needs `iam.serviceAccounts.actAs` on the orchestrator and worker SAs
@@ -959,6 +962,9 @@ INVOKER_SA=tt-crf-invoker-sa@$GOOGLE_CLOUD_PROJECT.iam.gserviceaccount.com  # CR
 # The orchestrator creates tasks ...
 gcloud tasks queues add-iam-policy-binding creative-worker-queue --location=us-central1 \
   --member=serviceAccount:$ORCH_SA --role=roles/cloudtasks.enqueuer
+# ... reads a task back on AlreadyExists (get_task: a waiting task vs a tombstoned name) ...
+gcloud tasks queues add-iam-policy-binding creative-worker-queue --location=us-central1 \
+  --member=serviceAccount:$ORCH_SA --role=roles/cloudtasks.viewer
 # ... that carry an OIDC token of the invoker SA (actAs; also in §1) ...
 gcloud iam service-accounts add-iam-policy-binding $INVOKER_SA \
   --member=serviceAccount:$ORCH_SA --role=roles/iam.serviceAccountUser
@@ -967,8 +973,8 @@ gcloud run services add-iam-policy-binding $CREATIVE_WORKER_CRF_NAME --region $G
   --member=serviceAccount:$INVOKER_SA --role=roles/run.invoker
 ```
 
-These three grants are resource-level (the queue, the invoker SA, the worker
-service), never project-level: the orchestrator can enqueue only on
+These grants are resource-level (the queue, the invoker SA, the worker
+service), never project-level: the orchestrator can enqueue and read tasks only on
 `creative-worker-queue`, and the invoker SA can invoke only the worker. The
 Cloud Tasks service agent mints the OIDC token; its
 `roles/cloudtasks.serviceAgent` grant is automatic.
