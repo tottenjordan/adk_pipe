@@ -13,7 +13,7 @@ const ITEM =
 // Pops from the trigger: opacity + scale(0.97) from --transform-origin, faster out
 // than in; reduced motion keeps only the fade.
 const POPUP =
-  "w-72 origin-(--transform-origin) rounded-md border border-border bg-popover p-1 text-sm text-popover-foreground shadow-md outline-hidden transition-[transform,opacity] duration-(--dur-pop) ease-(--ease-out) data-starting-style:opacity-0 data-ending-style:opacity-0 data-ending-style:duration-(--dur-exit) motion-safe:data-starting-style:scale-[0.97] motion-safe:data-ending-style:scale-[0.97] motion-reduce:transition-opacity";
+  "w-72 origin-(--transform-origin) rounded-md border border-border bg-popover p-1 text-sm text-popover-foreground shadow-md outline-hidden transition-[scale,opacity] duration-(--dur-pop) ease-(--ease-out) data-starting-style:opacity-0 data-ending-style:opacity-0 data-ending-style:duration-(--dur-exit) motion-safe:data-starting-style:scale-[0.97] motion-safe:data-ending-style:scale-[0.97] motion-reduce:transition-opacity";
 const GROUP_LABEL = "px-2.5 pt-1.5 pb-1 text-xs text-muted-foreground";
 
 /**

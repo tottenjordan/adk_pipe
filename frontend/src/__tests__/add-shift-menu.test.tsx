@@ -76,6 +76,8 @@ describe("AddShiftMenu", () => {
     const { trigger } = setup();
     const menu = await openWithKeyboard(trigger);
     for (const c of [
+      // scale-* sets the `scale` property, so it must be named (transform would not cover it).
+      "transition-[scale,opacity]",
       "origin-(--transform-origin)",
       "duration-(--dur-pop)",
       "data-ending-style:duration-(--dur-exit)",

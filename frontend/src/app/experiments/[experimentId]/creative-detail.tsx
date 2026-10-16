@@ -31,7 +31,7 @@ const BACKDROP = cn(
 );
 const SHEET = cn(
   "fixed inset-y-0 right-0 z-50 flex w-full flex-col border-l border-border bg-card text-card-foreground shadow-xl outline-hidden sm:w-[min(40rem,calc(100vw-3rem))]",
-  "transition-[transform,opacity] duration-(--dur-drawer) ease-(--ease-drawer) motion-safe:data-starting-style:translate-x-full motion-safe:data-ending-style:translate-x-full",
+  "transition-[translate,opacity] duration-(--dur-drawer) ease-(--ease-drawer) motion-safe:data-starting-style:translate-x-full motion-safe:data-ending-style:translate-x-full",
   "motion-reduce:transition-opacity motion-reduce:data-starting-style:opacity-0 motion-reduce:data-ending-style:opacity-0",
   SHEET_OUT
 );
@@ -62,16 +62,20 @@ export function CreativeDetailDrawer({
   /** The shown run kept learning (contracts §11): the series is one stream, so its totals are whole-run. */
   continuous?: boolean;
 }) {
-  const item = lane ? (series?.creatives.find((c) => c.creativeId === lane.creativeId) ?? null) : null;
+  // Hold the last creative while the sheet slides out, so it leaves with its content.
+  const [held, setHeld] = useState<Lane | null>(lane);
+  if (lane !== null && lane !== held) setHeld(lane);
+  const shown = lane ?? held;
+  const item = shown ? (series?.creatives.find((c) => c.creativeId === shown.creativeId) ?? null) : null;
   const detail = useMemo(() => buildCreativeDetail(item, series), [item, series]);
   const regimes = useMemo(() => runView?.seriesRegimes ?? [], [runView]);
   const [picked, setPicked] = useState<number | null>(null);
   const sel = regimes.length >= 2 ? Math.min(picked ?? regimes.length - 1, regimes.length - 1) : -1;
   const pSeries = useMemo(() => (sel >= 0 ? periodSeries(series, regimes[sel]) : null), [series, regimes, sel]);
   const pDetail = useMemo(() => {
-    if (!pSeries || !lane) return null;
-    return buildCreativeDetail(pSeries.creatives.find((c) => c.creativeId === lane.creativeId) ?? null, pSeries);
-  }, [pSeries, lane]);
+    if (!pSeries || !shown) return null;
+    return buildCreativeDetail(pSeries.creatives.find((c) => c.creativeId === shown.creativeId) ?? null, pSeries);
+  }, [pSeries, shown]);
   const period =
     sel >= 0 && runView
       ? {
@@ -80,7 +84,7 @@ export function CreativeDetailDrawer({
           onPick: setPicked,
           detail: pDetail,
           bars: regimes.map((g, i) => {
-            const c = g.creatives.find((x) => x.creativeId === lane?.creativeId);
+            const c = g.creatives.find((x) => x.creativeId === shown?.creativeId);
             return { label: runView.labels[i] ?? `Period ${i + 1}`, ctr: c?.ctr ?? null, trueCtr: c?.trueCtr ?? null };
           }),
         }
@@ -93,14 +97,14 @@ export function CreativeDetailDrawer({
         <DialogPrimitive.Popup
           className={SHEET}
         >
-          {lane && (
+          {shown && (
             <>
-              <DrawerHeader lane={lane} />
+              <DrawerHeader lane={shown} />
               <div className="min-h-0 flex-1 overflow-y-auto px-6 pt-5 pb-10">
                 {detail ? (
                   <DrawerBody
                     detail={detail}
-                    lane={lane}
+                    lane={shown}
                     lanes={lanes}
                     explain={explain}
                     markers={runView?.markers ?? []}

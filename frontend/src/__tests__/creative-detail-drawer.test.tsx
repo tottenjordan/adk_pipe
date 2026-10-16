@@ -40,6 +40,8 @@ describe("CreativeDetailDrawer", () => {
     renderDrawer();
     const dialog = await screen.findByRole("dialog");
     for (const c of [
+      // translate-x-* sets the `translate` property, so it must be named (transform would not cover it).
+      "transition-[translate,opacity]",
       "duration-(--dur-drawer)",
       "ease-(--ease-drawer)",
       "motion-safe:data-starting-style:translate-x-full",
