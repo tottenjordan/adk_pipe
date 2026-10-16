@@ -7,6 +7,7 @@ authors = [
     {name = "JordanArgolis", email = "admin@jordantotten.altostrat.com"}
 ]
 readme = "README.md"
+license = "Apache-2.0"
 
 requires-python = ">=3.13, <4.0"
 dependencies = [
