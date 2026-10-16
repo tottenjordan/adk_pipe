@@ -226,7 +226,9 @@ describe("PeoplePage", () => {
   it("reports a load failure", async () => {
     listPersonRefs.mockRejectedValue(new PersonRefError(null, 500));
     render(<PeoplePage />);
-    expect(await screen.findByRole("alert")).toHaveTextContent(/People could not load/);
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(/Couldn't load people/);
+    expect(alert).toHaveTextContent(personRefErrorMessage(null, 500));
   });
 });
 

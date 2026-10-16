@@ -130,8 +130,10 @@ export default function RunPage({ params }: PageProps<"/run/[sessionId]">) {
   }, [sessionState]);
 
   // Stage spine (pure derivation from state + pause + status). The stage views
-  // know no "disconnected": like "stalled", the run may still be going.
-  const stageStatus: RunStageStatus = status === "disconnected" ? "stalled" : status;
+  // know no "disconnected": like "stalled", the run may still be going. Nor
+  // "connecting": until the first poll answers, they show the run starting.
+  const stageStatus: RunStageStatus =
+    status === "disconnected" ? "stalled" : status === "connecting" ? "running" : status;
   const answeredReviews = useMemo(() => answeredReviewNames(events), [events]);
   const stages = useMemo(
     () => deriveStages(appName, sessionState, pauseContext, stageStatus, answeredReviews),
@@ -166,6 +168,7 @@ export default function RunPage({ params }: PageProps<"/run/[sessionId]">) {
   ) : null;
 
   const statusLine: Record<RunStatus, { text: string; dot: string; tone: string }> = {
+    connecting: { text: "Connecting…", dot: "bg-muted-foreground", tone: "text-muted-foreground" },
     running: { text: "Running", dot: "bg-primary", tone: "text-foreground" },
     paused: { text: "Waiting for your review", dot: "bg-mark-pending", tone: "text-mark-pending" },
     completed: { text: "Completed", dot: "bg-mark-pass", tone: "text-mark-pass" },
@@ -199,8 +202,10 @@ export default function RunPage({ params }: PageProps<"/run/[sessionId]">) {
         <div className="min-w-0">
           <h1 className="text-2xl font-bold text-foreground">{agentLabel(appName)}</h1>
           <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
-            <span className={`inline-block h-2 w-2 rounded-full ${statusDisplay.dot}`} aria-hidden />
-            <span className={`font-medium ${statusDisplay.tone}`}>{statusDisplay.text}</span>
+            <span role="status" aria-label="Run status" className="inline-flex items-center gap-x-2">
+              <span className={`inline-block h-2 w-2 rounded-full ${statusDisplay.dot}`} aria-hidden />
+              <span className={`font-medium ${statusDisplay.tone}`}>{statusDisplay.text}</span>
+            </span>
             <span className="ml-2 min-w-0 truncate font-mono text-xs text-muted-foreground" title={sessionId}>
               {sessionId}
             </span>

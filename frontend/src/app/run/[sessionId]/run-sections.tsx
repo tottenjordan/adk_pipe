@@ -35,31 +35,35 @@ export function BriefSummary({
 
   return (
     <div className="rounded-lg border border-border bg-card">
-      <button
-        type="button"
-        aria-expanded={open}
-        aria-controls="run-brief-details"
-        onClick={() => setOpen((v) => !v)}
-        className="flex w-full items-center gap-3 rounded-lg px-4 py-2.5 text-left"
-      >
-        <span className="shrink-0 text-xs font-medium text-muted-foreground">Brief</span>
-        <span className="flex min-w-0 flex-1 items-baseline gap-x-4 truncate text-sm font-medium text-foreground">
-          {summary.length > 0
-            ? summary.map((part, i) => (
-                <span key={i} className={i === 0 ? "shrink-0" : "min-w-0 truncate"}>
-                  {part}
-                </span>
-              ))
-            : "Campaign details"}
-        </span>
-        <span className="flex shrink-0 items-center gap-1 text-xs font-medium text-primary">
-          {open ? "Hide" : "Show all"}
-          <ChevronDown
-            aria-hidden
-            className={cn("h-3.5 w-3.5", open && "rotate-180")}
-          />
-        </span>
-      </button>
+      {/* The page's first section heading (h1 → h2), so the Visual direction
+          h3 inside never skips a level. */}
+      <h2>
+        <button
+          type="button"
+          aria-expanded={open}
+          aria-controls="run-brief-details"
+          onClick={() => setOpen((v) => !v)}
+          className="flex w-full items-center gap-3 rounded-lg px-4 py-2.5 text-left"
+        >
+          <span className="shrink-0 text-xs font-medium text-muted-foreground">Brief</span>
+          <span className="flex min-w-0 flex-1 items-baseline gap-x-4 truncate text-sm font-medium text-foreground">
+            {summary.length > 0
+              ? summary.map((part, i) => (
+                  <span key={i} className={i === 0 ? "shrink-0" : "min-w-0 truncate"}>
+                    {part}
+                  </span>
+                ))
+              : "Campaign details"}
+          </span>
+          <span className="flex shrink-0 items-center gap-1 text-xs font-medium text-primary">
+            {open ? "Hide" : "Show all"}
+            <ChevronDown
+              aria-hidden
+              className={cn("h-3.5 w-3.5", open && "rotate-180")}
+            />
+          </span>
+        </button>
+      </h2>
       {open && (
         <div id="run-brief-details" className="border-t border-border px-4 py-3">
           <dl className="grid gap-x-6 gap-y-3 sm:grid-cols-2">

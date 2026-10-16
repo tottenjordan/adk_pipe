@@ -11,8 +11,10 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { CopyFeedback, useCopyFeedback } from "@/components/copy-feedback";
 import { copyStatus, copyText } from "@/components/share-dialog";
 import { listShares, revokeShare } from "@/lib/api";
+import { isSessionExpired } from "@/lib/session-expired";
 import { ShareError, shareErrorMessage, sharesForSession, type Share } from "@/lib/shares";
 
 /** "Slate" / "1 creative" / "N creatives". */
@@ -48,7 +50,7 @@ export function SessionShares({
   const [rowErrors, setRowErrors] = useState<Record<string, string>>({});
   const [confirming, setConfirming] = useState<Share | null>(null);
   const [revoking, setRevoking] = useState(false);
-  const [copied, setCopied] = useState("");
+  const copied = useCopyFeedback();
 
   useEffect(() => {
     let cancelled = false;
@@ -59,7 +61,7 @@ export function SessionShares({
       .catch((err) => {
         if (!cancelled)
           setLoadError(
-            `Shared links could not load. ${err instanceof ShareError ? err.message : ""}`.trim()
+            `Shared links could not load. ${err instanceof ShareError || isSessionExpired(err) ? err.message : ""}`.trim()
           );
       });
     return () => {
@@ -137,10 +139,11 @@ export function SessionShares({
                 variant="outline"
                 size="sm"
                 aria-label={`Copy link to ${s.title}`}
-                onClick={async () => setCopied(copyStatus(await copyText(s.url)))}
+                onClick={async () => copied.show(copyStatus(await copyText(s.url)), s.token)}
               >
                 Copy
               </Button>
+              <CopyFeedback text={copied.key === s.token ? copied.text : ""} />
               <Button
                 variant="ghost"
                 size="sm"
@@ -156,9 +159,6 @@ export function SessionShares({
           ))}
         </ul>
       )}
-      <p data-testid="shares-copy-status" aria-live="polite" className="sr-only">
-        {copied}
-      </p>
 
       <Dialog
         open={confirming !== null}

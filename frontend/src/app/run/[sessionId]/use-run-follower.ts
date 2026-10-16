@@ -23,7 +23,15 @@ import {
 import { stallTimeoutFor, PAUSE_WATCH_INTERVAL_MS, RUNSERVER_MARKER_AUTHOR } from "./run-config";
 import { clearDraftsFor } from "./review-drafts";
 
-export type RunStatus = "running" | "completed" | "error" | "paused" | "stalled" | "disconnected";
+/** "connecting": no poll result yet (the kick-off and the seed poll are in flight). */
+export type RunStatus =
+  | "connecting"
+  | "running"
+  | "completed"
+  | "error"
+  | "paused"
+  | "stalled"
+  | "disconnected";
 
 export interface RunFollower {
   events: AgentEvent[];
@@ -102,7 +110,7 @@ export function useRunFollower(
   sessionId: string
 ): RunFollower {
   const [events, setEvents] = useState<AgentEvent[]>([]);
-  const [status, setStatus] = useState<RunStatus>("running");
+  const [status, setStatus] = useState<RunStatus>("connecting");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [stepErrors, setStepErrors] = useState<string[]>([]);
@@ -273,6 +281,8 @@ export function useRunFollower(
           return;
         }
         if (seed.state) setSessionState((prev) => ({ ...prev, ...seed.state }));
+        // The first poll result: from here the run is followed, not connecting.
+        setStatus((s) => (s === "connecting" ? "running" : s));
 
         // Drain the poll to completion; the initial run fetches session state
         // on pause.

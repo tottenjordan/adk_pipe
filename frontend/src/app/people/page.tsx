@@ -12,6 +12,8 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { FieldLabel } from "@/components/field-label";
+import { CopyFeedback, useCopyFeedback } from "@/components/copy-feedback";
+import { ListSkeleton, LoadErrorState } from "@/components/load-states";
 import { copyStatus, copyText } from "@/components/share-dialog";
 import { createPersonRef, listPersonRefs, revokePersonRef } from "@/lib/api";
 import { gcsProxyUrl, parseGsUri } from "@/lib/gcs";
@@ -58,7 +60,8 @@ export default function PeoplePage() {
   const [people, setPeople] = useState<PersonRef[]>([]);
   const [prefix, setPrefix] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<unknown>(null);
+  const [attempt, setAttempt] = useState(0);
 
   const [photoUri, setPhotoUri] = useState("");
   const [label, setLabel] = useState("");
@@ -71,7 +74,7 @@ export default function PeoplePage() {
   const [confirming, setConfirming] = useState<PersonRef | null>(null);
   const [revoking, setRevoking] = useState(false);
   const [rowErrors, setRowErrors] = useState<Record<string, string>>({});
-  const [copied, setCopied] = useState("");
+  const copied = useCopyFeedback();
 
   useEffect(() => {
     let cancelled = false;
@@ -88,7 +91,7 @@ export default function PeoplePage() {
         if (prefix) setPhotoUri((current) => current || prefix);
       })
       .catch((err) => {
-        if (!cancelled) setLoadError(`People could not load. ${errorText(err)}`);
+        if (!cancelled) setLoadError(err ?? new Error("People could not load"));
       })
       .finally(() => {
         if (!cancelled) setLoading(false);
@@ -96,7 +99,13 @@ export default function PeoplePage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [attempt]);
+
+  const retryLoad = () => {
+    setLoadError(null);
+    setLoading(true);
+    setAttempt((n) => n + 1);
+  };
 
   const setRowError = (id: string, message: string | null) =>
     setRowErrors((prev) => {
@@ -191,18 +200,16 @@ export default function PeoplePage() {
                 type="button"
                 variant="outline"
                 size="sm"
-                onClick={async () => setCopied(copyStatus(await copyText(prefix)))}
+                onClick={async () => copied.show(copyStatus(await copyText(prefix)))}
               >
                 Copy
               </Button>
             )}
+            <CopyFeedback data-testid="person-copy-status" text={copied.text} />
           </div>
           <p className="text-xs text-muted-foreground">
             For example <span className="font-mono">gcloud storage cp photo.jpg {prefix ?? "<your folder>"}</span>.
             A .jpg, .jpeg, .png or .webp image of at most 10 MB and at least 512 px on its shorter side.
-          </p>
-          <p data-testid="person-copy-status" aria-live="polite" className="sr-only">
-            {copied}
           </p>
         </div>
 
@@ -292,11 +299,15 @@ export default function PeoplePage() {
           Your people
         </h2>
         {loading ? (
-          <p className="px-4 py-4 text-sm text-muted-foreground">Loading people…</p>
+          <ListSkeleton label="Loading people…" rows={3} columns={["w-32", "w-48"]} thumb className="mt-2" />
         ) : loadError ? (
-          <p role="alert" className="px-4 py-4 text-sm text-mark-fail">
-            {loadError}
-          </p>
+          <LoadErrorState
+            what="people"
+            error={loadError}
+            detail={errorText(loadError)}
+            onRetry={retryLoad}
+            className="rounded-lg border-0"
+          />
         ) : people.length === 0 ? (
           <p className="px-4 py-4 text-sm text-muted-foreground">No one yet. Add a person above.</p>
         ) : (

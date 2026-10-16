@@ -433,3 +433,25 @@ describe("review drafts after a resume", () => {
     expect(readDraft("fc-1:research-feedback")).toBe("nostalgia");
   });
 });
+
+describe("useRunFollower: connecting", () => {
+  it("is connecting until the first poll result, then running", async () => {
+    let answer!: (r: PollResult) => void;
+    mockGetRunStatus.mockReturnValueOnce(new Promise((r) => (answer = r)));
+    mockPollRun.mockReturnValueOnce(stream().iter());
+    const { result } = follow();
+    await flush();
+    expect(result.current.status).toBe("connecting");
+
+    answer(poll([textEvent("e0")]));
+    await flush();
+    expect(result.current.status).toBe("running");
+  });
+
+  it("never flags a run as stalled while it is still connecting", async () => {
+    mockGetRunStatus.mockReturnValueOnce(new Promise(() => {}));
+    const { result } = follow("trend_scout");
+    await advance(stallTimeoutFor("trend_scout") + 20_000);
+    expect(result.current.status).toBe("connecting");
+  });
+});

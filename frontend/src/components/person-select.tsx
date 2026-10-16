@@ -3,9 +3,18 @@
 import { useEffect, useEffectEvent, useState } from "react";
 import Link from "next/link";
 import { FieldLabel } from "@/components/field-label";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { listPersonRefs } from "@/lib/api";
 import type { PersonRef } from "@/lib/person-refs";
 import type { PersonReferenceInput } from "@/lib/types";
+
+const NO_PERSON = "No person";
 
 /** The chosen person is no longer among the caller's active consents. */
 function isStale(people: PersonRef[], chosen: string, uri: string | undefined): boolean {
@@ -95,24 +104,35 @@ export function PersonSelect({
         </p>
       ) : (
         <>
-          <select
+          <Select
             id="personReference"
-            value={stale ? "" : chosen}
+            value={stale || !chosen ? null : chosen}
             disabled={people === null}
-            onChange={(e) => {
-              const person = (people ?? []).find((p) => p.consent_id === e.target.value);
+            items={[
+              { value: null, label: NO_PERSON },
+              ...(people ?? []).map((p) => ({ value: p.consent_id, label: p.label })),
+            ]}
+            onValueChange={(v) => {
+              const person = (people ?? []).find((p) => p.consent_id === v);
               onChange(person ? { uri: person.photo_uri, consentId: person.consent_id } : null);
             }}
-            className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
           >
-            <option value="">No person</option>
-            {(people ?? []).map((p) => (
-              <option key={p.consent_id} value={p.consent_id}>
-                {p.label}
-              </option>
-            ))}
-          </select>
-          <p className="text-xs text-muted-foreground">
+            <SelectTrigger
+              aria-describedby="personReference-help"
+              className="w-full hover:border-foreground/30 transition-colors"
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={null}>{NO_PERSON}</SelectItem>
+              {(people ?? []).map((p) => (
+                <SelectItem key={p.consent_id} value={p.consent_id}>
+                  {p.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <p id="personReference-help" className="text-xs text-muted-foreground">
             The agents decide per concept whether to feature this person (person-safe
             styles only: photographic, 3D, comic, flat illustration, collage).{" "}
             <Link href="/people" className="text-primary underline-offset-4 hover:underline">

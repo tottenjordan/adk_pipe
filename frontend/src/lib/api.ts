@@ -9,6 +9,7 @@ import {
   type PersonRefList,
 } from "./person-refs";
 import { parseVariantsListing, VariantError, type VariantResponse, type VariantsListing } from "./variants";
+import { apiFetch } from "./session-expired";
 
 // Route through the same-origin Next.js proxy (src/app/api/adk/[...path]/route.ts) so
 // the browser never makes a cross-origin call — this avoids CORS and the Cloud
@@ -96,7 +97,7 @@ export async function listSessions(
   appName: string,
   userId: string
 ): Promise<Session[]> {
-  const res = await fetch(sessionsUrl(appName, userId));
+  const res = await apiFetch(sessionsUrl(appName, userId));
   if (!res.ok) throw await httpError(res, "Failed to list sessions");
   return res.json();
 }
@@ -494,7 +495,7 @@ export async function createShare(
 
 /** `GET /shares/{user}`: the caller's active share links, newest first. */
 export async function listShares(): Promise<Share[]> {
-  const res = await fetch(sharesUrl());
+  const res = await apiFetch(sharesUrl());
   if (!res.ok) throw await shareError(res);
   const data = await res.json();
   return Array.isArray(data?.shares) ? data.shares : [];
@@ -527,7 +528,7 @@ async function personRefError(res: Response): Promise<PersonRefError> {
 
 /** `GET /person-refs/{user}`: the caller's active consents (newest first) and upload prefix. */
 export async function listPersonRefs(): Promise<PersonRefList> {
-  const res = await fetch(personRefsUrl());
+  const res = await apiFetch(personRefsUrl());
   if (!res.ok) throw await personRefError(res);
   const data = await res.json();
   return {
