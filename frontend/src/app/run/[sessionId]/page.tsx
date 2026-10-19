@@ -24,6 +24,7 @@ import { STEP_ERROR_PREFIX } from "@/lib/step-errors";
 import { LearningSummary } from "@/components/learning-summary";
 import { TrendSituationLine } from "@/components/trend-situation-line";
 import { SaferAngleLine } from "@/components/safer-angle-line";
+import { TrendStalenessNotice } from "@/components/trend-staleness-notice";
 import { learningSummaryText } from "@/lib/rating-learning";
 import { trendSituationText } from "@/lib/trend-situation";
 import {
@@ -227,6 +228,12 @@ export default function RunPage({ params }: PageProps<"/run/[sessionId]">) {
         <div className="mb-4 rounded-lg border border-mark-pending/40 bg-mark-pending/10 px-5 py-4">
           <p className="text-sm text-mark-pending">{notice}</p>
         </div>
+      )}
+
+      {/* Google's trend table stopped updating (trend_scout); the trend pick
+          panel shows the same notice itself while it is open. */}
+      {!(status === "paused" && pauseContext?.functionName === "review_trends") && (
+        <TrendStalenessNotice state={sessionState} className="mb-4" />
       )}
 
       {stepErrors.length > 0 && (

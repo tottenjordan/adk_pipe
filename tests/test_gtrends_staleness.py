@@ -122,6 +122,14 @@ def _patch_bq(monkeypatch, max_date: str):
 
 
 class TestGetDailyGtrendsRecordsStaleness:
+    @pytest.fixture(autouse=True)
+    def _wall_clock_elsewhere(self, monkeypatch):
+        # The wall clock disagrees with the seeded current_date, so a tool that
+        # ignored the run's date would compute a different age.
+        import trend_scout.tools as t
+
+        monkeypatch.setattr(t, "now_in_tz", lambda tz: datetime.datetime(2030, 1, 1))
+
     def test_stale_table_records_state_and_warns_once(self, monkeypatch, caplog):
         t = _patch_bq(monkeypatch, "10/13/2026")
         ctx = FakeToolContext({"current_date": "2026-10-19"})
