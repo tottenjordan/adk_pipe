@@ -416,9 +416,9 @@ google-auth==2.62.0 \
     #   google-cloud-storage
     #   google-cloud-tasks
     #   google-genai
-google-cloud-agentplatform==2.4.0 \
-    --hash=sha256:c4480c360a05f03b6ec48a9f2ac9964af868e33058fbaef128d838651dc5f9c0 \
-    --hash=sha256:f39a7065117fea960e4db1e341854d987a3cf945374921da0bbd8b59656da06b
+google-cloud-agentplatform==2.5.0 \
+    --hash=sha256:5933ecaf02cbeac9517312ed9165ae43996a495e75fb58f7849ba594f9399ada \
+    --hash=sha256:979540a7a6725e2bd69fdea630e71717b8fa1afdf48a9878d8d2901ccb1fd361
     # via -r requirements.txt
 google-cloud-appengine-logging==1.11.0 \
     --hash=sha256:4d70953a0f35d0295256d977e7e3962242674d64c72fcb3e48b10a1cbf4f9b54 \
@@ -428,9 +428,9 @@ google-cloud-audit-log==0.6.2 \
     --hash=sha256:1f19bdf2586cfdb72054eec769ede153a037988b73a7d3b6d266f672ab426c00 \
     --hash=sha256:ea5dc892b1858d345aef0c5563a728534fa875bd0388765391574d3c57fd8f0e
     # via google-cloud-logging
-google-cloud-bigquery==3.46.1 \
-    --hash=sha256:c5564a58fc3c99b003cd334a8f302c6224bd34cb55c87476a3c445be1d00538b \
-    --hash=sha256:ee0e73d06a624c26445458e75f04deed894ed50a0c46bdc876f30c50e05ec6c2
+google-cloud-bigquery==3.46.2 \
+    --hash=sha256:5e9a4e15f778cc00ee88167de9934a4c1bbb7fc20058e8f573f2bfdaf0d99052 \
+    --hash=sha256:a87e2e8026133e709deab9ebf537a6a2eee3fbcf4befa334a2f9f6164435b331
     # via -r requirements.txt
 google-cloud-core==2.8.0 \
     --hash=sha256:365f8e4518ae81c8101b8dea5fc1c32a960badedb8b511f19db2843cbbd285d2 \
