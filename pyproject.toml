@@ -109,9 +109,12 @@ dev = [
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-# Put the repo root on sys.path so tests import the flat first-party packages
-# (and `deployment.*`) without per-test sys.path hacks.
-pythonpath = ["."]
+# The repo root (for `deployment.*`, `runserver.*`, `tests.*`) plus the package
+# containers. The editable install's .pth already covers the containers in the
+# main env; listing them here keeps the first-party packages importable in envs
+# without the project installed (crf-deps' clean venv), where conftest's guards
+# then skip on the missing google-adk rather than failing on a missing package.
+pythonpath = [".", "agents", "libs", "bandit_stack"]
 markers = [
     "subprocess: spawns a child process (fresh-import guards, shell entrypoint)",
     "slow: multi-second test (JAX compile, golden regeneration, image staging); skip locally with -m 'not slow'",
