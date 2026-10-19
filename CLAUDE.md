@@ -93,7 +93,7 @@ uv run adk eval agents/creative_agent tests/eval/evalsets/creative_agent_evalset
 
 - Test inventories (which test file covers what, frontend and Python) and the full CI workflow details: [docs/reference/testing.md](docs/reference/testing.md); per-file table in [tests/README.md](tests/README.md).
 - ADK evals: `tests/eval/` (one evalset + rubric config per agent; run as `adk eval agents/<agent>`). Integration: `deployment/integration_test.py` (live GCP, deployed agents).
-- CI (path-gated, PR-only + `workflow_dispatch`): `python-ci.yml` (`uv sync --locked`, requirements drift, ruff, ty, `pytest -n 4`), `crf-deps.yml` (CRF tests in the function's own venv), `frontend-tests.yml` (lint, test, `next build`), `adk-eval.yml` (nightly, not on PRs; `tests/eval/efficiency_gate.py` is the real pass/fail signal).
+- CI (path-gated, PR-only + `workflow_dispatch`): `python-ci.yml` (`uv sync --locked`, requirements drift, ruff, ty, `pytest -n 4`), `crf-deps.yml` (CRF tests in the function's own venv), `frontend-tests.yml` (lint, test, `next build`), `dependabot-lock-sync.yml` (Dependabot PRs: regenerates the derived requirements files, pushes a fix-up, dispatches python-ci / crf-deps on it), `adk-eval.yml` (nightly, not on PRs; `tests/eval/efficiency_gate.py` is the real pass/fail signal).
 
 ```bash
 # Integration tests (requires deployed agents + GCP credentials)
