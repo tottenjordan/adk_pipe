@@ -3,7 +3,7 @@
 The skills in this directory are vendored from these MIT-licensed repositories. `skills-lock.json` at the repo root pins each skill's source path and content hash.
 
 - `addyosmani/agent-skills`: code-review-and-quality, code-simplification, context-engineering, documentation-and-adrs, frontend-ui-engineering, observability-and-instrumentation, performance-optimization, source-driven-development, test-driven-development
-- `emilkowalski/skills`: animate, animation-vocabulary, emil-design-eng, improve-animations
+- `emilkowalski/skills`: emil-design-eng
 
 ## addyosmani/agent-skills
 
