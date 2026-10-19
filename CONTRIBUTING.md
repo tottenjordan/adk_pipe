@@ -40,8 +40,9 @@ lives in [docs/reference/](docs/reference/).
   CI by itself). Judge the PR by those dispatched runs on the new head commit; the
   `pull_request` runs GitHub queues for the bot's push wait for approval and can be ignored.
   The first `python-ci` run (on Dependabot's own commit) is expected to fail the drift check.
-- Pushing to its branch stops Dependabot rebasing the PR on its own; comment
-  `@dependabot rebase` when it needs one (the sync workflow runs again on the rebased branch).
+- Once the fix-up commit is on its branch, Dependabot treats the PR as edited and refuses
+  `@dependabot rebase`; comment `@dependabot recreate` instead when it needs updating (it
+  rebuilds the branch from scratch, and the sync workflow runs again on it).
 - Manual fallback (uv 0.12.19), if the workflow didn't run or its push was rejected:
   `uv export --format requirements-txt --no-hashes --no-dev --no-emit-project -o requirements.txt`,
   and for the Cloud Function the `uv pip compile` command in `requirements.lock.txt`'s header.
