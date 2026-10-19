@@ -1,0 +1,119 @@
+name: Dependabot lock sync
+
+# Dependabot updates the primary manifests but not the files derived from them:
+#   - uv ecosystem: bumps uv.lock, not the exported root requirements.txt
+#     (excluded in dependabot.yml on purpose), so python-ci's drift check fails;
+#   - pip ecosystem (cloud_functions/creative_fanout): bumps requirements.txt,
+#     not the hashed requirements.lock.txt, so crf-deps' drift check fails.
+# On Dependabot PRs only, this regenerates both with the exact commands the CI
+# drift checks run, pushes a fix-up commit when anything changed, then
+# dispatches the affected CI workflow(s) on the fixed branch.
+#
+# Why dispatch: a push made with GITHUB_TOKEN does not start new workflow runs
+# (its pull_request runs land in an approval-required state); workflow_dispatch
+# is the documented exception, so python-ci / crf-deps run on the fix-up commit
+# and attach their checks to the PR's new head SHA.
+# https://docs.github.com/en/actions/how-tos/write-workflows/choose-when-workflows-run/trigger-a-workflow#triggering-a-workflow-from-a-workflow
+# Dependabot-triggered pull_request runs get a read-only token and no Actions
+# secrets; the permissions key can raise the token's scopes (below).
+# https://docs.github.com/en/code-security/dependabot/troubleshooting-dependabot/troubleshooting-dependabot-on-github-actions
+on:
+  pull_request:
+    paths:
+      - "uv.lock"
+      - "pyproject.toml"
+      - "cloud_functions/creative_fanout/requirements.txt"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  sync:
+    # Dependabot only, and only for branches in this repository (never forks:
+    # the job pushes to the head branch).
+    if: >-
+      github.actor == 'dependabot[bot]' &&
+      github.event.pull_request.user.login == 'dependabot[bot]' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write # push the fix-up commit to the Dependabot branch
+      actions: write # workflow_dispatch python-ci / crf-deps on it
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # The PR branch itself (not the merge ref), so the commit can be pushed.
+          ref: ${{ github.event.pull_request.head.ref }}
+
+      - name: Skip if the head is already our fix-up
+        id: guard
+        run: |
+          if [ "$(git log -1 --format=%ae)" = "41898282+github-actions[bot]@users.noreply.github.com" ]; then
+            echo "Head commit is a bot fix-up; nothing to do."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: astral-sh/setup-uv@v10.3.0
+        if: steps.guard.outputs.skip != 'true'
+        with:
+          version: "0.12.19"
+          python-version: "3.13"
+          enable-cache: true
+
+      # Same commands as python-ci.yml's and crf-deps.yml's drift checks (the
+      # export writes its own command line into the file header, so no extra
+      # flags there). uv lock --check first: fail loudly instead of re-locking
+      # if uv.lock is stale vs pyproject.toml.
+      - name: Regenerate requirements.txt from uv.lock
+        if: steps.guard.outputs.skip != 'true'
+        run: |
+          uv lock --check
+          uv export --format requirements-txt --no-hashes --no-dev --no-emit-project -o requirements.txt
+
+      - name: Regenerate the Cloud Function lock
+        if: steps.guard.outputs.skip != 'true'
+        working-directory: cloud_functions/creative_fanout
+        run: uv pip compile requirements.txt --universal --generate-hashes --python-version 3.13 -o requirements.lock.txt -q
+
+      - name: Commit and push the fix-up
+        id: push
+        if: steps.guard.outputs.skip != 'true'
+        run: |
+          changed=$(git diff --name-only -- requirements.txt cloud_functions/creative_fanout/requirements.lock.txt)
+          if [ -z "$changed" ]; then
+            echo "Derived files already match; nothing to push." | tee -a "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -- $changed
+          git commit -m "chore(deps): regenerate derived requirements files" \
+            -m "Automated by .github/workflows/dependabot-lock-sync.yml."
+          # Plain push (no force): if Dependabot rebased meanwhile, this fails and
+          # the run on Dependabot's new push does the work instead.
+          git push origin "HEAD:${HEAD_REF}"
+          echo "Pushed $(git rev-parse --short HEAD) updating: $changed" | tee -a "$GITHUB_STEP_SUMMARY"
+          if grep -qx requirements.txt <<<"$changed"; then echo "python_ci=true" >> "$GITHUB_OUTPUT"; fi
+          if grep -q '^cloud_functions/' <<<"$changed"; then echo "crf_deps=true" >> "$GITHUB_OUTPUT"; fi
+        env:
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+
+      # The fix-up push starts no CI by itself (see header); dispatch it.
+      - name: Run python-ci on the fix-up commit
+        if: steps.push.outputs.python_ci == 'true'
+        run: gh workflow run python-ci.yml --ref "$HEAD_REF"
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+
+      - name: Run crf-deps on the fix-up commit
+        if: steps.push.outputs.crf_deps == 'true'
+        run: gh workflow run crf-deps.yml --ref "$HEAD_REF"
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}

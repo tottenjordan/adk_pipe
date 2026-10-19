@@ -31,8 +31,17 @@ lives in [docs/reference/](docs/reference/).
 
 ## Dependabot PRs
 
-- Python (uv) bumps change `uv.lock`; regenerate the exported requirements on the PR branch,
-  or CI's drift check fails:
-  `uv export --format requirements-txt --no-hashes --no-dev --no-emit-project -o requirements.txt`
-- After a `cloud_functions/creative_fanout/requirements.txt` bump, regenerate
-  `requirements.lock.txt` with the `uv pip compile` command in its header.
+- Derived files are regenerated automatically: Python (uv) bumps change `uv.lock` but not the
+  exported root `requirements.txt`, and Cloud Function (pip) bumps change
+  `cloud_functions/creative_fanout/requirements.txt` but not its `requirements.lock.txt`.
+  `.github/workflows/dependabot-lock-sync.yml` regenerates both on Dependabot PRs, pushes a
+  `chore(deps): regenerate derived requirements files` commit as `github-actions[bot]`, then
+  starts `python-ci` / `crf-deps` on it via `workflow_dispatch` (a `GITHUB_TOKEN` push starts no
+  CI by itself). Judge the PR by those dispatched runs on the new head commit; the
+  `pull_request` runs GitHub queues for the bot's push wait for approval and can be ignored.
+  The first `python-ci` run (on Dependabot's own commit) is expected to fail the drift check.
+- Pushing to its branch stops Dependabot rebasing the PR on its own; comment
+  `@dependabot rebase` when it needs one (the sync workflow runs again on the rebased branch).
+- Manual fallback (uv 0.12.19), if the workflow didn't run or its push was rejected:
+  `uv export --format requirements-txt --no-hashes --no-dev --no-emit-project -o requirements.txt`,
+  and for the Cloud Function the `uv pip compile` command in `requirements.lock.txt`'s header.
