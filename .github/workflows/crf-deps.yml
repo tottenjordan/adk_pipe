@@ -16,6 +16,7 @@ on:
       - "tests/test_crf_*.py"
       - "tests/crf_fakes.py"
       - "tests/conftest.py"
+      - "pyproject.toml" # pytest config (pythonpath) the CRF tests run under
       - ".github/workflows/crf-deps.yml"
 
 permissions:
