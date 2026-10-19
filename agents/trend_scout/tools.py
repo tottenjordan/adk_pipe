@@ -17,6 +17,7 @@ from agent_common.idempotency import stable_row_id
 from agent_common.state import memorize  # noqa: F401  (ADK tool; re-exported)
 
 from .config import config
+from .staleness import gtrends_staleness, staleness_note
 from .trend_context import norm_term, sensitive_flags, trend_context_for
 
 # ==============================
@@ -142,6 +143,40 @@ def _query_daily_gtrends() -> tuple[str, list[tuple[str, int, str]]]:
     return max_date, rows
 
 
+def _run_date_iso(state_current_date: object) -> str:
+    """The run's date (YYYY-MM-DD): state `current_date`, else today in TREND_TIMEZONE."""
+    if isinstance(state_current_date, str):
+        try:
+            return datetime.date.fromisoformat(state_current_date.strip()).isoformat()
+        except ValueError:
+            pass
+    return now_in_tz(config.trend_timezone).date().isoformat()
+
+
+def _record_gtrends_staleness(state: Any, refresh_iso: str) -> None:
+    """Store `gtrends_staleness` + `gtrends_staleness_note`; warn once when stale.
+
+    The warning fires only when the recorded value changes, so a retried or
+    repeated gather of the same stale date logs it once per run.
+    """
+    staleness = gtrends_staleness(
+        refresh_iso,
+        _run_date_iso(state.get("current_date")),
+        config.gtrends_stale_after_days,
+    )
+    previous = state.get("gtrends_staleness")
+    state["gtrends_staleness"] = staleness
+    state["gtrends_staleness_note"] = staleness_note(staleness)
+    if staleness["stale"] and previous != staleness:
+        logging.warning(
+            "Google Trends data is stale: newest refresh_date %s is %d days old "
+            "(threshold %d days)",
+            staleness["refresh_date"],
+            staleness["age_days"],
+            staleness["threshold_days"],
+        )
+
+
 async def get_daily_gtrends(tool_context: ToolContext) -> str:
     """
     Retrieves the top 25 Google Search Trends (term, rank, refresh_date).
@@ -164,9 +199,11 @@ async def get_daily_gtrends(tool_context: ToolContext) -> str:
         tool_context.state["raw_gtrends"] = [term for term, _, _ in rows]
         # The public table's date as ISO YYYY-MM-DD: the trend digest's cache
         # key (trend_scout/digest.py) and the pick panel's "Google Trends for …".
-        tool_context.state["gtrends_refresh_date"] = (
+        refresh_iso = (
             datetime.datetime.strptime(max_date, "%m/%d/%Y").date().isoformat()
         )
+        tool_context.state["gtrends_refresh_date"] = refresh_iso
+        _record_gtrends_staleness(tool_context.state, refresh_iso)
 
         return _gtrends_markdown(rows)
     except Exception as e:
@@ -425,13 +462,8 @@ def _trawler_date(state_current_date: object) -> str:
     date the prompts were given), else today in TREND_TIMEZONE; never the
     server's UTC clock, which can be a day ahead of the run's date.
     """
-    if isinstance(state_current_date, str):
-        try:
-            parsed = datetime.date.fromisoformat(state_current_date.strip())
-            return parsed.strftime("%m/%d/%Y")
-        except ValueError:
-            pass
-    return now_in_tz(config.trend_timezone).strftime("%m/%d/%Y")
+    run_date = datetime.date.fromisoformat(_run_date_iso(state_current_date))
+    return run_date.strftime("%m/%d/%Y")
 
 
 def _write_trend_rows(state: dict[str, Any], session_id: str) -> dict:

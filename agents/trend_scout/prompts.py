@@ -292,4 +292,7 @@ TREND_SCOUT_INSTR = """You are the Lead Campaign Orchestrator.
 
     **Research Notes:** {research_gaps?}
     [Only include this line if research_gaps is non-empty; otherwise omit it entirely.]
+
+    **Trend Data Freshness:** {gtrends_staleness_note?}
+    [Only include this line if gtrends_staleness_note is non-empty; otherwise omit it entirely.]
     """

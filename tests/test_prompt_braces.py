@@ -46,6 +46,7 @@ _RUNTIME_KEYS = {
     # trend_scout
     "raw_gtrends": "get_daily_gtrends",
     "research_gaps": "record_research_gaps",
+    "gtrends_staleness_note": "get_daily_gtrends",
     "trend_pick_note": "review_trends resume",
     "interactive_trend_pick": "load_session_state (opt-in, seeded by the caller)",
 }

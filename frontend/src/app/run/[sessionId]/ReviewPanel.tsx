@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { FieldLabel } from "@/components/field-label";
 import { SensitiveChip, sensitiveEventNote } from "@/components/sensitive-chip";
+import { TrendStalenessNotice } from "@/components/trend-staleness-notice";
 import { parseCreativeBrief } from "@/lib/creative-brief";
 import { normalizeTerm, parseTrendFlags } from "@/lib/trend-flags";
 import { formatRefreshDate, parseTrendSummaries } from "@/lib/trend-summaries";
@@ -434,6 +435,7 @@ function ReviewTrends({
       {refreshDate && (
         <p className="text-xs text-muted-foreground">Google Trends for {refreshDate}</p>
       )}
+      <TrendStalenessNotice state={state} />
       {candidates.length === 0 ? (
         <p className="text-sm text-muted-foreground italic">
           No candidate trends available yet.

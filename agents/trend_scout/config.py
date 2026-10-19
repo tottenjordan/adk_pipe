@@ -11,6 +11,21 @@ from agent_common.retry import build_infra_retry
 # model 5xx that escapes the genai HTTP retry would never trigger the node retry.
 INFRA_RETRY = build_infra_retry(extra_exceptions=[genai_errors.ServerError])
 
+# Google's public trends table is stale when its newest refresh_date is more
+# than this many days behind the run's current_date (trend_scout/staleness.py).
+DEFAULT_GTRENDS_STALE_AFTER_DAYS = 2
+GTRENDS_STALE_AFTER_DAYS_RANGE = (1, 30)
+
+
+def parse_gtrends_stale_after_days(raw: str | None) -> int:
+    """``GTRENDS_STALE_AFTER_DAYS`` → int clamped to 1..30; unset/blank/invalid → 2."""
+    try:
+        value = int((raw or "").strip())
+    except ValueError:
+        return DEFAULT_GTRENDS_STALE_AFTER_DAYS
+    lo, hi = GTRENDS_STALE_AFTER_DAYS_RANGE
+    return min(hi, max(lo, value))
+
 
 @dataclass
 class ResearchConfiguration(BaseAgentConfiguration):
@@ -54,6 +69,12 @@ class ResearchConfiguration(BaseAgentConfiguration):
     )
     BQ_TABLE_TREND_DIGEST: str = field(
         default_factory=lambda: os.getenv("BQ_TABLE_TREND_DIGEST") or "trend_digest"
+    )
+    # Stale-trends warning threshold (GTRENDS_STALE_AFTER_DAYS, default 2).
+    gtrends_stale_after_days: int = field(
+        default_factory=lambda: parse_gtrends_stale_after_days(
+            os.getenv("GTRENDS_STALE_AFTER_DAYS")
+        )
     )
 
 

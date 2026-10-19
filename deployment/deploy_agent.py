@@ -89,6 +89,9 @@ ENV_VAR_DICT = {
     # off = only the sensitivity classifier runs) and the shared daily cache table.
     "TREND_DIGEST_ENABLED": os.getenv("TREND_DIGEST_ENABLED", "true"),
     "BQ_TABLE_TREND_DIGEST": os.getenv("BQ_TABLE_TREND_DIGEST") or "trend_digest",
+    # trend_scout stale-trends warning (trend_scout/staleness.py): days the public
+    # table's newest refresh_date may lag the run's date (1..30, default 2).
+    "GTRENDS_STALE_AFTER_DAYS": os.getenv("GTRENDS_STALE_AFTER_DAYS", "2"),
     # creative_agent person casting (creative_agent/config.py): the style families
     # a cast concept may use and the cap on cast concepts per set (0..4, default
     # 2; 0 = casting off). Defaults from the calibration spikes: the photographic
