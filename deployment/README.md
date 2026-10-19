@@ -2997,6 +2997,10 @@ the order is a safety net, not a hard dependency.
 reads its own env): `TREND_DIGEST_ENABLED` (default `true`; `false`/`0`/`no`/`off` runs only
 the sensitivity classifier — no describe step, no cache reads/writes, no `trend_summaries`,
 i.e. the pre-digest behaviour) and `BQ_TABLE_TREND_DIGEST` (default `trend_digest`).
+`GTRENDS_STALE_AFTER_DAYS` (default `2`, 1–30) is the stale-trends warning threshold: a
+run whose public-table `refresh_date` is more than that many days behind its `current_date`
+records `gtrends_staleness`, logs a WARNING and shows a notice (configuration.md → Stale
+Google Trends warning).
 
 **Cache rules:** a row is written (insert-only `MERGE`, so the first of two racing same-day
 runs wins) only when the summaries **and** the flags each cover at least 80% of the terms;
