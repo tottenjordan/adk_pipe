@@ -255,7 +255,7 @@ packaging==26.3
     #   google-cloud-aiplatform
     #   google-cloud-bigquery
     #   opentelemetry-instrumentation
-pillow==12.3.0
+pillow==13.0.0
     # via adk-pipe
 plantuml==0.3.0
     # via markdown-pdf
