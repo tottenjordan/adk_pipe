@@ -95,7 +95,7 @@ google-cloud-appengine-logging==1.10.0
     # via google-cloud-logging
 google-cloud-audit-log==0.6.2
     # via google-cloud-logging
-google-cloud-bigquery==3.46.1
+google-cloud-bigquery==3.46.2
     # via
     #   adk-pipe
     #   google-cloud-aiplatform
@@ -114,7 +114,7 @@ google-cloud-resource-manager==1.18.0
     # via google-cloud-aiplatform
 google-cloud-run==0.16.2
     # via adk-pipe
-google-cloud-storage==3.17.0
+google-cloud-storage==3.17.1
     # via
     #   adk-pipe
     #   google-cloud-aiplatform
