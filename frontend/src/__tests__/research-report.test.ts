@@ -70,12 +70,104 @@ describe("formatReportCitations", () => {
       "# Title\n\nplain [link](https://a.b)"
     );
   });
+
+  it("formats enterprise sources with HTTP links or safe #enterprise-cite-N badges (never gs://)", () => {
+    const enterpriseSources = {
+      "ent-1": {
+        title: "Intranet Brand Portal",
+        url: "https://intranet.example/brand",
+        source_type: "enterprise",
+      },
+      "ent-2": {
+        title: "Approved Claims Deck",
+        url: "gs://internal-kb/claims.pdf",
+        source_type: "enterprise",
+      },
+    };
+    const raw =
+      'Web <cite source="src-1, ent-2" /> and portal <cite source="ent-1" /> plus [ent-2] and [Enterprise: Tone Guide].';
+    const out = formatReportCitations(raw, SOURCES, enterpriseSources);
+    expect(out.markdown).not.toContain("gs://");
+    expect(out.markdown).toContain("[1](https://r.example/1)");
+    expect(out.markdown).toContain("[Enterprise](#enterprise-cite-2)");
+    expect(out.markdown).toContain("[3](https://intranet.example/brand)");
+    expect(out.markdown).toContain("[Enterprise: Tone Guide](#enterprise-inline)");
+    expect(out.sources).toEqual([
+      { n: 1, id: "src-1", label: "powerball.com", url: "https://r.example/1" },
+      { n: 2, id: "ent-2", label: "Approved Claims Deck", isEnterprise: true },
+      {
+        n: 3,
+        id: "ent-1",
+        label: "Intranet Brand Portal",
+        url: "https://intranet.example/brand",
+        isEnterprise: true,
+      },
+    ]);
+  });
+
+  it("strips gs:// prefixes from title-less enterprise sources", () => {
+    const enterpriseSources = {
+      "ent-1": {
+        title: "",
+        domain: "gs://internal-kb",
+        url: "gs://internal-kb/specs/se-ce24.pdf",
+        source_type: "enterprise",
+      },
+    };
+    const out = formatReportCitations('Spec <cite source="ent-1" />.', SOURCES, enterpriseSources);
+    expect(out.markdown).not.toContain("gs://");
+    expect(out.markdown).toContain("[Enterprise](#enterprise-cite-1)");
+    expect(out.sources[0].label).toBe("internal-kb");
+  });
+
+  it("blocks markdown link injection in enterprise titles and rejects javascript:/data: web source URLs", () => {
+    const unsafeWebSources = {
+      "src-1": { title: "XSS", url: "javascript:alert(1)" },
+      "src-2": { title: "Data", url: "data:text/html,<script>alert(1)</script>" },
+    };
+    const enterpriseSources = {
+      "ent-1": {
+        title: "Spec](https://evil.example) [Draft]",
+        url: "gs://internal-kb/spec.pdf",
+        source_type: "enterprise",
+      },
+    };
+    const out = formatReportCitations(
+      'Web <cite source="src-1" /><cite source="src-2" /> ent <cite source="ent-1" />.',
+      unsafeWebSources,
+      enterpriseSources
+    );
+    expect(out.markdown).not.toContain("evil.example");
+    expect(out.markdown).not.toContain("javascript:");
+    expect(out.markdown).not.toContain("data:");
+    expect(out.markdown).toBe("Web ent [Enterprise](#enterprise-cite-1).");
+    expect(out.sources).toEqual([
+      {
+        n: 1,
+        id: "ent-1",
+        label: "Spec](https://evil.example) [Draft]",
+        isEnterprise: true,
+      },
+    ]);
+  });
 });
 
 describe("editable report round trip", () => {
   it("converts tags to [src-N] markers", () => {
     expect(toEditableReport('a <cite source="src-12" /><cite source="src-3"/>.')).toBe(
       "a [src-12][src-3]."
+    );
+  });
+
+  it("round-trips ent-N and multi-id cite tags cleanly", () => {
+    const raw = 'Claim <cite source="src-1, ent-2" /> and <cite source=ent-3/>.';
+    const editable = toEditableReport(raw);
+    expect(editable).toBe("Claim [src-1][ent-2] and [ent-3].");
+    expect(fromEditableReport(editable)).toBe(
+      'Claim <cite source="src-1"/><cite source="ent-2"/> and <cite source="ent-3"/>.'
+    );
+    expect(canonicalizeCitations(raw)).toBe(
+      'Claim <cite source="src-1"/><cite source="ent-2"/> and <cite source="ent-3"/>.'
     );
   });
 

@@ -94,6 +94,7 @@ class RunPolicy:
     risks: Sequence[str] = ()
     brand_colors: str = ""
     sources: Mapping[str, Any] | None = None
+    enterprise_sources: Mapping[str, Any] | None = None
     trend_situation: Mapping[str, Any] | None = None
 
     @classmethod
@@ -101,6 +102,7 @@ class RunPolicy:
         """The policy for a state snapshot (a Mapping; never raises)."""
         brief = state.get("creative_brief")
         sources = state.get("sources")
+        ent_sources = state.get("enterprise_sources")
         situation = state.get("trend_situation")
         max_timely = config.max_timely_concepts
         return cls(
@@ -122,5 +124,8 @@ class RunPolicy:
             risks=tuple(brief_risks(brief)),
             brand_colors=str(state.get("brand_colors") or ""),
             sources=sources if isinstance(sources, Mapping) else None,
+            enterprise_sources=(
+                ent_sources if isinstance(ent_sources, Mapping) else None
+            ),
             trend_situation=situation if isinstance(situation, Mapping) else None,
         )

@@ -6,7 +6,7 @@ import { FieldLabel } from "@/components/field-label";
 import { DisclosureChevron, DisclosurePanel, DisclosureTrigger } from "@/components/quiet-disclosure";
 import { Collapsible } from "@/components/ui/collapsible";
 import { fitModeLabel, type CreativeBrief as Brief } from "@/lib/creative-brief";
-import type { ReportSources } from "@/lib/research-report";
+import { cleanEnterpriseLabel, type ReportSources } from "@/lib/research-report";
 import { cn } from "@/lib/utils";
 
 const BODY = "text-sm leading-relaxed text-foreground/85";
@@ -57,9 +57,30 @@ function FitMeter({ score }: { score: number }) {
   );
 }
 
+const ENT_VARIANT_RE = /^\[?ent[\s_-]*0*([1-9]\d*)\]?$/i;
+
+function normalizeEnterpriseSourceId(id: string): string {
+  const trimmed = id.trim();
+  const match = ENT_VARIANT_RE.exec(trimmed);
+  return match ? `ent-${match[1]}` : trimmed;
+}
+
+function isEnterpriseSourceId(id: string, sources: ReportSources | undefined): boolean {
+  const canonical = normalizeEnterpriseSourceId(id);
+  return (
+    canonical.toLowerCase().startsWith("ent-") ||
+    sources?.[canonical]?.source_type === "enterprise" ||
+    sources?.[id]?.source_type === "enterprise"
+  );
+}
+
 function sourceLabel(id: string, sources: ReportSources | undefined): string {
   if (id === "brief") return "From the brief";
-  const src = sources?.[id];
+  const canonical = normalizeEnterpriseSourceId(id);
+  const src = sources?.[canonical] ?? sources?.[id];
+  if (isEnterpriseSourceId(id, sources)) {
+    return cleanEnterpriseLabel(src?.title) || cleanEnterpriseLabel(src?.domain) || "";
+  }
   return src?.domain || src?.title || "";
 }
 
@@ -71,13 +92,17 @@ function sourceLabel(id: string, sources: ReportSources | undefined): string {
 export function CreativeBrief({
   brief,
   sources,
+  enterpriseSources,
   className,
 }: {
   brief: Brief;
   /** Research sources (`state.sources`), to name the `src-N` ids. */
   sources?: ReportSources;
+  /** Enterprise knowledge-base sources (`state.enterprise_sources`), to name `ent-N` ids. */
+  enterpriseSources?: ReportSources;
   className?: string;
 }) {
+  const allSources = enterpriseSources ? { ...sources, ...enterpriseSources } : sources;
   const { trendBridge: tb, brand } = brief;
   const hasTrend = tb.fitScore !== null || tb.fitMode || tb.bridge || tb.motifs.length > 0 || tb.risks.length > 0;
   const hasBrand = brand.toneOfVoice || brand.distinctiveAssets.length > 0 || brand.doNot.length > 0;
@@ -153,17 +178,30 @@ export function CreativeBrief({
             <Field label="Reasons to believe">
               <ul className="space-y-2">
                 {brief.reasonsToBelieve.map((r, i) => {
-                  const named = r.sourceId ? sourceLabel(r.sourceId, sources) : "";
+                  const named = r.sourceId ? sourceLabel(r.sourceId, allSources) : "";
+                  const isEnterprise = r.sourceId ? isEnterpriseSourceId(r.sourceId, allSources) : false;
                   return (
                     <li key={`${i}-${r.claim}`}>
                       {r.claim}
-                      {r.sourceId && (
-                        <span className="mt-0.5 block text-xs text-muted-foreground">
-                          {r.sourceId !== "brief" && <span className="font-mono">{r.sourceId}</span>}
-                          {r.sourceId !== "brief" && named && " "}
-                          {named}
-                        </span>
-                      )}
+                      {r.sourceId &&
+                        (isEnterprise ? (
+                          <span className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+                            <span
+                              data-enterprise-citation="true"
+                              className="inline-flex items-center rounded-sm border border-primary/30 bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium leading-none text-primary"
+                            >
+                              Enterprise
+                            </span>
+                            <span className="font-mono">{r.sourceId}</span>
+                            {named && <span>{named}</span>}
+                          </span>
+                        ) : (
+                          <span className="mt-0.5 block text-xs text-muted-foreground">
+                            {r.sourceId !== "brief" && <span className="font-mono">{r.sourceId}</span>}
+                            {r.sourceId !== "brief" && named && " "}
+                            {named}
+                          </span>
+                        ))}
                     </li>
                   );
                 })}
@@ -234,10 +272,12 @@ export function CreativeBrief({
 export function CreativeBriefOutput({
   brief,
   sources,
+  enterpriseSources,
   className,
 }: {
   brief: Brief;
   sources?: ReportSources;
+  enterpriseSources?: ReportSources;
   className?: string;
 }) {
   const [open, setOpen] = useState(false);
@@ -257,7 +297,7 @@ export function CreativeBriefOutput({
       </DisclosureTrigger>
       <DisclosurePanel>
         <div className="mt-3 border-t border-border pt-4">
-          <CreativeBrief brief={brief} sources={sources} />
+          <CreativeBrief brief={brief} sources={sources} enterpriseSources={enterpriseSources} />
         </div>
       </DisclosurePanel>
     </Collapsible>

@@ -227,6 +227,9 @@ export function briefFromState(state: Record<string, unknown>): Brief {
   const trend = formatTrend(state.target_search_trends ?? state.target_search_trend);
   if (trend) brief.targetSearchTrend = trend;
   if (state.interactive_trend_pick === true) brief.interactiveTrendPick = true;
+  if (typeof state.enterprise_grounding_enabled === "boolean") {
+    brief.enterpriseGroundingEnabled = state.enterprise_grounding_enabled;
+  }
   if (state.learn_from_ratings === true) brief.learnFromRatings = true;
   // The respectful-angle opt-in only makes sense for a sensitive trend context.
   if (state.safer_angle_opt_in === true && contextSensitivity(brief.trendContext).sensitive) {

@@ -22,6 +22,7 @@ describe("classifyWarnings", () => {
       exhausted("gs_web_search_insights"),
       exhausted("campaign_web_search_insights"),
       exhausted("refined_web_search_insights"),
+      exhausted("enterprise_research_findings"),
       exhausted("creative_brief"),
       exhausted("info_gtrends"),
     ]

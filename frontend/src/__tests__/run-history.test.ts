@@ -13,6 +13,7 @@ import {
   takeDuplicateBrief,
   toRunRow,
 } from "@/lib/run-history";
+import { buildInitialState, EMPTY_CAMPAIGN_FORM } from "@/lib/initial-state";
 import type { Session } from "@/lib/types";
 
 const NOW = Date.UTC(2026, 9, 2, 12, 0, 0);
@@ -290,6 +291,46 @@ describe("briefFromState", () => {
     expect(briefFromState({ brand: "X", trend_scout_context: "", trend_detected_on: "" })).toEqual({
       brand: "X",
     });
+  });
+
+  it("round-trips enterprise_grounding_enabled through Duplicate brief and buildInitialState", () => {
+    const enabledBrief = briefFromState({
+      ui_app: "creative_agent",
+      brand: "PRS",
+      target_audience: "Musicians",
+      target_product: "SE CE24",
+      key_selling_points: "Tone",
+      target_search_trends: "Powerball",
+      enterprise_grounding_enabled: true,
+    });
+    expect(enabledBrief.enterpriseGroundingEnabled).toBe(true);
+    expect(
+      buildInitialState({ ...EMPTY_CAMPAIGN_FORM, ...enabledBrief })
+        .enterprise_grounding_enabled,
+    ).toBe(true);
+
+    const disabledBrief = briefFromState({
+      ui_app: "interactive_creative",
+      brand: "PRS",
+      enterprise_grounding_enabled: false,
+    });
+    expect(disabledBrief.enterpriseGroundingEnabled).toBe(false);
+    expect(
+      buildInitialState({ ...EMPTY_CAMPAIGN_FORM, ...disabledBrief })
+        .enterprise_grounding_enabled,
+    ).toBe(false);
+
+    // Legacy sessions without enterprise_grounding_enabled omit the field on Brief
+    // and fall back to EMPTY_CAMPAIGN_FORM's false default when duplicated.
+    const legacyBrief = briefFromState({
+      ui_app: "creative_agent",
+      brand: "PRS",
+    });
+    expect(legacyBrief.enterpriseGroundingEnabled).toBeUndefined();
+    expect(
+      buildInitialState({ ...EMPTY_CAMPAIGN_FORM, ...legacyBrief })
+        .enterprise_grounding_enabled,
+    ).toBe(false);
   });
 });
 

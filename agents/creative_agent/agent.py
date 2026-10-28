@@ -50,6 +50,7 @@ from .research_stage import (  # noqa: F401  (re-exported)
     combined_research_pipeline,
     combined_web_evaluator,
     enhanced_combined_searcher,
+    enterprise_sequential_planner,
     load_brand_history,
     merge_planners,
     refined_web_synthesizer,

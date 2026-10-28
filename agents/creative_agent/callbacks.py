@@ -1,9 +1,13 @@
 import json
 import logging
+from collections.abc import Mapping
 from typing import Any
+from urllib.parse import urlparse
 
 from google.adk.agents.callback_context import CallbackContext
 from google.adk.sessions.state import State
+from google.adk.tools.base_tool import BaseTool
+from google.adk.tools.tool_context import ToolContext
 from google.genai import types
 
 from agent_common import observability, sanitize
@@ -175,6 +179,13 @@ def _set_initial_states(source: dict[str, Any], target: State | dict[str, Any]):
     # pick their 4 styles from it, so runs don't converge on the same looks.
     # setdefault: a caller/test-provided shortlist (or a resumed session) wins.
     target.setdefault("style_shortlist", format_shortlist(pick_style_shortlist()))
+
+    # Optional inbound Discovery Engine enterprise grounding state. Respect any
+    # caller-seeded `enterprise_grounding_enabled` boolean from initialState.
+    target.setdefault("enterprise_research_findings", "")
+    target.setdefault("enterprise_sources", {})
+    target.setdefault("url_to_ent_id", {})
+    target.setdefault("enterprise_grounding_enabled", True)
 
 
 def load_session_state(callback_context: CallbackContext):
@@ -576,14 +587,116 @@ def collect_trend_situation_sources_callback(
     )
 
 
+def _extract_enterprise_domain(url: str) -> str:
+    if not url:
+        return ""
+    parsed = urlparse(url)
+    if parsed.scheme in ("http", "https", "gs") and parsed.netloc:
+        return parsed.netloc
+    return ""
+
+
+def _fallback_enterprise_title(
+    url: str, domain: str, chunk_id: str, short_id: str
+) -> str:
+    if url:
+        parsed = urlparse(url)
+        if parsed.scheme == "gs":
+            basename = parsed.path.rstrip("/").rsplit("/", 1)[-1].strip()
+            if basename:
+                return basename
+    return domain or chunk_id or short_id
+
+
+def collect_enterprise_sources_callback(
+    tool: BaseTool,
+    args: dict[str, Any],
+    tool_context: ToolContext,
+    tool_response: Any,
+) -> dict[str, Any] | None:
+    """Collects and deduplicates Discovery Engine search results into ``ent-N`` sources.
+
+    Reads ``{"status": "success", "results": [...]}`` payloads returned by the
+    enterprise search tool, minting stable ``ent-1``, ``ent-2``, ... entries in
+    ``tool_context.state["enterprise_sources"]`` deduplicated via
+    ``tool_context.state["url_to_ent_id"]``.
+    """
+    if not isinstance(tool_response, Mapping):
+        return None
+    status = tool_response.get("status")
+    if status == "error":
+        err_msg = str(
+            tool_response.get("error_message") or "Discovery Engine search failed"
+        ).strip()
+        errors = list(tool_context.state.get("_enterprise_search_errors") or [])
+        errors.append(err_msg)
+        tool_context.state["_enterprise_search_errors"] = errors
+        return None
+    if status != "success":
+        return None
+    tool_context.state["_enterprise_search_successes"] = (
+        int(tool_context.state.get("_enterprise_search_successes") or 0) + 1
+    )
+    results = tool_response.get("results")
+    if not isinstance(results, list):
+        return None
+
+    url_to_ent_id = dict(tool_context.state.get("url_to_ent_id") or {})
+    enterprise_sources = dict(tool_context.state.get("enterprise_sources") or {})
+    id_counter = len(enterprise_sources) + 1
+
+    for item in results:
+        if not isinstance(item, Mapping):
+            continue
+        raw_url = str(item.get("url") or item.get("uri") or "").strip()
+        chunk_id = str(
+            item.get("chunk_id") or item.get("document") or item.get("id") or ""
+        ).strip()
+        raw_title = str(item.get("title") or "").strip()
+        snippet = str(item.get("snippet") or item.get("content") or "").strip()[:500]
+        if not (raw_url or chunk_id or raw_title or snippet):
+            continue
+
+        if raw_url and chunk_id:
+            dedupe_key = f"{raw_url}#{chunk_id}"
+        elif raw_url:
+            dedupe_key = raw_url
+        elif chunk_id:
+            dedupe_key = chunk_id
+        else:
+            dedupe_key = f"{raw_title}|{snippet[:120]}"
+
+        if dedupe_key not in url_to_ent_id:
+            short_id = f"ent-{id_counter}"
+            domain = _extract_enterprise_domain(raw_url)
+            title = raw_title or _fallback_enterprise_title(
+                raw_url, domain, chunk_id, short_id
+            )
+            url_to_ent_id[dedupe_key] = short_id
+            enterprise_sources[short_id] = {
+                "short_id": short_id,
+                "title": title,
+                "url": raw_url,
+                "domain": domain,
+                "snippet": snippet,
+                "chunk_id": chunk_id,
+                "source_type": "enterprise",
+            }
+            id_counter += 1
+
+    tool_context.state["url_to_ent_id"] = url_to_ent_id
+    tool_context.state["enterprise_sources"] = enterprise_sources
+    return None
+
+
 def citation_replacement_callback(
     callback_context: CallbackContext,
 ) -> types.Content | None:
     """Replaces citation tags in a report with Markdown-formatted links.
 
     Processes 'combined_final_cited_report' from context state, converting tags like
-    `<cite source="src-N"/>` into hyperlinks using source information from
-    `callback_context.state["sources"]`. Also fixes spacing around punctuation.
+    `<cite source="src-N"/>` and `<cite source="ent-N"/>` into hyperlinks or
+    enterprise markers using source information from `callback_context.state`.
 
     Args:
         callback_context (CallbackContext): Contains the report and source information.
@@ -591,10 +704,12 @@ def citation_replacement_callback(
     Returns:
         types.Content: The processed report with Markdown citation links.
     """
-    # types.Content: The processed report with Markdown citation links.
     final_report = callback_context.state.get("combined_final_cited_report", "")
     sources = callback_context.state.get("sources", {})
+    enterprise_sources = callback_context.state.get("enterprise_sources", {})
     callback_context.state["final_report_with_citations"] = render_citations(
-        final_report, sources
+        final_report,
+        sources,
+        enterprise_sources=enterprise_sources,
     )
     return types.Content(parts=[types.Part(text="Research report composed 📝")])

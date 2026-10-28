@@ -107,10 +107,11 @@ _ABBREVIATION = re.compile(
     + r"|No\.(?=\s*\d))",
     re.IGNORECASE,
 )
-# A reason to believe cites a research source ("src-N") or the user's brief;
-# see _normalise_source_ids for the tolerated spellings.
-_SOURCE_ID = re.compile(r"^(src-\d+|brief)$")
+# A reason to believe cites a research source ("src-N" or "ent-N") or the user's
+# brief; see _normalise_source_ids for the tolerated spellings.
+_SOURCE_ID = re.compile(r"^(src-\d+|ent-[1-9]\d*|brief)$")
 _SRC_VARIANT = re.compile(r"src[\s_-]*0*(\d+)")
+_ENT_VARIANT = re.compile(r"ent[\s_-]*0*([1-9]\d*)", re.IGNORECASE)
 _BRIEF_VARIANT = re.compile(r"(?:user\s+)?brief")
 
 
@@ -214,6 +215,8 @@ def _normalise_source_ids(source_id: str) -> list[str]:
             continue
         if match := _SRC_VARIANT.fullmatch(part):
             ids.append(f"src-{match.group(1)}")
+        elif match := _ENT_VARIANT.fullmatch(part):
+            ids.append(f"ent-{match.group(1)}")
         elif _BRIEF_VARIANT.fullmatch(part):
             ids.append("brief")
         else:
@@ -310,7 +313,7 @@ def check_brief(
     if not rtbs:
         issues.append(
             "reasons_to_believe is empty: add 2-4 proof points, each citing a "
-            "'src-N' source id or 'brief'."
+            "'src-N' or 'ent-N' source id or 'brief'."
         )
     uncited = [
         _text(r.get("claim")) or "(empty claim)"
@@ -320,9 +323,9 @@ def check_brief(
     if uncited:
         claims = ", ".join(f"'{c}'" for c in uncited)
         issues.append(
-            f"reasons_to_believe without a source_id: {claims}; cite a 'src-N' id "
-            "from the research sources or 'brief' for the user's selling points, "
-            "or drop the claim."
+            f"reasons_to_believe without a source_id: {claims}; cite a 'src-N' or "
+            "'ent-N' id from the research sources or 'brief' for the user's "
+            "selling points, or drop the claim."
         )
     cited = [
         (_text(r.get("claim")) or "(empty claim)", sid)
@@ -335,13 +338,33 @@ def check_brief(
         listed = ", ".join(f"'{c}' ('{sid}')" for c, sid in malformed)
         issues.append(
             f"reasons_to_believe with an invalid source_id: {listed}; use exactly "
-            "'src-N' (a research source id) or 'brief'."
+            "'src-N' (web research), 'ent-N' (enterprise knowledge base), or 'brief'."
         )
-    if (sources := policy.sources) is not None:
+    web_sources = policy.sources
+    ent_sources = policy.enterprise_sources
+    if web_sources is not None or ent_sources is not None:
+        known_ent: dict[str, Any] = {
+            **(
+                {
+                    k: v
+                    for k, v in (web_sources or {}).items()
+                    if isinstance(k, str) and k.startswith("ent-")
+                }
+            ),
+            **(ent_sources or {}),
+        }
         unknown = [
             (c, sid)
             for c, sid in cited
-            if sid.startswith("src-") and _SOURCE_ID.match(sid) and sid not in sources
+            if _SOURCE_ID.match(sid)
+            and (
+                (
+                    sid.startswith("src-")
+                    and web_sources is not None
+                    and sid not in web_sources
+                )
+                or (sid.startswith("ent-") and sid not in known_ent)
+            )
         ]
         if unknown:
             listed = ", ".join(f"'{c}' ('{sid}')" for c, sid in unknown)

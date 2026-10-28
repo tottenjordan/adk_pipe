@@ -60,6 +60,54 @@ describe("CreativeBrief", () => {
       expect(screen.queryByText(label)).not.toBeInTheDocument();
     }
   });
+
+  it("renders an Enterprise badge, mono ent-N id, and resolved title for enterprise RTBs", () => {
+    const entBrief = parseCreativeBrief({
+      ...SAMPLE_CREATIVE_BRIEF,
+      reasons_to_believe: [
+        ...SAMPLE_CREATIVE_BRIEF.reasons_to_believe,
+        {
+          claim: "Approved internal durability testing meets 10,000-cycle spec.",
+          source_id: "ent-1",
+        },
+      ],
+    })!;
+    const enterpriseSources = {
+      "ent-1": {
+        title: "PRS Brand Guidelines Q4",
+        url: "gs://brand-kb/prs-guidelines.pdf",
+        source_type: "enterprise",
+      },
+    };
+    const { container } = render(
+      <CreativeBrief brief={entBrief} sources={sources} enterpriseSources={enterpriseSources} />
+    );
+    const badge = container.querySelector('[data-enterprise-citation="true"]');
+    expect(badge).not.toBeNull();
+    expect(badge).toHaveTextContent("Enterprise");
+    const entId = screen.getByText("ent-1");
+    expect(entId).toHaveClass("font-mono");
+    expect(screen.getByText("PRS Brand Guidelines Q4")).toBeInTheDocument();
+  });
+
+  it("normalizes ENT_01 and [ent-1] spelling variants when resolving enterpriseSources", () => {
+    const variantBrief = parseCreativeBrief({
+      single_minded_proposition: "Precision tone.",
+      reasons_to_believe: [{ claim: "Verified spec.", source_id: "ENT_01" }],
+    })!;
+    const { container } = render(
+      <CreativeBrief
+        brief={variantBrief}
+        enterpriseSources={{
+          "ent-1": { title: "PRS Brand Guidelines Q4", source_type: "enterprise" },
+        }}
+      />
+    );
+    expect(container.querySelector('[data-enterprise-citation="true"]')).toHaveTextContent(
+      "Enterprise"
+    );
+    expect(screen.getByText("PRS Brand Guidelines Q4")).toBeInTheDocument();
+  });
 });
 
 describe("CreativeBriefOutput", () => {
@@ -79,5 +127,22 @@ describe("CreativeBriefOutput", () => {
     fireEvent.click(toggle);
     expect(toggle).toHaveAttribute("aria-expanded", "false");
     await waitFor(() => expect(screen.queryByText("Trend fit")).not.toBeInTheDocument());
+  });
+
+  it("forwards enterpriseSources into the expanded brief", () => {
+    const entBrief = parseCreativeBrief({
+      single_minded_proposition: "Precision tone.",
+      reasons_to_believe: [{ claim: "Verified spec sheet.", source_id: "ent-2" }],
+    })!;
+    render(
+      <CreativeBriefOutput
+        brief={entBrief}
+        enterpriseSources={{ "ent-2": { title: "SE CE24 Spec Sheet", source_type: "enterprise" } }}
+      />
+    );
+    fireEvent.click(screen.getByRole("button", { name: /show the full brief/i }));
+    expect(screen.getByText("Enterprise")).toBeInTheDocument();
+    expect(screen.getByText("ent-2")).toBeInTheDocument();
+    expect(screen.getByText("SE CE24 Spec Sheet")).toBeInTheDocument();
   });
 });

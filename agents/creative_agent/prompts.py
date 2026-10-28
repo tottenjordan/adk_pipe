@@ -98,16 +98,18 @@ MERGE_PLANNERS_INSTR = """Role: You are an expert Strategic Synthesis Analyst.
     Your core function is to critically analyze, cross-reference, and integrate two separate research reports (Campaign and Trend) into a single, cohesive, and actionable Strategic Brief for the creative team.
 
     <INSTRUCTIONS>
-    1.  **Analyze and Integrate:** Carefully read the two provided research summaries (Campaign and Trend).
+    1.  **Analyze and Integrate:** Carefully read the provided research summaries (Campaign, Trend, and optional Enterprise Knowledge Base Findings).
     2.  **Cross-Reference:** Identify areas of overlap or synergy between the campaign insights and the trend analysis (e.g., does the trend reinforce a key selling point?)
     3.  **Synthesize and Structure:** Generate a new, integrated Strategic Brief, following the structure and guidance in the <REPORT_STRUCTURE> block. **Do not simply paste the old reports.**
     4.  **Handle Missing Research:** If either the Campaign Insights or Trend Analysis section is empty, explicitly note the missing research in the brief (a short "Research Gaps" line) and synthesize from whatever is present — do not fabricate the missing report.
+    5.  **Enterprise Knowledge Base Authority:** When Enterprise Knowledge Base Findings are empty, proceed normally using Campaign Insights and Trend Analysis. When Enterprise Knowledge Base Findings are populated, preserve their `[ent-N]` / `<cite source="ent-N" />` citations and treat internal enterprise brand guidelines, approved product claims, and compliance constraints from `[ent-N]` as authoritative over conflicting generic web claims.
     </INSTRUCTIONS>
 
     <CONTEXT>
         The following research reports have been completed:
         - **Campaign Insights:** {campaign_web_search_insights?}
         - **Trend Analysis:** {gs_web_search_insights?}
+        - **Enterprise Knowledge Base Findings (Optional):** {enterprise_research_findings?}
     </CONTEXT>
 
     <REPORT_STRUCTURE>
@@ -283,9 +285,10 @@ COMBINED_REPORT_COMPOSER_INSTR = """Role: You are the Lead Campaign Strategist.
     Your final task is to generate the definitive and comprehensive research report by merging the initial Strategic Brief with any Refinement Findings. This report will directly inform the Ad Copy and Visual Generation teams.
 
     <INSTRUCTIONS>
-    1.  **Review All Data:** Carefully review the initial Strategic Brief and any Refinement Findings. `<refined_web_search_insights>` is usually empty (the refinement round only runs when the base research is degraded); then build the report from the brief alone and do not mention a refinement step. If the brief is empty, build the report from the refinement findings and campaign inputs.
+    1.  **Review All Data:** Carefully review the initial Strategic Brief, any Refinement Findings, and any optional Enterprise Knowledge Base Findings. `<refined_web_search_insights>` is usually empty (the refinement round only runs when the base research is degraded); then build the report from the brief alone and do not mention a refinement step. If the brief is empty, build the report from the refinement findings and campaign inputs.
     2.  **Comprehensive Synthesis:** If refinement findings are present, integrate them seamlessly into the original brief, paying close attention to addressing the initially identified research gap or exploring the opportunity.
-    3.  **Final Report Structure:** Generate a final, polished Strategic Report following the structure outlined in the <FINAL_REPORT_STRUCTURE> block. Ensure the report fully addresses all core topics: Product, Trend, Audience, and their intersection.
+    3.  **Enterprise Knowledge Base Authority:** When `<enterprise_research_findings>` is empty, proceed normally using web research (`<cite source="src-N" />`). When `<enterprise_research_findings>` is populated, integrate its internal brand guidelines, approved claims, compliance mandatories, and product specs, citing them with `<cite source="ent-N" />` (using valid `ent-N` ids from `<enterprise_sources>`), and treat internal enterprise brand/compliance constraints from `ent-N` as authoritative over conflicting generic web claims.
+    4.  **Final Report Structure:** Generate a final, polished Strategic Report following the structure outlined in the <FINAL_REPORT_STRUCTURE> block. Ensure the report fully addresses all core topics: Product, Trend, Audience, and their intersection.
     </INSTRUCTIONS>
 
 
@@ -310,6 +313,10 @@ COMBINED_REPORT_COMPOSER_INSTR = """Role: You are the Lead Campaign Strategist.
         {refined_web_search_insights?}
         </refined_web_search_insights>
 
+        <enterprise_research_findings>
+        {enterprise_research_findings?}
+        </enterprise_research_findings>
+
         <key_selling_points>
         {key_selling_points}
         </key_selling_points>
@@ -321,6 +328,10 @@ COMBINED_REPORT_COMPOSER_INSTR = """Role: You are the Lead Campaign Strategist.
         <sources>
         {sources?}
         </sources>
+
+        <enterprise_sources>
+        {enterprise_sources?}
+        </enterprise_sources>
     </CONTEXT>
 
 
@@ -355,11 +366,11 @@ COMBINED_REPORT_COMPOSER_INSTR = """Role: You are the Lead Campaign Strategist.
     **CRITICAL: Citation System**
     To cite a source, you MUST insert a special citation tag directly after the claim it supports.
 
-    **The only correct format is:** `<cite source="src-ID_NUMBER" />`
+    **The only correct format is:** `<cite source="src-ID_NUMBER" />` for web sources in `<sources>`, or `<cite source="ent-ID_NUMBER" />` for enterprise knowledge-base sources in `<enterprise_sources>`.
 
     ---
     ### Final Instruction
-    **CRITICAL RULE: Output *only* the fully synthesized Strategic Report in the requested Markdown format and using ONLY the `<cite source="src-ID_NUMBER" />` tag system for all citations. Ensure the structure strictly follows: Level 1 Title, Bold Search Trend Line, then the Level 2 Sections. Do not include any introductory or concluding remarks.**
+    **CRITICAL RULE: Output *only* the fully synthesized Strategic Report in the requested Markdown format and using ONLY the `<cite source="src-ID_NUMBER" />` / `<cite source="ent-ID_NUMBER" />` tag system for all citations. Ensure the structure strictly follows: Level 1 Title, Bold Search Trend Line, then the Level 2 Sections. Do not include any introductory or concluding remarks.**
     """
 
 # The shared contract rule for every creative agent that reads the structured
@@ -436,7 +447,7 @@ CREATIVE_BRIEF_WRITER_INSTR = (
     <INSTRUCTIONS>
     1.  **Proposition:** `single_minded_proposition` is ONE sentence carrying ONE idea. Never join two ideas with "and".
     2.  **Insight:** `insight` is a human tension written as "X, but Y", specific to THIS brand's audience. Test: could it belong to any brand in the category? If yes, rewrite it until it could not.
-    3.  **Reasons to believe:** 2-4 concrete proof points. Every one cites its `source_id`: a "src-N" id from <sources> for research claims, or "brief" for claims taken from the user's key selling points. Never invent a source id.
+    3.  **Reasons to believe:** 2-4 concrete proof points. Every one cites its `source_id`: a "src-N" id from <sources> for web research claims, an "ent-N" id from <enterprise_sources> for internal enterprise knowledge-base claims, or "brief" for claims taken from the user's key selling points. Never invent a source id.
     4.  **Fit test:** score how naturally {brand} belongs in the trend, then set `fit_mode` strictly from the score:
         *   5 = the product is naturally part of the trend; 4 = a clear product or benefit link -> "direct".
         *   3 = a shared cultural value or mood, but no product link -> "cultural".
@@ -462,6 +473,8 @@ CREATIVE_BRIEF_WRITER_INSTR = (
     + """
     16. """
     + TIMELY_ANGLE_RULE
+    + """
+    17. **Enterprise knowledge base:** when <enterprise_research_findings> is empty, proceed normally using web research ("src-N") and the user's brief ("brief"). When <enterprise_research_findings> is populated, cite "ent-N" ids from <enterprise_sources> for enterprise-backed proof points and treat internal enterprise brand guidelines, approved claims, distinctive assets, and compliance constraints from "ent-N" as authoritative over conflicting generic web claims."""
     # The opt-in safer angle's brief rules (creative_agent/safer_angle.py),
     # "" unless the run opted in on a trend flagged sensitive.
     + """{safer_angle_brief_rules?}
@@ -502,9 +515,18 @@ CREATIVE_BRIEF_WRITER_INSTR = (
         {combined_final_cited_report?}
         </research_report>
 
+        <enterprise_research_findings>
+        Optional internal enterprise knowledge-base findings. When empty, ignore it.
+        {enterprise_research_findings?}
+        </enterprise_research_findings>
+
         <sources>
         {sources?}
         </sources>
+
+        <enterprise_sources>
+        {enterprise_sources?}
+        </enterprise_sources>
 
         <previous_brief>
         {creative_brief?}

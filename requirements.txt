@@ -69,6 +69,7 @@ google-api-core==2.34.0
     #   google-cloud-appengine-logging
     #   google-cloud-bigquery
     #   google-cloud-core
+    #   google-cloud-discoveryengine
     #   google-cloud-logging
     #   google-cloud-modelarmor
     #   google-cloud-resource-manager
@@ -83,6 +84,7 @@ google-auth==2.62.0
     #   google-cloud-appengine-logging
     #   google-cloud-bigquery
     #   google-cloud-core
+    #   google-cloud-discoveryengine
     #   google-cloud-logging
     #   google-cloud-modelarmor
     #   google-cloud-resource-manager
@@ -104,6 +106,8 @@ google-cloud-core==2.7.0
     #   google-cloud-bigquery
     #   google-cloud-logging
     #   google-cloud-storage
+google-cloud-discoveryengine==0.20.5
+    # via adk-pipe
 google-cloud-logging==3.16.3
     # via
     #   google-cloud-aiplatform
@@ -142,6 +146,7 @@ graphviz==0.21
     # via google-adk
 grpc-google-iam-v1==0.14.5
     # via
+    #   google-cloud-discoveryengine
     #   google-cloud-logging
     #   google-cloud-resource-manager
     #   google-cloud-run
@@ -149,6 +154,7 @@ grpcio==1.84.0
     # via
     #   google-api-core
     #   google-cloud-appengine-logging
+    #   google-cloud-discoveryengine
     #   google-cloud-logging
     #   google-cloud-modelarmor
     #   google-cloud-resource-manager
@@ -268,6 +274,7 @@ proto-plus==1.28.4
     #   google-api-core
     #   google-cloud-aiplatform
     #   google-cloud-appengine-logging
+    #   google-cloud-discoveryengine
     #   google-cloud-logging
     #   google-cloud-modelarmor
     #   google-cloud-resource-manager
@@ -278,6 +285,7 @@ protobuf==6.33.6
     #   google-cloud-aiplatform
     #   google-cloud-appengine-logging
     #   google-cloud-audit-log
+    #   google-cloud-discoveryengine
     #   google-cloud-logging
     #   google-cloud-modelarmor
     #   google-cloud-resource-manager

@@ -27,6 +27,7 @@ const IMAGE_STEP = "_images_generated"
 const RESEARCH_STEPS = new Set([
   "gs_web_search_insights",
   "campaign_web_search_insights",
+  "enterprise_research_findings",
   "refined_web_search_insights",
   "creative_brief",
   "info_gtrends",

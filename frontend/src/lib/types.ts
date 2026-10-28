@@ -75,6 +75,12 @@ export interface CampaignInput {
    */
   interactiveTrendPick?: boolean;
   /**
+   * creative_agent / interactive_creative only: include Discovery Engine
+   * enterprise knowledge-base grounding when configured on the backend. Seeded
+   * explicitly as `enterprise_grounding_enabled` (`true` or `false`).
+   */
+  enterpriseGroundingEnabled?: boolean;
+  /**
    * creative_agent / interactive_creative only: opt this run in to learning
    * from the brand's past human ratings (guidance, style steering, stricter
    * checks). Seeded as `learn_from_ratings: true` only when checked.

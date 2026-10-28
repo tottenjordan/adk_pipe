@@ -343,6 +343,7 @@ export default function RunPage({ params }: PageProps<"/run/[sessionId]">) {
                     <CreativeBriefOutput
                       brief={creativeBrief}
                       sources={sessionState.sources as ReportSources | undefined}
+                      enterpriseSources={sessionState.enterprise_sources as ReportSources | undefined}
                       className="sm:col-span-2"
                     />
                   )}

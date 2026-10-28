@@ -3,6 +3,34 @@ import { contextSensitivity } from "@/lib/trend-flags";
 import type { CampaignInput } from "@/lib/types";
 
 /**
+ * Default campaign form state on the home page. Explicit boolean opt-ins default
+ * to `false` so submitting the form with the checkboxes unchecked sends
+ * `enterprise_grounding_enabled: false` (preventing server-configured Discovery
+ * Engine env vars from turning enterprise grounding ON behind the user's back).
+ */
+export const EMPTY_CAMPAIGN_FORM: CampaignInput = {
+  agent: "trend_scout",
+  brand: "",
+  targetAudience: "",
+  targetProduct: "",
+  keySellingPoints: "",
+  targetSearchTrend: "",
+  interactiveTrendPick: false,
+  enterpriseGroundingEnabled: false,
+  learnFromRatings: false,
+  saferAngle: false,
+  personReference: null,
+  referenceImageUri: "",
+  referenceImageRole: "",
+  extraReferenceImages: [],
+  visualIntent: "",
+  brandColors: "",
+  visualStylePreference: "",
+  visualAvoid: "",
+  visualAspectRatio: "",
+};
+
+/**
  * Build the `createSession` initialState for a campaign run — pure, so it is
  * unit-testable without React.
  *
@@ -76,6 +104,9 @@ export function buildInitialState(form: CampaignInput): Record<string, unknown> 
     if (legacyRole) state.reference_image_role = legacyRole;
   }
 
+  if (typeof form.enterpriseGroundingEnabled === "boolean") {
+    state.enterprise_grounding_enabled = form.enterpriseGroundingEnabled;
+  }
   if (form.learnFromRatings === true) state.learn_from_ratings = true;
   if (form.saferAngle === true && contextSensitivity(form.trendContext).sensitive) {
     state.safer_angle_opt_in = true;

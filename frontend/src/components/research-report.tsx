@@ -40,13 +40,19 @@ function rehypeJoinCitations() {
   return (tree: HastNode) => walk(tree);
 }
 
-/** Plain text of a link's children when it is a single string. */
-function textOf(children: React.ReactNode): string | null {
-  if (typeof children === "string") return children;
-  if (Array.isArray(children) && children.every((c) => typeof c === "string")) {
-    return children.join("");
+/** Plain text of a React node tree (unwrapping GFM emphasis/code elements). */
+function extractText(node: React.ReactNode): string {
+  if (typeof node === "string" || typeof node === "number") return String(node);
+  if (Array.isArray(node)) return node.map(extractText).join("");
+  if (React.isValidElement<{ children?: React.ReactNode }>(node)) {
+    return extractText(node.props.children);
   }
-  return null;
+  return "";
+}
+
+function textOf(children: React.ReactNode): string | null {
+  const text = extractText(children);
+  return text.length > 0 ? text : null;
 }
 
 const BODY = "text-sm leading-relaxed text-foreground/85";
@@ -88,40 +94,87 @@ const ELEMENTS: Components = {
 
 /**
  * A research report (raw `combined_final_cited_report` markdown with
- * `<cite source="src-N" />` tags), rendered with numbered superscript
- * citations and a numbered "Sources" list linking to each source.
+ * `<cite source="src-N" />` and `<cite source="ent-N" />` tags), rendered with
+ * numbered superscript citations, distinct Enterprise badges, and a numbered
+ * "Sources" list.
  */
 export function ResearchReport({
   markdown,
   sources,
+  enterpriseSources,
   scroll = false,
   className,
 }: {
   markdown: string;
   sources?: ReportSources;
+  enterpriseSources?: ReportSources;
   /** Cap the height and scroll long reports inside the panel. */
   scroll?: boolean;
   className?: string;
 }) {
   const formatted = useMemo(
-    () => formatReportCitations(markdown, sources),
-    [markdown, sources]
+    () => formatReportCitations(markdown, sources, enterpriseSources),
+    [markdown, sources, enterpriseSources]
   );
 
   const components = useMemo<Components>(() => {
-    const labels = new Map(formatted.sources.map((s) => [String(s.n), s.label]));
+    const byNumber = new Map(formatted.sources.map((s) => [String(s.n), s]));
     return {
       ...ELEMENTS,
       a: ({ href, children, node }) => {
         const text = textOf(children);
+        if (href?.startsWith("#enterprise-cite-")) {
+          const n = href.slice("#enterprise-cite-".length);
+          const label = byNumber.get(n)?.label ?? "";
+          return (
+            <span
+              data-enterprise-citation="true"
+              className="mx-0.5 inline-flex items-baseline gap-1 rounded-sm border border-primary/30 bg-primary/10 px-1.5 py-0.5 align-baseline text-xs leading-tight"
+            >
+              <span className="font-semibold text-primary">Enterprise</span>
+              {label && <span className="text-foreground/85">{label}</span>}
+            </span>
+          );
+        }
+        if (href === "#enterprise-inline") {
+          const label = text?.replace(/^Enterprise(?::\s*)?/, "").trim() || "";
+          return (
+            <span
+              data-enterprise-citation="true"
+              className="mx-0.5 inline-flex items-baseline gap-1 rounded-sm border border-primary/30 bg-primary/10 px-1.5 py-0.5 align-baseline text-xs leading-tight"
+            >
+              <span className="font-semibold text-primary">Enterprise</span>
+              {label && <span className="text-foreground/85">{label}</span>}
+            </span>
+          );
+        }
         if (text && /^\d+$/.test(text)) {
           const joined = node?.properties?.dataCiteJoin === "true";
+          const source = byNumber.get(text);
+          if (source?.isEnterprise) {
+            return (
+              <sup className="ml-0.5 inline-flex items-baseline gap-0.5 text-[0.7em] leading-none font-medium tabular-nums">
+                {joined && <span className="text-muted-foreground">,</span>}
+                <a
+                  href={href}
+                  title={source.label}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  data-enterprise-citation="true"
+                  className="inline-flex items-baseline gap-0.5 rounded-sm border border-primary/30 bg-primary/10 px-1 py-px text-primary hover:underline"
+                >
+                  <span>Enterprise</span>
+                  <span>{text}</span>
+                </a>
+              </sup>
+            );
+          }
           return (
             <sup className="ml-px text-[0.7em] leading-none font-medium tabular-nums">
               {joined && <span className="text-muted-foreground">,</span>}
               <a
                 href={href}
-                title={labels.get(text)}
+                title={source?.label}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-primary hover:underline"
@@ -174,15 +227,26 @@ export function ResearchReport({
                 <span className="w-5 shrink-0 text-right text-muted-foreground tabular-nums">
                   {s.n}
                 </span>
-                <a
-                  href={s.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  title={s.label}
-                  className="truncate text-foreground/85 hover:text-primary hover:underline"
-                >
-                  {s.label}
-                </a>
+                {s.isEnterprise && (
+                  <span className="shrink-0 rounded-sm border border-primary/30 bg-primary/10 px-1.5 py-0.5 text-[10px] font-medium leading-none text-primary">
+                    Enterprise
+                  </span>
+                )}
+                {s.url ? (
+                  <a
+                    href={s.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    title={s.label}
+                    className="truncate text-foreground/85 hover:text-primary hover:underline"
+                  >
+                    {s.label}
+                  </a>
+                ) : (
+                  <span title={s.label} className="truncate text-foreground/85">
+                    {s.label}
+                  </span>
+                )}
               </li>
             ))}
           </ol>

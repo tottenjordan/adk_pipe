@@ -49,6 +49,18 @@ def parse_on_flag(raw: str | None) -> bool:
     return (raw or "").strip().lower() not in _FALSE_FLAGS
 
 
+def parse_enterprise_data_stores(raw: str | None) -> tuple[str, ...]:
+    """``ENTERPRISE_DATA_STORES`` → tuple of stripped non-empty data store resource names."""
+    if not raw:
+        return ()
+    return tuple(part.strip() for part in raw.split(",") if part.strip())
+
+
+def parse_enterprise_search_engine(raw: str | None) -> str:
+    """``ENTERPRISE_SEARCH_ENGINE`` → stripped Discovery Engine search engine resource name."""
+    return (raw or "").strip()
+
+
 @dataclass
 class BaseAgentConfiguration:
     """Shared model + GCP configuration for the agents.
@@ -125,3 +137,20 @@ class BaseAgentConfiguration:
     BQ_TABLE_TARGETS = os.environ.get("BQ_TABLE_TARGETS")
     BQ_TABLE_CREATIVES = os.environ.get("BQ_TABLE_CREATIVES")
     BQ_TABLE_EVALS = os.environ.get("BQ_TABLE_EVALS")
+
+    # Optional inbound Discovery Engine enterprise grounding (off when both are empty).
+    enterprise_data_stores: tuple[str, ...] = field(
+        default_factory=lambda: parse_enterprise_data_stores(
+            os.environ.get("ENTERPRISE_DATA_STORES")
+        )
+    )
+    enterprise_search_engine: str = field(
+        default_factory=lambda: parse_enterprise_search_engine(
+            os.environ.get("ENTERPRISE_SEARCH_ENGINE")
+        )
+    )
+
+    @property
+    def enterprise_grounding_configured(self) -> bool:
+        """True when at least one Discovery Engine data store or search engine is configured."""
+        return bool(self.enterprise_data_stores or self.enterprise_search_engine)

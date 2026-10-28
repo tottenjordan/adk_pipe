@@ -79,6 +79,7 @@ _ISSUE_LABELS: dict[str, str] = {
     "ad_copy_critique": "Ad copy check",
     "final_visual_concepts": "Visual concept check",
     "creative_brief": "Creative brief",
+    "enterprise_research_findings": "Enterprise knowledge base",
     "research_report_gcs_uri": "Research PDF save",
     "eval_report_gcs_uri": "Eval report save",
     "creative_gallery_gcs_uri": "Gallery save",
