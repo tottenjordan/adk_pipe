@@ -108,7 +108,7 @@ google-cloud-logging==3.16.3
     # via
     #   google-cloud-aiplatform
     #   opentelemetry-exporter-gcp-logging
-google-cloud-modelarmor==0.7.2
+google-cloud-modelarmor==0.7.3
     # via adk-pipe
 google-cloud-resource-manager==1.18.0
     # via google-cloud-aiplatform
