@@ -87,7 +87,7 @@ experiments = [
 requires-dist = [
     { name = "absl-py", specifier = ">=2.5.0,<3.0.0" },
     { name = "fastapi", specifier = ">=0.141.1,<1.0.0" },
-    { name = "google-adk", extras = ["otel-gcp"], specifier = ">=2.10.0,<3.0.0" },
+    { name = "google-adk", extras = ["otel-gcp"], specifier = ">=2.10.0,<2.11.0" },
     { name = "google-auth", specifier = ">=2.59.0,<3.0.0" },
     { name = "google-cloud-aiplatform", extras = ["agent-engines"], specifier = ">=2.4.0,<3.0.0" },
     { name = "google-cloud-bigquery", specifier = ">=3.45.2,<4.0.0" },

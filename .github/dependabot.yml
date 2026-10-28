@@ -29,9 +29,16 @@ updates:
       python-minor-patch:
         update-types: ["minor", "patch"]
     ignore:
-      # Held at <3 in pyproject.toml (ADK 3 / genai 3 drop APIs we use).
+      # Held <2.11 in pyproject.toml: ADK 2.11+ rewrote NodeTool so node
+      # exceptions propagate instead of returning "Error running node ..." tool
+      # responses (breaking runserver.async_runs pipeline retries and
+      # tests/test_workflow_api_contract.py); ADK 3 drops APIs we use.
       - dependency-name: "google-adk"
-        update-types: ["version-update:semver-major"]
+        versions: [">=2.11.0"]
+      # fastapi >=0.150 pulls opentelemetry-api >1.42.1, which google-adk 2.10
+      # caps at <=1.42.1; lift together with the google-adk >=2.11 migration.
+      - dependency-name: "fastapi"
+        versions: [">=0.150.0"]
       - dependency-name: "google-genai"
         update-types: ["version-update:semver-major"]
 
