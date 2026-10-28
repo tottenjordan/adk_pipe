@@ -17,7 +17,10 @@ dependencies = [
     # The `eval` extra (scipy/scikit-learn/litellm/pandas/nltk via
     # aiplatform[evaluation]) is not needed at runtime: it lives in the `eval`
     # dependency group below, so it never ships to Agent Engine or the api image.
-    "google-adk[otel-gcp]>=2.10.0,<3.0.0",
+    # Held <2.11: ADK 2.11+ changed NodeTool so node exceptions propagate rather
+    # than returning "Error running node ..." tool responses (breaking
+    # runserver.async_runs pipeline retries and tests/test_workflow_api_contract.py).
+    "google-adk[otel-gcp]>=2.10.0,<2.11.0",
     "google-cloud-bigquery>=3.45.2,<4.0.0",
     "uvicorn>=0.54.0,<1.0.0",
     "fastapi>=0.141.1,<1.0.0",
