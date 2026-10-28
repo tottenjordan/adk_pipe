@@ -416,9 +416,9 @@ google-auth==2.62.0 \
     #   google-cloud-storage
     #   google-cloud-tasks
     #   google-genai
-google-cloud-agentplatform==2.5.0 \
-    --hash=sha256:5933ecaf02cbeac9517312ed9165ae43996a495e75fb58f7849ba594f9399ada \
-    --hash=sha256:979540a7a6725e2bd69fdea630e71717b8fa1afdf48a9878d8d2901ccb1fd361
+google-cloud-agentplatform==2.6.0 \
+    --hash=sha256:61a99199597135cd1e4651bfddbe4c7e49fb1f0b71d23d197afd2c5427062f7a \
+    --hash=sha256:de7f22a1bbf8c6497db17cb1331537d9f72ec7c02b66b7179486c662616a3760
     # via -r requirements.txt
 google-cloud-appengine-logging==1.11.0 \
     --hash=sha256:4d70953a0f35d0295256d977e7e3962242674d64c72fcb3e48b10a1cbf4f9b54 \
