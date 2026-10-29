@@ -2,6 +2,7 @@ import { describe, it, expect, vi, afterEach } from "vitest";
 import * as api from "@/lib/api";
 import {
   createSession,
+  getArtifact,
   getEventError,
   getRunStatus,
   getSession,
@@ -61,11 +62,14 @@ describe("session/artifact error messages", () => {
     );
   });
 
-  it("covers listArtifacts too", async () => {
+  it("covers listArtifacts and getArtifact too", async () => {
     stubFetch(() => h2Response(JSON.stringify({ detail: "nope" }), 403));
     await expect(listArtifacts("creative_agent", SELF_USER_ID, "s1")).rejects.toThrow(
       new Error("Failed to list artifacts (403): nope")
     );
+    await expect(
+      getArtifact("creative_agent", SELF_USER_ID, "s1", "video_bumper_6s_9x16.mp4")
+    ).rejects.toThrow(new Error("Failed to get artifact (403): nope"));
   });
 });
 
@@ -82,6 +86,7 @@ describe("path segments are URL-encoded", () => {
     await getSession(app, user, sid);
     await listSessions(app, user);
     await listArtifacts(app, user, sid);
+    await getArtifact(app, user, sid, "v/1?y.mp4");
     await startRun(app, user, sid, "hi");
     await getRunStatus(app, user, sid);
     for await (const _ of pollRun(app, user, sid)) {
@@ -95,6 +100,7 @@ describe("path segments are URL-encoded", () => {
       "/api/adk/apps/..%2Fgcs/users/a%40b.com/sessions/s%2F1%3Fx",
       "/api/adk/apps/..%2Fgcs/users/a%40b.com/sessions",
       "/api/adk/apps/..%2Fgcs/users/a%40b.com/sessions/s%2F1%3Fx/artifacts",
+      "/api/adk/apps/..%2Fgcs/users/a%40b.com/sessions/s%2F1%3Fx/artifacts/v%2F1%3Fy.mp4",
       "/api/adk/runs/..%2Fgcs",
       "/api/adk/runs/..%2Fgcs/a%40b.com/s%2F1%3Fx?since=0",
       "/api/adk/runs/..%2Fgcs/a%40b.com/s%2F1%3Fx?since=0",
@@ -129,8 +135,7 @@ describe("quota error detection", () => {
 });
 
 describe("dead code", () => {
-  it("no longer exports listApps or getArtifact", () => {
+  it("no longer exports listApps", () => {
     expect("listApps" in api).toBe(false);
-    expect("getArtifact" in api).toBe(false);
   });
 });

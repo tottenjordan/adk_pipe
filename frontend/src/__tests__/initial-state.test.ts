@@ -272,6 +272,7 @@ describe("buildInitialState", () => {
 
   it("sends enterprise_grounding_enabled: false from an untouched form (EMPTY_CAMPAIGN_FORM)", () => {
     expect(EMPTY_CAMPAIGN_FORM.enterpriseGroundingEnabled).toBe(false);
+    expect(EMPTY_CAMPAIGN_FORM.videoProductionEnabled).toBe(false);
     for (const agent of ["creative_agent", "interactive_creative"] as const) {
       const state = buildInitialState({
         ...EMPTY_CAMPAIGN_FORM,
@@ -283,6 +284,22 @@ describe("buildInitialState", () => {
         targetSearchTrend: "tswift engaged",
       });
       expect(state.enterprise_grounding_enabled).toBe(false);
+      expect(state.video_production_enabled).toBe(false);
     }
+  });
+
+  it("omits video_production_enabled when unset and maps explicit booleans for creative agents only", () => {
+    expect(buildInitialState(base).video_production_enabled).toBeUndefined();
+    for (const agent of ["creative_agent", "interactive_creative"] as const) {
+      expect(
+        buildInitialState({ ...base, agent, videoProductionEnabled: true }).video_production_enabled,
+      ).toBe(true);
+      expect(
+        buildInitialState({ ...base, agent, videoProductionEnabled: false }).video_production_enabled,
+      ).toBe(false);
+    }
+    expect(
+      buildInitialState({ ...base, agent: "trend_scout", videoProductionEnabled: true }),
+    ).toEqual({ ui_app: "trend_scout" });
   });
 });

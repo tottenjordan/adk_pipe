@@ -8,8 +8,8 @@
  *   a research or brief producer: the creative stands on incomplete research;
  * - failed saves — `<X> save has unresolved issues: …` from the finalize step's
  *   persistence tools (plus the pre-label `… gcs uri` / `… row uuid` forms);
- * - quality flags — everything else: image/copy/concept check residuals, brief
- *   issues, judge notes.
+ * - quality flags — everything else: image/copy/concept/video check residuals,
+ *   storyboard/reel issues, brief issues, judge notes.
  *
  * The image-step exhaustion (`_images_generated`) is dropped: the dedicated
  * zero-image banner (issue #116) already covers it.

@@ -7,6 +7,7 @@ import { Collapsible } from "@/components/ui/collapsible";
 import { ErrorState } from "@/components/ui/error-state";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
+  getArtifact,
   getSession,
   listArtifacts,
   fetchRunChangelog,
@@ -17,9 +18,10 @@ import {
   type RunChangelog,
 } from "@/lib/api";
 import { fetchEvalReport, parseEvalReport } from "@/lib/eval-report";
-import { gcsProxyUrl } from "@/lib/gcs";
+import { gcsProxyUrl, parseGsUri } from "@/lib/gcs";
 import { outputDir } from "@/lib/results-paths";
 import { classifyWarnings } from "@/lib/run-warnings";
+import { parseGeneratedVideos } from "@/lib/video-storyboard";
 import { LearningSummary } from "@/components/learning-summary";
 import { TrendSituationLine } from "@/components/trend-situation-line";
 import { SaferAngleLine } from "@/components/safer-angle-line";
@@ -31,7 +33,7 @@ import {
   VISUAL_DIRECTION_FIELDS,
   type DisplayFieldDef,
 } from "@/lib/utils";
-import type { Session } from "@/lib/types";
+import type { Part, Session } from "@/lib/types";
 import {
   buildProofs,
   conceptNameToFilename,
@@ -62,6 +64,7 @@ import { ResultsHeader } from "./results-header";
 import { ResultsSummary, type EvalStatus } from "./results-summary";
 import { RunChangelogPanel } from "./run-changelog";
 import { VariationDrawer } from "./variation-drawer";
+import { VideoReelPanel } from "./video-reel-panel";
 import { ShareDialog } from "@/components/share-dialog";
 import { SessionShares } from "@/components/shares-list";
 import { failedChecksFor, hasRenderedImage, type Share } from "@/lib/shares";
@@ -172,6 +175,61 @@ function countStateVariations(raw: unknown): number {
   return Array.isArray(obj) ? obj.length : 0;
 }
 
+function extractVideoArtifactDataUrl(part: Part | null | undefined): string | null {
+  const inline = part?.inlineData;
+  if (!inline || typeof inline.mimeType !== "string" || typeof inline.data !== "string") {
+    return null;
+  }
+  const mime = inline.mimeType.trim().toLowerCase();
+  const data = inline.data.trim();
+  if (!mime.startsWith("video/") || !data || !/^[A-Za-z0-9+/=_-]+$/.test(data)) {
+    return null;
+  }
+  return `data:${mime};base64,${data}`;
+}
+
+function neededVideoArtifactNames(
+  sessionState: Record<string, unknown> | undefined,
+  artifactNames: readonly string[]
+): string[] {
+  if (!sessionState || artifactNames.length === 0) return [];
+  const cuts = parseGeneratedVideos(sessionState.generated_videos);
+  if (cuts.length === 0) return [];
+  const available = new Set(artifactNames);
+  const needed = new Set<string>();
+  for (const cut of cuts) {
+    if (parseGsUri(cut.gcs_uri)) continue;
+    for (const key of [cut.artifact_key, `video_${cut.cut}.mp4`]) {
+      if (key && available.has(key)) needed.add(key);
+    }
+  }
+  return [...needed];
+}
+
+async function hydrateVideoArtifactUrls(
+  appName: string,
+  userId: string,
+  sessionId: string,
+  artifactNames: readonly string[],
+  sessionState: Record<string, unknown> | undefined
+): Promise<Map<string, string>> {
+  const names = neededVideoArtifactNames(sessionState, artifactNames);
+  const map = new Map<string, string>();
+  if (names.length === 0) return map;
+  await Promise.all(
+    names.map(async (name) => {
+      try {
+        const part = await getArtifact(appName, userId, sessionId, name);
+        const url = extractVideoArtifactDataUrl(part);
+        if (url) map.set(name, url);
+      } catch {
+        // Non-fatal: VideoReelPanel falls back to GCS proxy or unavailable notice.
+      }
+    })
+  );
+  return map;
+}
+
 export default function ResultsPage({ params }: PageProps<"/results/[sessionId]">) {
   const { sessionId } = use(params);
   const searchParams = useSearchParams();
@@ -183,6 +241,9 @@ export default function ResultsPage({ params }: PageProps<"/results/[sessionId]"
 
   const [session, setSession] = useState<Session | null>(null);
   const [artifacts, setArtifacts] = useState<ArtifactData[]>([]);
+  const [videoArtifactUrls, setVideoArtifactUrls] = useState<ReadonlyMap<string, string>>(
+    () => new Map()
+  );
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   // Bumped by "Try again" to re-run the load effect.
@@ -344,10 +405,20 @@ export default function ResultsPage({ params }: PageProps<"/results/[sessionId]"
           listArtifacts(appName, userId, sessionId),
         ]);
         if (cancelled) return;
+        // Names only for general artifacts (image previews load from GCS). Video
+        // payloads are fetched ONLY for cuts lacking a gs:// URI (e.g. local
+        // memory-only ADK artifact mode).
+        const videoUrls = await hydrateVideoArtifactUrls(
+          appName,
+          userId,
+          sessionId,
+          artifactNames,
+          sess.state
+        );
+        if (cancelled) return;
         setSession(sess);
-        // Names only: the panel lists them and image previews load from GCS, so
-        // downloading every artifact's payload here would only delay the page.
         setArtifacts(artifactNames.map((name) => ({ name })));
+        setVideoArtifactUrls(videoUrls);
         setLoading(false);
 
         if (fromGe) {
@@ -399,7 +470,15 @@ export default function ResultsPage({ params }: PageProps<"/results/[sessionId]"
       }
       try {
         const artifactNames = await listArtifacts(appName, userId, sessionId);
+        const videoUrls = await hydrateVideoArtifactUrls(
+          appName,
+          userId,
+          sessionId,
+          artifactNames,
+          resp.state
+        );
         setArtifacts(artifactNames.map((name) => ({ name })));
+        setVideoArtifactUrls(videoUrls);
       } catch {
         // Non-fatal: contact sheet and GCS proxy URLs remain available.
       }
@@ -503,8 +582,9 @@ export default function ResultsPage({ params }: PageProps<"/results/[sessionId]"
   // Does this run have the creative asset + eval view?
   const hasCreativeView =
     (appName === "creative_agent" || appName === "interactive_creative") && proofs.length > 0;
+  const hasVideoReel = parseGeneratedVideos(state.generated_videos).length > 0;
   const canExportDeliveryKit =
-    hasCreativeView || Boolean(researchReport) || Boolean(creativeBrief);
+    hasCreativeView || hasVideoReel || Boolean(researchReport) || Boolean(creativeBrief);
   const kitUrl = canExportDeliveryKit
     ? buildDeliveryKitUrl(appName, userId, sessionId)
     : null;
@@ -643,6 +723,12 @@ export default function ResultsPage({ params }: PageProps<"/results/[sessionId]"
           />
         </>
       )}
+
+      <VideoReelPanel
+        state={state}
+        artifactUrlByName={videoArtifactUrls}
+        outputUrl={outputUrl}
+      />
 
       {creativeBrief && (
         <QuietDisclosure title="Creative brief" className="mb-4">
