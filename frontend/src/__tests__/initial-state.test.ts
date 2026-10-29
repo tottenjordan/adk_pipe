@@ -153,6 +153,44 @@ describe("buildInitialState", () => {
     expect(state).toEqual({ ui_app: "trend_scout", interactive_trend_pick: true });
   });
 
+  it("omits default US/empty regional scope on trend_scout and seeds non-default country/region", () => {
+    expect(
+      buildInitialState({
+        ...EMPTY_CAMPAIGN_FORM,
+        agent: "trend_scout",
+        brand: "PRS",
+        targetAudience: "Musicians",
+        targetProduct: "SE CE24",
+        keySellingPoints: "Tone",
+      }),
+    ).toEqual({ ui_app: "trend_scout" });
+
+    expect(
+      buildInitialState({
+        ...EMPTY_CAMPAIGN_FORM,
+        agent: "trend_scout",
+        trendCountryCode: "jp",
+        trendRegion: "  Tokyo  Metro ",
+      }),
+    ).toEqual({
+      ui_app: "trend_scout",
+      trend_country_code: "JP",
+      trend_region: "Tokyo Metro",
+    });
+
+    expect(
+      buildInitialState({
+        ...EMPTY_CAMPAIGN_FORM,
+        agent: "trend_scout",
+        trendCountryCode: "US",
+        trendRegion: "New York",
+      }),
+    ).toEqual({
+      ui_app: "trend_scout",
+      trend_region: "New York",
+    });
+  });
+
   it("seeds learn_from_ratings only when a creative run opts in", () => {
     for (const agent of ["creative_agent", "interactive_creative"] as const) {
       expect(buildInitialState({ ...base, agent, learnFromRatings: true }).learn_from_ratings).toBe(true);

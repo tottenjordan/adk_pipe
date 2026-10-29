@@ -40,6 +40,7 @@ import { useRunFollower, type RunStatus } from "./use-run-follower";
 import { PipelineWidget } from "./run-widgets";
 import { StageSpine } from "./stage-spine";
 import { BriefSummary, ConnectionLostBanner, CurrentStagePanel, TechnicalLog } from "./run-sections";
+import { PipelineInspector } from "./pipeline-inspector";
 import { ReviewPanel } from "./ReviewPanel";
 
 const CAMPAIGN_FIELD_DEFS: DisplayFieldDef[] = [
@@ -452,6 +453,8 @@ export default function RunPage({ params }: PageProps<"/run/[sessionId]">) {
                 </div>
               </section>
             )}
+
+            <PipelineInspector sessionState={sessionState} appName={appName} />
 
             <TechnicalLog events={events} />
           </div>

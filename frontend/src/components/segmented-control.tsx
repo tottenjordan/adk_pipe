@@ -19,7 +19,12 @@ export function SegmentedControl<T extends string>({
   label?: string;
   labelledBy?: string;
   /** `keyshortcuts`: the option's `aria-keyshortcuts` (from `lib/shortcuts.ts`). */
-  options: readonly { value: T; label: string; keyshortcuts?: string }[];
+  options: readonly {
+    value: T;
+    label: string;
+    keyshortcuts?: string;
+    disabled?: boolean;
+  }[];
   value: T;
   onChange: (value: T) => void;
   disabled?: boolean;
@@ -34,14 +39,17 @@ export function SegmentedControl<T extends string>({
     >
       {options.map((o) => {
         const active = o.value === value;
+        const optDisabled = disabled || Boolean(o.disabled);
         return (
           <button
             key={o.value}
             type="button"
             aria-pressed={active}
             aria-keyshortcuts={o.keyshortcuts}
-            disabled={disabled}
-            onClick={() => onChange(o.value)}
+            disabled={optDisabled}
+            onClick={() => {
+              if (!optDisabled) onChange(o.value);
+            }}
             className={cn(
               "h-7 rounded-sm px-2.5 text-xs font-medium transition-colors disabled:opacity-50",
               active

@@ -32,6 +32,7 @@ from google.adk.cli.utils.service_factory import (
 from google.adk.runners import Runner
 
 from runserver import (
+    brand_assist,
     changelog,
     experiments,
     person_refs,
@@ -194,6 +195,9 @@ changelog.configure(
     authz_mode=_AUTHZ_MODE,
 )
 app.include_router(changelog.router)
+
+brand_assist.configure(authz_mode=_AUTHZ_MODE)
+app.include_router(brand_assist.router)
 
 if a2a_enabled():
     mount_a2a_apps(

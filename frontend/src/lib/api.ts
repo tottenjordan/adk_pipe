@@ -1,6 +1,8 @@
 import type {
   Session,
   AgentEvent,
+  BrandAssistRequest,
+  BrandAssistSuggestion,
   RunChangelogEntry,
   RunChangelog,
   ClaimHandoffResult,
@@ -10,6 +12,8 @@ import type {
 } from "./types";
 
 export type {
+  BrandAssistRequest,
+  BrandAssistSuggestion,
   RunChangelogEntry,
   RunChangelog,
   ClaimHandoffResult,
@@ -657,5 +661,46 @@ export async function claimRunHandoff(
     }
   );
   if (!res.ok) throw await httpError(res, "Failed to claim run handoff");
+  return res.json();
+}
+
+// ---------------------------------------------------------------------------
+// Grounded Brand Assist (runserver/brand_assist.py)
+// ---------------------------------------------------------------------------
+
+/** `POST /brand-assist/{user}`: grounded brand, product, audience, and palette suggestions. */
+export async function fetchBrandAssist(
+  userId: string,
+  req: BrandAssistRequest,
+  opts?: { signal?: AbortSignal }
+): Promise<BrandAssistSuggestion> {
+  const res = await fetch(
+    `${API_BASE}/brand-assist/${encodeURIComponent(userId)}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(req),
+      ...(opts?.signal ? { signal: opts.signal } : {}),
+    }
+  );
+  if (!res.ok) {
+    let detail = "";
+    try {
+      const body = await res.json();
+      if (typeof body?.detail === "string") {
+        detail = body.detail;
+      } else if (Array.isArray(body?.detail) && body.detail.length > 0) {
+        const firstMsg = body.detail[0]?.msg;
+        if (typeof firstMsg === "string") {
+          detail = firstMsg.replace(/^Value error,\s*/i, "");
+        }
+      }
+    } catch {
+      // Ignore non-JSON body
+    }
+    throw new Error(
+      detail || `Failed to load brand suggestions (${res.status})`
+    );
+  }
   return res.json();
 }

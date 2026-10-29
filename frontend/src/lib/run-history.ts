@@ -227,6 +227,10 @@ export function briefFromState(state: Record<string, unknown>): Brief {
   const trend = formatTrend(state.target_search_trends ?? state.target_search_trend);
   if (trend) brief.targetSearchTrend = trend;
   if (state.interactive_trend_pick === true) brief.interactiveTrendPick = true;
+  const trendCountry = str(state.trend_country_code).toUpperCase();
+  if (trendCountry) brief.trendCountryCode = trendCountry;
+  const trendRegion = str(state.trend_region);
+  if (trendRegion) brief.trendRegion = trendRegion;
   if (typeof state.enterprise_grounding_enabled === "boolean") {
     brief.enterpriseGroundingEnabled = state.enterprise_grounding_enabled;
   }

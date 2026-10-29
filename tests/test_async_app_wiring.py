@@ -98,6 +98,8 @@ _ENFORCE_SCRIPT = """
     client = TestClient(app)
     r = client.get("/apps/creative_agent/users/a@x.com/sessions")
     assert r.status_code == 401, (r.status_code, r.text)
+    r = client.post("/brand-assist/a@x.com", json={"brand": "PRS"})
+    assert r.status_code == 401, (r.status_code, r.text)
     r = client.post("/run", json={})
     assert r.status_code == 404, (r.status_code, r.text)
     print("WIRING_OK")

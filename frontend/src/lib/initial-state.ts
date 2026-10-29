@@ -16,6 +16,8 @@ export const EMPTY_CAMPAIGN_FORM: CampaignInput = {
   keySellingPoints: "",
   targetSearchTrend: "",
   interactiveTrendPick: false,
+  trendCountryCode: "US",
+  trendRegion: "",
   enterpriseGroundingEnabled: false,
   learnFromRatings: false,
   saferAngle: false,
@@ -65,6 +67,14 @@ export function buildInitialState(form: CampaignInput): Record<string, unknown> 
 
   if (form.agent === "trend_scout") {
     if (form.interactiveTrendPick) state.interactive_trend_pick = true;
+    const country = form.trendCountryCode?.trim().toUpperCase();
+    if (country && /^[A-Z]{2}$/.test(country) && country !== "US") {
+      state.trend_country_code = country;
+    }
+    const region = form.trendRegion?.trim().replace(/\s+/g, " ");
+    if (region) {
+      state.trend_region = region.slice(0, 80);
+    }
     return state;
   }
 

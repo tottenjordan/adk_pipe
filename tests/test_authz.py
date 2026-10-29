@@ -56,6 +56,10 @@ def test_normalize_strips_iap_prefix_and_lowercases():
         ("/runs/trend_scout/u1/123/changelog", "u1"),
         ("/runs/trend_scout/u1/123/claim-handoff", "u1"),
         ("/runs/trend_scout", None),
+        ("/brand-assist/u1", "u1"),
+        ("/brand-assist/u1/", "u1"),
+        ("/brand-assist", None),
+        ("/brand-assist/u1/extra", None),
         # pre-rewrite form (ADK _DefaultAppRewriteMiddleware adds /apps/<default>)
         ("/users/u1/sessions", "u1"),
         ("/users/u1", "u1"),

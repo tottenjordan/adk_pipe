@@ -75,6 +75,16 @@ export interface CampaignInput {
    */
   interactiveTrendPick?: boolean;
   /**
+   * trend_scout only: ISO-3166-1 alpha-2 country code (default "US"). Wired
+   * into the session's initial state as `trend_country_code` when non-default.
+   */
+  trendCountryCode?: string;
+  /**
+   * trend_scout only: optional DMA/metro (US) or region name (international)
+   * filter (max 80 chars). Wired into initial state as `trend_region`.
+   */
+  trendRegion?: string;
+  /**
    * creative_agent / interactive_creative only: include Discovery Engine
    * enterprise knowledge-base grounding when configured on the backend. Seeded
    * explicitly as `enterprise_grounding_enabled` (`true` or `false`).
@@ -184,3 +194,20 @@ export interface ClaimHandoffResult {
 export type ChangelogEntry = RunChangelogEntry;
 export type RunChangelogResponse = RunChangelog;
 export type ClaimHandoffResponse = ClaimHandoffResult;
+
+/** Input payload for `POST /brand-assist/{user}`. */
+export interface BrandAssistRequest {
+  brand: string;
+  target_product?: string;
+  domain_hint?: string;
+}
+
+/** Grounded brand/product intake suggestions from `POST /brand-assist/{user}`. */
+export interface BrandAssistSuggestion {
+  suggested_products: string[];
+  target_audience: string;
+  key_selling_points: string;
+  brand_palette_hex: string[];
+  tone_summary: string;
+  brand_cues: string[];
+}

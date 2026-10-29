@@ -3,6 +3,7 @@ import datetime
 import json
 import logging
 import os
+import re
 import tempfile
 from pathlib import Path
 from typing import Any
@@ -62,6 +63,95 @@ def record_research_gaps(tool_context: ToolContext) -> dict:
 # server-side job timeout plus a client-side wait a little longer than it.
 GTRENDS_JOB_TIMEOUT_MS = 60_000
 GTRENDS_RESULT_TIMEOUT_SECONDS = 75.0
+_COUNTRY_CODE_RE = re.compile(r"^[A-Z]{2}$")
+_MAX_TREND_REGION_CHARS = 80
+
+
+def _escape_like_pattern(value: str) -> str:
+    """Escape SQL ``LIKE`` wildcards (``\\``, ``%``, ``_``) for ``ESCAPE '\\\\'``."""
+    return value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
+def _build_daily_gtrends_query(
+    country_code: str = "US", region: str = ""
+) -> tuple[str, list[bigquery.ScalarQueryParameter]]:
+    """Build parameterized top-25 Google Trends SQL for US or international markets.
+
+    - ``country_code == "US"`` queries ``bigquery-public-data.google_trends.top_terms``
+      with optional ``dma_name`` filtering.
+    - ``country_code != "US"`` queries ``bigquery-public-data.google_trends.international_top_terms``
+      resolving ``MAX(refresh_date)`` inside ``international_top_terms`` for
+      ``@country_code`` (avoiding 0-row results when international tables lag US
+      ``top_terms`` by ~1 day) with optional ``region_name`` filtering.
+    """
+    cc = (country_code or "").strip().upper() or "US"
+    if not _COUNTRY_CODE_RE.fullmatch(cc):
+        raise ValueError(
+            f"trend_country_code must be a 2-letter ISO country code, got {country_code!r}"
+        )
+
+    clean_region = " ".join((region or "").split())
+    if len(clean_region) > _MAX_TREND_REGION_CHARS:
+        raise ValueError(
+            f"trend_region must be at most {_MAX_TREND_REGION_CHARS} characters"
+        )
+
+    params: list[bigquery.ScalarQueryParameter] = []
+    region_clause = ""
+
+    if cc == "US":
+        if clean_region:
+            escaped = _escape_like_pattern(clean_region)
+            region_clause = "\n          AND LOWER(dma_name) LIKE LOWER(@region_pattern) ESCAPE '\\\\'"
+            params.append(
+                bigquery.ScalarQueryParameter(
+                    "region_pattern", "STRING", f"%{escaped}%"
+                )
+            )
+        sql = f"""
+        SELECT
+          term,
+          MAX(refresh_date) AS refresh_date,
+          MIN(rank) AS best_rank
+        FROM `bigquery-public-data.google_trends.top_terms`
+        WHERE refresh_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 7 DAY)
+          AND refresh_date = (
+            SELECT MAX(refresh_date)
+            FROM `bigquery-public-data.google_trends.top_terms`
+            WHERE refresh_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 7 DAY)
+          ){region_clause}
+        GROUP BY term
+        ORDER BY best_rank ASC, term ASC
+        LIMIT 25
+        """
+        return sql, params
+
+    params.append(bigquery.ScalarQueryParameter("country_code", "STRING", cc))
+    if clean_region:
+        escaped = _escape_like_pattern(clean_region)
+        region_clause = "\n          AND LOWER(region_name) LIKE LOWER(@region_pattern) ESCAPE '\\\\'"
+        params.append(
+            bigquery.ScalarQueryParameter("region_pattern", "STRING", f"%{escaped}%")
+        )
+    sql = f"""
+        SELECT
+          term,
+          MAX(refresh_date) AS refresh_date,
+          MIN(rank) AS best_rank
+        FROM `bigquery-public-data.google_trends.international_top_terms`
+        WHERE country_code = @country_code
+          AND refresh_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 7 DAY)
+          AND refresh_date = (
+            SELECT MAX(refresh_date)
+            FROM `bigquery-public-data.google_trends.international_top_terms`
+            WHERE country_code = @country_code
+              AND refresh_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 7 DAY)
+          ){region_clause}
+        GROUP BY term
+        ORDER BY best_rank ASC, term ASC
+        LIMIT 25
+        """
+    return sql, params
 
 
 def _gtrends_job_config(
@@ -107,9 +197,50 @@ def _gtrends_markdown(rows: list[tuple[str, int, str]]) -> str:
     return "\n".join(lines)
 
 
-def _query_daily_gtrends() -> tuple[str, list[tuple[str, int, str]]]:
+def _refresh_date_to_mdy(raw_refresh: object) -> str:
+    """Convert a BigQuery ``DATE`` or ``YYYY-MM-DD`` / ``MM/DD/YYYY`` string to ``MM/DD/YYYY``."""
+    if isinstance(raw_refresh, datetime.datetime):
+        return raw_refresh.date().strftime("%m/%d/%Y")
+    if isinstance(raw_refresh, datetime.date):
+        return raw_refresh.strftime("%m/%d/%Y")
+    text = str(raw_refresh or "").strip()
+    if not text:
+        return ""
+    try:
+        return datetime.date.fromisoformat(text[:10]).strftime("%m/%d/%Y")
+    except ValueError:
+        pass
+    try:
+        return datetime.datetime.strptime(text, "%m/%d/%Y").date().strftime("%m/%d/%Y")
+    except ValueError:
+        return ""
+
+
+def _query_daily_gtrends(
+    country_code: str = "US", region: str = ""
+) -> tuple[str, list[tuple[str, int, str]]]:
     """Blocking BigQuery reads behind get_daily_gtrends: (max_date, rows)."""
-    # get latest refresh date
+    regional_sql, regional_params = _build_daily_gtrends_query(country_code, region)
+    cc = (country_code or "").strip().upper() or "US"
+    clean_region = " ".join((region or "").split())
+
+    if cc != "US" or clean_region:
+        bq_client = _get_bigquery_client()
+        job = bq_client.query(
+            regional_sql, job_config=_gtrends_job_config(regional_params)
+        )
+        rows = [
+            (row["term"], rank, str(row["refresh_date"]))
+            for rank, row in enumerate(
+                job.result(timeout=GTRENDS_RESULT_TIMEOUT_SECONDS), start=1
+            )
+        ]
+        max_date = _refresh_date_to_mdy(rows[0][2]) if rows else ""
+        return max_date, rows
+
+    # Default US national path: look up latest refresh_date across the table
+    # (so 30+ day dataset freezes still surface via staleness checks) and read
+    # the 25 national terms for that date.
     max_date = _get_gtrends_max_date()
     logging.info(f"\n\nmax_date in trends_assistant: {max_date}\n\n")
 
@@ -190,20 +321,37 @@ async def get_daily_gtrends(tool_context: ToolContext) -> str:
              The table includes columns for 'term', 'rank', and 'refresh_date'.
              Returns 25 rows of results.
     """
+    raw_cc = tool_context.state.get("trend_country_code")
+    raw_region = tool_context.state.get("trend_region")
+    country_code = str(raw_cc) if raw_cc is not None else "US"
+    region = str(raw_region) if raw_region is not None else ""
+    _build_daily_gtrends_query(country_code, region)
+
     try:
         # Blocking BigQuery I/O runs off the event loop (ADK runs sync tools
         # inline on it); the state writes below stay on the loop.
-        max_date, rows = await asyncio.to_thread(_query_daily_gtrends)
+        max_date, rows = await asyncio.to_thread(
+            _query_daily_gtrends, country_code, region
+        )
 
         # Update state
         tool_context.state["raw_gtrends"] = [term for term, _, _ in rows]
+        if not rows and not max_date:
+            cc_norm = country_code.strip().upper() or "US"
+            reg_norm = " ".join(region.split())
+            scope_label = f"country '{cc_norm}'" + (
+                f" and region '{reg_norm}'" if reg_norm else ""
+            )
+            return f"No Google Search trends matched {scope_label} in the last 7 days."
+
         # The public table's date as ISO YYYY-MM-DD: the trend digest's cache
         # key (trend_scout/digest.py) and the pick panel's "Google Trends for …".
-        refresh_iso = (
-            datetime.datetime.strptime(max_date, "%m/%d/%Y").date().isoformat()
-        )
-        tool_context.state["gtrends_refresh_date"] = refresh_iso
-        _record_gtrends_staleness(tool_context.state, refresh_iso)
+        if max_date:
+            refresh_iso = (
+                datetime.datetime.strptime(max_date, "%m/%d/%Y").date().isoformat()
+            )
+            tool_context.state["gtrends_refresh_date"] = refresh_iso
+            _record_gtrends_staleness(tool_context.state, refresh_iso)
 
         return _gtrends_markdown(rows)
     except Exception as e:

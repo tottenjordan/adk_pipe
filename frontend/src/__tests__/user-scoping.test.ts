@@ -297,3 +297,23 @@ describe("scopeRequestToUser: runs changelog and claim-handoff", () => {
     }
   });
 });
+
+describe("scopeRequestToUser: brand-assist", () => {
+  it("rewrites userAt=1 on POST /brand-assist/{user}", () => {
+    const body = '{"brand":"PRS Guitars","domain_hint":"prsguitars.com"}';
+    expect(scopeRequestToUser("POST", ["brand-assist", "me"], body, U)).toEqual({
+      path: "brand-assist/alice%40x.com",
+      body,
+    });
+    expect(scopeRequestToUser("POST", ["brand-assist", "bob@x.com"], body, U)?.path).toBe(
+      "brand-assist/alice%40x.com",
+    );
+  });
+
+  it("rejects wrong methods, missing/extra segments, and traversal", () => {
+    expect(scopeRequestToUser("GET", ["brand-assist", "me"], undefined, U)).toBeNull();
+    expect(scopeRequestToUser("POST", ["brand-assist"], "{}", U)).toBeNull();
+    expect(scopeRequestToUser("POST", ["brand-assist", "me", "extra"], "{}", U)).toBeNull();
+    expect(scopeRequestToUser("POST", ["brand-assist", ".."], "{}", U)).toBeNull();
+  });
+});
