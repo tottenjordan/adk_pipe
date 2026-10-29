@@ -13,7 +13,7 @@ import { FieldError, requiredProps, type FieldErrors, type RequiredField } from 
 import type { FormSectionProps } from "./types";
 
 /** Quiet "use example" buttons for a textarea, where a datalist can't apply. */
-function ExampleButtons({
+export function ExampleButtons({
   examples,
   onPick,
 }: {
@@ -45,11 +45,14 @@ export function CampaignFields({
   setForm,
   errors,
   onLeave,
+  afterBrandProduct,
 }: FormSectionProps & {
   /** Messages for the missing fields to flag (see required-fields). */
   errors: FieldErrors;
   /** A required field lost focus (its message may show from now on). */
   onLeave: (field: RequiredField) => void;
+  /** Optional inline helper rendered below Brand & Product (e.g. Brand Assist). */
+  afterBrandProduct?: React.ReactNode;
 }) {
   return (
     <>
@@ -100,6 +103,8 @@ export function CampaignFields({
           </datalist>
         </div>
       </div>
+
+      {afterBrandProduct}
 
       <div className="space-y-1.5">
         <FieldLabel as="label" htmlFor="audience">

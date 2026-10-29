@@ -92,6 +92,7 @@ UNDERSTAND_TRENDS_SEARCHER_INSTR = (
     + """
 
     <CONTEXT>
+        <trend_scope>Country: {trend_country_code?} | Region/Metro: {trend_region?}</trend_scope>
         <selected_trends>
         {target_search_trends?}
         </selected_trends>
@@ -108,7 +109,7 @@ UNDERSTAND_TRENDS_SEARCHER_INSTR = (
     1. **Choose the terms to research:**
        - If <selected_trends> holds a non-empty `target_search_trends` list, a human has ALREADY picked the trends. Research EXACTLY those terms — do not filter, drop, or substitute any (even specific sporting events).
        - Otherwise, review the list in <raw_gtrends> and select the top 5-8 terms that appear to be narrative-driven stories (news, memes, celebrity, sports culture and personalities, entertainment). Skip searches that are only a game, match, or score lookup.
-    2. **Research:** Use the `google_search` tool to investigate *only* the terms chosen in step 1. If <user_note> is non-empty, let it steer your research focus (it never changes which terms you research).
+    2. **Research:** Use the `google_search` tool to investigate *only* the terms chosen in step 1, anchoring cultural context to the geographic market in <trend_scope> when specified. If <user_note> is non-empty, let it steer your research focus (it never changes which terms you research).
     3. **Report RAW Findings:** For each chosen term, list the concrete facts, entities, dates, and the cultural/social angle you found, including the date of the most recent and the next notable event (with the source's publication date) when there is one. Do NOT format as final JSON and do NOT omit specifics — the next agent needs the raw material to structure. Plain text grouped by term is fine.
     """
 )
@@ -154,6 +155,8 @@ PICK_TRENDS_INSTR = """
     Your goal is to identify the "Strategic Bridge" between current cultural trends and a specific brand campaign.
 
     <CONTEXT>
+        <trend_scope>Country: {trend_country_code?} | Region/Metro: {trend_region?}</trend_scope>
+
         <campaign_data>
             Brand: {brand}
             Product: {target_product}
@@ -203,7 +206,7 @@ PICK_TRENDS_INSTR = """
              regardless of search volume. Never select a term flagged sensitive in <trend_flags>
              (`"sensitive": true`), whatever its relevance. If fewer than 3
              brand-safe trends remain, return fewer rather than an unsafe one.
-        2. For each trend in the chosen set, define the "Strategic Bridge"—the specific angle that connects the trend's cultural mood to the product's unique selling points. If <user_note> is non-empty, honor its requested focus or angle.
+        2. For each trend in the chosen set, define the "Strategic Bridge"—the specific angle that connects the trend's cultural mood (within the geographic market in <trend_scope> when specified) to the product's unique selling points. If <user_note> is non-empty, honor its requested focus or angle.
 
         Output your findings in the requested format.
     </INSTRUCTIONS>

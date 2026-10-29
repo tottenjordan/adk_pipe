@@ -45,6 +45,8 @@ _PATH_USER_RES = (
     re.compile(r"^/person-refs/(?P<user>[^/]+)(?:/.*)?$"),
     # Personalised variant previews (runserver/variants.py): POST render, GET list.
     re.compile(r"^/variants/(?P<user>[^/]+)(?:/.*)?$"),
+    # Grounded Brand Assist intake helper (runserver/brand_assist.py): POST per user.
+    re.compile(r"^/brand-assist/(?P<user>[^/]+)/?$"),
     # Pre-rewrite form: ADK's _DefaultAppRewriteMiddleware (ADK_DEFAULT_APP_NAME)
     # maps /users/... -> /apps/<default>/users/... *after* this middleware runs.
     re.compile(r"^/users/(?P<user>[^/]+)(?:/|$)"),

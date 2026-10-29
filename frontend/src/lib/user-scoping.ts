@@ -31,6 +31,8 @@ const ROUTES: { method: string; match: (p: string[]) => boolean; userAt?: number
   // Personalised variant previews (runserver/variants.py): POST/GET variants/{u}/{app}/{session}.
   { method: "POST", match: (p) => p.length === 4 && p[0] === "variants", userAt: 1 },
   { method: "GET", match: (p) => p.length === 4 && p[0] === "variants", userAt: 1 },
+  // Grounded Brand Assist intake helper (runserver/brand_assist.py): POST brand-assist/{u}.
+  { method: "POST", match: (p) => p.length === 2 && p[0] === "brand-assist", userAt: 1 },
 ];
 
 // ADK app names are Python identifiers (the agent package name).

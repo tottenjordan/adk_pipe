@@ -252,6 +252,26 @@ describe("briefFromState", () => {
     expect(briefFromState({ brand: "X" })).toEqual({ brand: "X" });
   });
 
+  it("recovers trend_country_code and trend_region for Duplicate brief", () => {
+    const brief = briefFromState({
+      ui_app: "trend_scout",
+      brand: "PRS",
+      trend_country_code: "gb",
+      trend_region: "England",
+    });
+    expect(brief).toEqual({
+      agent: "trend_scout",
+      brand: "PRS",
+      trendCountryCode: "GB",
+      trendRegion: "England",
+    });
+    expect(buildInitialState({ ...EMPTY_CAMPAIGN_FORM, ...brief })).toEqual({
+      ui_app: "trend_scout",
+      trend_country_code: "GB",
+      trend_region: "England",
+    });
+  });
+
   it("restores the learn-from-ratings opt-in only when it was exactly true", () => {
     expect(
       briefFromState({ ui_app: "creative_agent", learn_from_ratings: true, brand: "X" }),
