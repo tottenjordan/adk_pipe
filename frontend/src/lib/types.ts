@@ -133,10 +133,10 @@ export interface CampaignInput {
   visualAvoid?: string;
   /** Deterministic aspect-ratio override → `visual_aspect_ratio`. */
   visualAspectRatio?: string;
-  /** How to use the reference image → `reference_image_role` (product|logo|style). */
+  /** How to use the reference image → `reference_image_role` (product|logo|style|cast). */
   referenceImageRole?: string;
   /**
-   * Reference rows 2–3 (row 1 is `referenceImageUri`/`referenceImageRole`).
+   * Reference rows 2–4 (row 1 is `referenceImageUri`/`referenceImageRole`).
    * All rows are seeded together as `reference_images` (see buildInitialState).
    */
   extraReferenceImages?: ReferenceRowInput[];
@@ -151,7 +151,7 @@ export interface PersonReferenceInput {
 
 export interface ReferenceImageInput {
   uri: string;
-  /** product | logo | style ("" in the form = product). */
+  /** product | logo | style | cast ("" in the form = product). */
   role: string;
 }
 

@@ -100,7 +100,7 @@ def test_gate_is_registered_labelled_and_the_version_bumped():
         ADVISORY_GATES | BRIEF_GATES | PERSON_GATES | TREND_GATES | TIMELY_GATES
     )
     assert GATE_LABELS[GATE] == "Respectful reference"
-    assert JUDGE_VERSION == "2026-10-15.2"
+    assert JUDGE_VERSION == "2026-10-29"
 
 
 def test_prompts_name_the_gate_and_the_new_counts():

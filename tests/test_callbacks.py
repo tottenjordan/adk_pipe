@@ -481,6 +481,7 @@ class TestSkipReviserWithoutNotes:
                 "timely_reason": "",
                 "casts_person_reference": False,
                 "person_casting_reason": "",
+                "composition_mode": "product_in_scene",
                 "image_generation_prompt": "A diecut sticker of a user-edited prompt",
             }
         ]

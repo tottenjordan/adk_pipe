@@ -37,8 +37,9 @@ def test_facade_exposes_reusable_pipelines_and_schema():
     assert creative_agent.app is creative_agent.agent.app
 
     # Shared visual schema
-    from creative_agent.schemas import VisualConceptFinalList
+    from creative_agent.schemas import CompositionMode, VisualConceptFinalList
 
+    assert creative_agent.CompositionMode is CompositionMode
     assert creative_agent.VisualConceptFinalList is VisualConceptFinalList
 
     # Structured creative brief (the downstream creative contract)
@@ -90,6 +91,7 @@ def test_facade_all_is_complete_and_importable():
         "ad_copy_reviser",
         "residual_copy_issues",
         "cap_and_residual_copies",
+        "CompositionMode",
         "VisualConceptFinalList",
         "CreativeBrief",
         "canonical_style",

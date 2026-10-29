@@ -236,6 +236,8 @@ def _concept_issues(state: Mapping[str, Any]) -> dict[str, list[CopyIssue]]:
         target_product=policy.target_product,
         strictness=policy.strictness,
         timely_ok=policy.timely_ok,
+        reference_roles=policy.reference_roles,
+        visual_style_preference=policy.visual_style_preference,
     )
 
 

@@ -244,6 +244,7 @@ VISUAL_CONCEPT_EVAL_USER = (
 <VISUAL_CONCEPT>
 Concept Name: {concept_name}
 Visual Style: {visual_style}
+Composition Mode: {composition_mode}
 Aspect Ratio: {aspect_ratio}
 Trend: {trend}
 Trend Reference: {trend_reference}
@@ -266,7 +267,7 @@ Safer Angle: {safer_angle}
 <GATES>
 Check each gate against the rendered image when one is attached, otherwise against the image generation prompt:
 
-1. **product_visible**: The target product ("{target_product}") is clearly visible and recognisable. Stylised renderings count when the product is still recognisable; for a product with no physical form (an app, a service) its screen, logo, packaging or name counts.
+1. **product_visible**: The target product ("{target_product}") is clearly visible and recognisable. Stylised renderings count when the product is still recognisable; for a product with no physical form (an app, a service) its screen, logo, packaging or name counts. Tailor to Composition Mode ("{composition_mode}"): for `product_hero`, require unobstructed packshot visibility (fail if unexpected people or human hands obscure the product packaging); for `lifestyle_context` or `graphic_lockup`, an integrated environmental product placement, emblem, or graphic depiction matching the prompt satisfies `product_visible`.
 2. **trend_motif_visible**: The trend motif (or, when none is given, a recognisable element of the trend) is visible, not tiny or hidden in the background, and recognisable as a reference to "{target_search_trend}" by someone who follows the trend, without reading any caption or copy. Stylised, abstract or symbolic references count when such a follower would recognise them (e.g. a checkered finish-line pattern for a marathon). Fail only when the motif is absent, too small or hidden to notice, or so generic it could illustrate any trend (e.g. any storm or any phone screen). """
     + _SAFER_ANGLE_TIE
     + """ recognisable; a likeness of the real person is never needed.

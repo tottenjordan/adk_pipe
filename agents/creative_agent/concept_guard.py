@@ -650,6 +650,72 @@ def _timely_issues(
     ]
 
 
+_PRODUCT_HERO_HUMAN_ATOM = (
+    r"(?:"
+    r"hands?|fingers?|thumbs?|palms?|wrists?|arms?|"
+    r"persons?|people|humans?|woman|women|man|men|girls?|boys?|"
+    r"athletes?|runners?|musicians?|players?|spokespersons?|talent|"
+    r"actors?|actresses?|influencers?|creators?|"
+    r"models?|faces?|selfies?|portraits?"
+    r")"
+)
+_PRODUCT_HERO_NEGATED_ATOM = (
+    rf"(?:{_PRODUCT_HERO_HUMAN_ATOM}|figures?|silhouettes?|bodies|body)"
+)
+
+_PRODUCT_HERO_NEGATED_HUMAN_RE = re.compile(
+    rf"\b(?:no|zero|without(?:\s+any)?|free\s+of|never(?:\s+any)?)\s+"
+    rf"(?:any\s+|other\s+)?(?:human\s+|cast\s+)?{_PRODUCT_HERO_NEGATED_ATOM}"
+    rf"(?:\s*(?:,\s*(?:or|and|nor)\b|[,/]|\b(?:or|and|nor)\b)\s*"
+    rf"(?:any\s+|other\s+)?(?:human\s+|cast\s+)?{_PRODUCT_HERO_NEGATED_ATOM})*\b",
+    re.IGNORECASE,
+)
+
+_PRODUCT_HERO_EXEMPT_RE = re.compile(
+    r"\b(?:"
+    r"(?:second|first|left|right|short|long|free|on|off|back|fore|under|over)-hand|"
+    r"hand-(?:made|crafted|carved|painted|stitched|woven|blown|picked|finished|built|assembled|drawn|lettered|tooled|rubbed|polished)|"
+    r"hands-(?:free|off)|"
+    r"(?:tremolo|whammy|boom|mic|microphone|monitor|robot(?:ic)?|mechanical|lever|swing|rocker|control|suspension|tone)\s+arms?|"
+    r"coat\s+of\s+arms|"
+    r"model\s+(?:number|no\.?|name|year|code|series|line|id|kit)|"
+    r"(?:latest|new|flagship|pro|base|standard|signature|production|scale|3d|cad|product|role)\s+models?|"
+    r"portrait\s+(?:orientation|mode|ratio|aspect|frame|framing|crop|format|feed)|"
+    r"(?:clock|watch|rock|cliff|type|dial)\s+faces?"
+    r")\b",
+    re.IGNORECASE,
+)
+
+_PRODUCT_HERO_HUMAN_RE = re.compile(
+    rf"\b({_PRODUCT_HERO_HUMAN_ATOM})\b",
+    re.IGNORECASE,
+)
+
+_UNGROUNDED_CAST_CLAIM_RE = re.compile(
+    r"\b("
+    r"(?:the\s+)?reference\s+(?:person|talent|cast|model|spokesperson|actor|actress|woman|man|subject|headshot|portrait)|"
+    r"cast\s+reference|"
+    r"uploaded\s+(?:cast|talent|person|spokesperson|model|headshot|portrait)|"
+    r"(?:person|talent|spokesperson|woman|man|model)\s+from\s+the\s+(?:cast\s+)?reference|"
+    r"exact\s+likeness\s+of\s+the\s+reference"
+    r")\b",
+    re.IGNORECASE,
+)
+
+
+def _normalise_reference_roles(reference_roles: Sequence[str] | str) -> set[str]:
+    if isinstance(reference_roles, str):
+        return {r.strip().lower() for r in reference_roles.split(",") if r.strip()}
+    return {str(r).strip().lower() for r in (reference_roles or ()) if str(r).strip()}
+
+
+def _has_product_hero_human_contamination(prompt: str) -> bool:
+    unquoted = _QUOTED.sub(" ", prompt)
+    scrubbed = _PRODUCT_HERO_NEGATED_HUMAN_RE.sub(" ", unquoted)
+    scrubbed = _PRODUCT_HERO_EXEMPT_RE.sub(" ", scrubbed)
+    return bool(_PRODUCT_HERO_HUMAN_RE.search(scrubbed))
+
+
 def concept_issues(
     concepts: Any,
     ad_copies: Any,
@@ -659,6 +725,8 @@ def concept_issues(
     max_text_concepts: int = DEFAULT_MAX_TEXT_CONCEPTS,
     strictness: Sequence[str] = (),
     timely_ok: bool = False,
+    reference_roles: Sequence[str] | str = (),
+    visual_style_preference: str = "",
 ) -> dict[str, list[CopyIssue]]:
     """The concepts' deterministic issues, keyed by ``concept_keys``.
 
@@ -718,9 +786,12 @@ def concept_issues(
     issues: dict[str, list[CopyIssue]] = {}
     text_concepts = 0
     centred = 0
+    has_cast_reference = "cast" in _normalise_reference_roles(reference_roles)
     for key, concept, (quotes, allowed, bad) in zip(keys, parsed, checked, strict=True):
         found: list[str] = []
         prompt = _text(concept.get("image_generation_prompt"))
+        raw_mode = _text(concept.get("composition_mode")).lower()
+        mode = raw_mode or "product_in_scene"
         mismatched = bool(bad)
         for quote in bad:
             prefix = (
@@ -768,8 +839,57 @@ def concept_issues(
                     "environment, or an extreme close-up detail)."
                 )
 
+        if mode == "product_hero" and _has_product_hero_human_contamination(prompt):
+            found.append(
+                "composition_mode is 'product_hero' (pure product packshot) "
+                "but the prompt includes human hands, faces or models: remove "
+                "all people/hands from the prompt so the product is completely "
+                "unobstructed, or switch composition_mode to 'product_in_scene' "
+                "or 'cast_with_product'."
+            )
+
+        if (
+            mode == "cast_with_product"
+            and not has_cast_reference
+            and concept.get("casts_person_reference") is not True
+            and _UNGROUNDED_CAST_CLAIM_RE.search(_QUOTED.sub(" ", prompt))
+        ):
+            found.append(
+                "composition_mode is 'cast_with_product' and the prompt claims "
+                "an uploaded/reference cast person, but no 'cast' reference "
+                "image was supplied: describe generic campaign-appropriate "
+                "talent without claiming a reference likeness, or switch "
+                "composition_mode to 'product_in_scene'."
+            )
+
         if found:
             issues[key] = [CopyIssue("deterministic", text) for text in found]
+
+    has_explicit_modes = any(
+        isinstance(c, Mapping) and bool(_text(c.get("composition_mode")))
+        for c in parsed
+    )
+    if (
+        len(parsed) >= 4
+        and not (visual_style_preference or "").strip()
+        and has_explicit_modes
+    ):
+        modes = [
+            (_text(c.get("composition_mode")).lower() or "product_in_scene")
+            for c in parsed
+        ]
+        if len(set(modes)) == 1:
+            fourth_key = keys[3]
+            issues.setdefault(fourth_key, []).append(
+                CopyIssue(
+                    "deterministic",
+                    f"all concepts in the set use composition_mode '{modes[3]}': "
+                    "change this concept's composition_mode to a different mode "
+                    "(e.g. 'product_hero', 'product_in_scene', "
+                    "'lifestyle_context', 'cast_with_product', or "
+                    "'graphic_lockup') and adjust the framing accordingly.",
+                )
+            )
     return issues
 
 

@@ -225,6 +225,7 @@ AD_COPY_PROMPT_FIELDS: tuple[str, ...] = (
 VISUAL_PROMPT_FIELDS: tuple[str, ...] = (
     "concept_name",
     "visual_style",
+    "composition_mode",
     "aspect_ratio",
     "trend",
     "trend_reference",
@@ -241,6 +242,7 @@ VISUAL_PROMPT_FIELDS: tuple[str, ...] = (
 )
 # Defaults for empty visual fields (the judge reads "(none)", not a blank).
 _VISUAL_FIELD_DEFAULTS = {
+    "composition_mode": "product_in_scene",
     "aspect_ratio": "unspecified",
     "trend_motif": "(none)",
     "brand_cue": "(none)",

@@ -519,7 +519,7 @@ class TestResolveReferences:
             ],
         }
         refs = image_tools.resolve_references(state)
-        assert len(refs) == image_tools.MAX_REFERENCE_IMAGES == 3
+        assert len(refs) == image_tools.MAX_REFERENCE_IMAGES == 4
         assert refs[0] == ("gs://b/0.png", "product")
 
 

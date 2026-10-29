@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   MAX_REFERENCE_IMAGES,
+  REFERENCE_ROLES,
   formatReferenceImages,
   invalidReferenceUris,
   isReferenceUri,
@@ -44,7 +45,8 @@ describe("referenceImagesFromForm", () => {
   });
 
   it("dedupes by uri and caps at MAX_REFERENCE_IMAGES", () => {
-    expect(MAX_REFERENCE_IMAGES).toBe(3);
+    expect(MAX_REFERENCE_IMAGES).toBe(4);
+    expect(REFERENCE_ROLES).toEqual(["product", "logo", "style", "cast"]);
     const refs = referenceImagesFromForm({
       referenceImageUri: "gs://b/1.png",
       referenceImageRole: "product",
@@ -52,10 +54,16 @@ describe("referenceImagesFromForm", () => {
         { uri: "gs://b/1.png", role: "style" },
         { uri: "gs://b/2.png", role: "style" },
         { uri: "gs://b/3.png", role: "logo" },
-        { uri: "gs://b/4.png", role: "logo" },
+        { uri: "gs://b/4.png", role: "cast" },
+        { uri: "gs://b/5.png", role: "logo" },
       ],
     });
-    expect(refs.map((r) => r.uri)).toEqual(["gs://b/1.png", "gs://b/2.png", "gs://b/3.png"]);
+    expect(refs).toEqual([
+      { uri: "gs://b/1.png", role: "product" },
+      { uri: "gs://b/2.png", role: "style" },
+      { uri: "gs://b/3.png", role: "logo" },
+      { uri: "gs://b/4.png", role: "cast" },
+    ]);
   });
 });
 
@@ -203,9 +211,13 @@ describe("reference roles (only the legacy pair defaults to product)", () => {
           { uri: "gs://b/a.png" },
           { uri: "gs://b/b.png", role: "" },
           { uri: "gs://b/c.png", role: "logo" },
+          { uri: "gs://b/d.png", role: "cast" },
         ],
       }),
-    ).toEqual([{ uri: "gs://b/c.png", role: "logo" }]);
+    ).toEqual([
+      { uri: "gs://b/c.png", role: "logo" },
+      { uri: "gs://b/d.png", role: "cast" },
+    ]);
   });
 
   it("the form's empty role still means product (rows are emitted with explicit roles)", () => {

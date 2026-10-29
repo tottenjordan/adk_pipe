@@ -201,15 +201,15 @@ def _timely_prompts() -> dict[str, str]:
 # safer-angle rule tokens (`safer_angle_copy_rules` / `safer_angle_visual_rules`,
 # "" unless a sensitive trend's safer angle is active; see `_strip_optional`).
 _PRE_TIMELY_SHA256 = {
-    "ART_DIRECTOR_INSTR": "760ea3944a0b921e",
-    "VISUAL_CONCEPT_DRAFTER_INSTR": "7163d0d3f0f69d49",
-    "VISUAL_CONCEPT_CRITIC_INSTR": "22bfd5d4f32ea53f",
-    "VISUAL_CONCEPT_FINALIZER_INSTR": "5340500bdf98301b",
-    "VISUAL_CONCEPT_FIXER_INSTR": "6f85b3f3fa28d0a4",
+    "ART_DIRECTOR_INSTR": "255bb92d94efa0e5",
+    "VISUAL_CONCEPT_DRAFTER_INSTR": "0eb6faadcda6c655",
+    "VISUAL_CONCEPT_CRITIC_INSTR": "d5399c9aff626686",
+    "VISUAL_CONCEPT_FINALIZER_INSTR": "d07d26bc9cf33951",
+    "VISUAL_CONCEPT_FIXER_INSTR": "416fbb8c377bab5a",
     "AD_COPY_DRAFTER_INSTR": "d70173917ad8addc",
     "AD_COPY_CRITIC_INSTR": "0f7f3b4754481861",
     "AD_COPY_REVISER_INSTR": "da8989bcacbf0915",
-    "VISUAL_CONCEPT_REVISER_INSTR": "6584de5c667ff326",
+    "VISUAL_CONCEPT_REVISER_INSTR": "0446a5843394c6f5",
 }
 
 

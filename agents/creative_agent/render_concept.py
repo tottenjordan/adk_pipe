@@ -37,7 +37,12 @@ from .concept_guard import neutralise_person_prompt
 from .config import config
 from .person_edit import EDIT_INSTRUCTION, edit_contents
 from .person_render import NO_IMAGE
-from .references import fetch_references as _fetch_reference_parts
+from .references import (
+    fetch_references as _fetch_reference_parts,
+)
+from .references import (
+    filter_references_for_composition,
+)
 
 PHOTO_UNAVAILABLE = "photo_unavailable"
 
@@ -56,6 +61,13 @@ class RenderReferences:
     @property
     def has_logo(self) -> bool:
         return "logo" in self.roles
+
+    def for_composition(self, composition_mode: str | None) -> RenderReferences:
+        """Strip incompatible reference roles (e.g. ``cast`` on hero/lockup shots)."""
+        parts, missing = filter_references_for_composition(
+            self.parts, self.missing_roles, composition_mode
+        )
+        return RenderReferences(parts=tuple(parts), missing_roles=tuple(missing))
 
 
 async def fetch_references(refs: list[tuple[str, str]]) -> RenderReferences:
@@ -170,6 +182,7 @@ class QAContext:
     original_image: tuple[bytes, str] | None = None
     safer_angle: bool = False
     has_logo: bool = False
+    reference_description: str = ""
     model: str = field(default_factory=lambda: config.image_qa_model)
     client: Any = None
 
@@ -192,6 +205,8 @@ async def _inspect(
         extra["original_image"] = qa_ctx.original_image
     if qa_ctx.safer_angle:
         extra["safer_angle_active"] = True
+    if qa_ctx.reference_description:
+        extra["reference_description"] = qa_ctx.reference_description
     try:
         client = qa_ctx.client
         if client is None:
@@ -332,6 +347,7 @@ async def render_concept(
     fallback_without_person: bool = True,
     pacing: RenderPacing | None = None,
     safer_angle_active: bool = False,
+    reference_description: str = "",
 ) -> RenderResult:
     """Render ``concept`` (its ``image_generation_prompt``) once, then QA it and
     re-render while it fails (bounded by ``config.image_qa_max_rerenders`` and
@@ -351,6 +367,7 @@ async def render_concept(
     budget = budget or image_tools._RerenderBudget(config.image_qa_max_rerenders)
     lock = pacing.lock or contextlib.nullcontext()
     entry = dict(concept)
+    references = references.for_composition(entry.get("composition_mode"))
     name = str(entry.get("concept_name") or "")
     prompt_text = entry["image_generation_prompt"]
     wants_person = entry.get("casts_person_reference") is True
@@ -432,6 +449,7 @@ async def render_concept(
             person_image=person_image_of(person) if cast else None,
             safer_angle=safer_angle_active,
             has_logo=references.has_logo,
+            reference_description=reference_description,
         )
         kept, attempts, record, issue = await _rerender_loop(
             qa_ctx,

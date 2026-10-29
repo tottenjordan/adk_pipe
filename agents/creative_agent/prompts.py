@@ -81,8 +81,18 @@ When the run supplies reference images, refer to each by its ROLE, never by a nu
 - product: reproduce the product exactly as shown (shape, colour, label, proportions); describe the new scene around it, never redesign it.
 - logo: place the logo small, legible and undistorted (on the product, a sign or a corner), never stretched, recoloured or rewritten.
 - style: match its palette, texture and lighting only, not its content, subject or layout. It guides palette, texture and lighting for ALL concepts but does NOT override the 4 distinct style families rule: keep the families different and carry the reference's palette and lighting across them.
+- cast: feature the reference person as the on-camera talent or spokesperson in talent-inclusive compositions (such as cast_with_product), preserving their facial likeness, hair and wardrobe cues without altering the product. Never claim a reference cast likeness when no cast reference was supplied, and never include cast portraits or human hands in product_hero or graphic_lockup concepts.
 In-image text still comes only from the text rule above.
 </REFERENCE_IMAGES>
+
+<COMPOSITION_MODES>
+Choose a `composition_mode` per concept and vary modes across the 4-concept set (never give all 4 concepts the identical `composition_mode`):
+- "product_hero": pure product packshot, macro detail or studio hero — ZERO human models, faces, or hands touching or obscuring the product.
+- "product_in_scene": the product grounded naturally in a contextual environment or tabletop scene.
+- "cast_with_product": on-camera talent or person interacting with or presenting the product (reference the uploaded cast asset ONLY when "cast" appears in the run's reference roles; otherwise describe generic campaign-appropriate talent).
+- "lifestyle_context": wider lifestyle, cultural or environmental storytelling scene featuring the product in use.
+- "graphic_lockup": typographic, poster, sticker, or emblem graphic composition — ZERO human models or cast portraits.
+</COMPOSITION_MODES>
 
 <ASPECT_RATIO>
 Choose the aspect ratio per concept and output it in the `aspect_ratio` field:
@@ -833,6 +843,16 @@ ART_DIRECTOR_INSTR = (
         {visual_avoid?}
         </user_avoid>
 
+        <reference_asset_description>
+        Optional factual visual details extracted from the user's product and/or
+        cast reference images. When non-empty, preserve exact product packaging
+        geometry, materials, surface colours, and printed surface labels (strictly
+        on the product surface, never as floating ad overlay) and preserve cast
+        appearance/wardrobe cues in talent-inclusive compositions; when empty,
+        ignore it.
+        {reference_product_description?}
+        </reference_asset_description>
+
         """
     + BRIEF_BLOCK
     + """
@@ -871,6 +891,7 @@ VISUAL_BRAND_CUE_RULE = "**Brand cue (every concept):** set `brand_cue` to ONE b
 VISUAL_TEXT_FROM_COPY_RULE = '**In-image text is quoted from the copy (text-first):** any words rendered in the image must be the paired final ad copy\'s `headline` or `call_to_action` (the <ad_copy_critique> entry whose `original_id` equals the concept\'s `ad_copy_id`), copied exactly inside double quotes: never a new slogan, a paraphrase or extra words. Only a Meme aesthetic caption or a Comic panel speech bubble may be new short text (name it a "meme caption" or "speech bubble" in the prompt). Never put any other text inside double quotes in the prompt.'
 VISUAL_BRIEF_LIMITS_RULE = "**Brief limits:** keep everything on the brief's avoid list and in <user_avoid> out of the image, describing the positive alternative instead. Follow the brief's trend_bridge fit_mode: direct = the product plays inside the trend scene; cultural = connect through the shared value or mood; light_touch = the trend shows only as mood, motif or format (palette, composition, a meme format) while the product stays in its own world, never forced into the trend scene."
 VISUAL_MOTIF_PROMINENCE_RULE = "**Prominent trend motif:** make the trend motif prominent (in the foreground or a large share of the frame) and recognisable at a glance as the trend, never tiny or only in the background."
+VISUAL_COMPOSITION_MODE_RULE = '**Composition mode (`composition_mode`):** choose one of `product_hero`, `product_in_scene`, `cast_with_product`, `lifestyle_context`, or `graphic_lockup`, and span multiple modes across the 4 concepts (never assign all 4 the exact same `composition_mode`). In `product_hero`, depict a pure product packshot/studio hero with ZERO humans, faces, or hands holding or touching the product. In `graphic_lockup`, use ZERO human models or cast portraits. In `cast_with_product`, refer to an uploaded/reference cast person ONLY when "cast" is listed in <reference_images>.'
 # Spliced right after a line break + 4 spaces (`"""` closing an indented
 # line), so the first bullet adds only 4 more to reach the 8-space bullet level.
 VISUAL_CONCEPT_RULES = (
@@ -882,6 +903,8 @@ VISUAL_CONCEPT_RULES = (
     + VISUAL_BRIEF_LIMITS_RULE
     + "\n        *   "
     + VISUAL_MOTIF_PROMINENCE_RULE
+    + "\n        *   "
+    + VISUAL_COMPOSITION_MODE_RULE
 )
 
 # Person casting (docs/plans/2026-10-09-person-reference.md). Only runs with a
@@ -1088,17 +1111,28 @@ VISUAL_CONCEPT_DRAFTER_INSTR = (
         </user_aspect_ratio>
 
         <reference_images>
-        Optional roles of the user's reference images (e.g. "product, style");
+        Optional roles of the user's reference images (e.g. "product, style, cast");
         the image model receives the images themselves. Refer to them by role
         only ("the product from the product reference", "the style reference's
-        palette"), never by number. For a `style` reference: it guides palette,
-        texture and lighting for ALL concepts but does NOT override the 4
-        distinct families rule — keep the families different and carry its
-        palette and lighting across them. For a `product` or `logo` reference:
-        describe the product/logo generically and leave clear space for it —
-        the reference supplies its exact look. When empty, ignore it.
+        palette", "the talent from the cast reference"), never by number. For a
+        `style` reference: it guides palette, texture and lighting for ALL
+        concepts but does NOT override the 4 distinct families rule — keep the
+        families different and carry its palette and lighting across them. For a
+        `product` or `logo` reference: preserve exact geometry and branding —
+        the reference supplies its exact look. For a "cast" reference: feature
+        this person only in talent-inclusive modes (`cast_with_product`), never
+        in `product_hero` or `graphic_lockup`. When empty, ignore it.
         {reference_roles?}
         </reference_images>
+
+        <reference_asset_description>
+        Optional factual visual details extracted from the user's product and/or
+        cast reference images. When non-empty, preserve exact product geometry,
+        materials, surface colours, and printed surface labels (on the product
+        surface only, never as floating ad overlay) and cast appearance cues in
+        talent-inclusive shots; when empty, ignore it.
+        {reference_product_description?}
+        </reference_asset_description>
 
         <brand>{brand}</brand>
         <target_audience>{target_audience}</target_audience>
@@ -1201,10 +1235,17 @@ VISUAL_CONCEPT_CRITIC_INSTR = (
         </user_avoid>
 
         <reference_images>
-        Roles of the user's reference images (e.g. "product, style"), attached at
+        Roles of the user's reference images (e.g. "product, style, cast"), attached at
         render time; refer to them by role only. When empty, ignore it.
         {reference_roles?}
         </reference_images>
+
+        <reference_asset_description>
+        Optional factual visual details extracted from the user's product and/or
+        cast reference images. Preserve exact product geometry/materials/surface
+        labels and cast appearance cues when non-empty; when empty, ignore it.
+        {reference_product_description?}
+        </reference_asset_description>
 
         <user_aspect_ratio>
         Optional campaign-wide aspect-ratio override. When empty, ignore it.
@@ -1291,10 +1332,17 @@ VISUAL_CONCEPT_FINALIZER_INSTR = (
         </user_avoid>
 
         <reference_images>
-        Roles of the user's reference images (e.g. "product, style"), attached at
+        Roles of the user's reference images (e.g. "product, style, cast"), attached at
         render time; refer to them by role only. When empty, ignore it.
         {reference_roles?}
         </reference_images>
+
+        <reference_asset_description>
+        Optional factual visual details extracted from the user's product and/or
+        cast reference images. Preserve exact product geometry/materials/surface
+        labels and cast appearance cues when non-empty; when empty, ignore it.
+        {reference_product_description?}
+        </reference_asset_description>
     </CONTEXT>
 
     <GUIDANCE>
@@ -1324,7 +1372,7 @@ VISUAL_CONCEPT_FIXER_INSTR = (
     """
     + VISUAL_CONCEPT_RULES
     + """
-    4.  **Keep the idea:** a fixed concept keeps its `ad_copy_id`, `concept_name`, `visual_style`, `aspect_ratio`, `brand_cue`, `angle_id`, `headline`, `social_caption` and `call_to_action`.
+    4.  **Keep the idea:** a fixed concept keeps its `ad_copy_id`, `concept_name`, `visual_style`, `aspect_ratio`, `brand_cue`, `angle_id`, `headline`, `social_caption` and `call_to_action` (and keeps `composition_mode` unless fixing a `composition_mode` gate issue).
     5.  **Output:** return ALL the concepts from <final_visual_concepts>, in the same order with unchanged `ad_copy_id`s, as a single JSON object.{person_casting_rules?}{timely_rules?}{rating_limits?}{safer_angle_visual_rules?}
     </INSTRUCTIONS>
 
@@ -1370,6 +1418,17 @@ VISUAL_CONCEPT_FIXER_INSTR = (
         ignore it.
         {visual_avoid?}
         </user_avoid>
+
+        <reference_images>
+        Roles of the user's reference images (e.g. "product, style, cast"). When empty, ignore it.
+        {reference_roles?}
+        </reference_images>
+
+        <reference_asset_description>
+        Optional factual visual details extracted from the user's product and/or
+        cast reference images. When empty, ignore it.
+        {reference_product_description?}
+        </reference_asset_description>
     </CONTEXT>
 
     <IMAGE_PROMPT_GUIDE>

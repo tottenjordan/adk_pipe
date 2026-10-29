@@ -29,7 +29,7 @@ from .copy_gate import parse_copies, restore_unflagged
 from .person_render import person_reference_available
 from .prompts import PERSON_CASTING_RULES
 from .rating_signals import strictness_flags
-from .references import reference_roles_summary
+from .references import reference_roles_summary, resolve_references
 from .safer_angle import derive_state as derive_safer_angle_state
 from .style_shortlist import format_shortlist, pick_style_shortlist
 from .trend_situation import timely_allowed
@@ -140,7 +140,7 @@ def _set_initial_states(source: dict[str, Any], target: State | dict[str, Any]):
     ):
         target.setdefault(_intent_key, "")
 
-    # Optional multiple reference images (`[{"uri", "role"}]`, max 3), same
+    # Optional multiple reference images (`[{"uri", "role"}]`, max 4), same
     # channel + setdefault rule. `reference_roles` ("product, style") is the
     # ordered role list of the resolved references (legacy single reference
     # folded in first) for the drafter's {reference_roles?} token.
@@ -150,6 +150,7 @@ def _set_initial_states(source: dict[str, Any], target: State | dict[str, Any]):
     # exactly True turns it on (creative_agent/rating_signals.py).
     target.setdefault("learn_from_ratings", False)
     target.setdefault("reference_roles", reference_roles_summary(target))
+    target.setdefault("reference_product_description", "")
     # Optional consented person reference ({uri, consent_id}; consent-checked by
     # the api at kick-off). Kept out of reference_images on purpose. The visual
     # agents see only the derived yes/"" flag, never the URI.
@@ -454,6 +455,9 @@ def recheck_concept_issues_callback(callback_context: CallbackContext) -> None:
     """
     state = callback_context.state
     concepts = state.get("final_visual_concepts")
+    roles = state.get("reference_roles") or [
+        role for _, role in resolve_references(state)
+    ]
     issues = concept_issues(
         concepts,
         state.get("ad_copy_critique"),
@@ -461,6 +465,8 @@ def recheck_concept_issues_callback(callback_context: CallbackContext) -> None:
         target_product=str(state.get("target_product") or ""),
         strictness=strictness_flags(state.get("rating_strictness")),
         timely_ok=timely_allowed(state, config.max_timely_concepts),
+        reference_roles=roles,
+        visual_style_preference=str(state.get("visual_style_preference") or ""),
     )
     residual = flatten_concept_issues(concepts, issues) or None
     if residual:
