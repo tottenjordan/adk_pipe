@@ -43,6 +43,7 @@ export function ResultsHeader({
   visualDirectionFields,
   gcsUri,
   galleryUrl,
+  deliveryKitUrl = null,
   startedInGeminiEnterprise = false,
   actions,
 }: {
@@ -53,6 +54,7 @@ export function ResultsHeader({
   visualDirectionFields: Field[];
   gcsUri: string;
   galleryUrl: string | null;
+  deliveryKitUrl?: string | null;
   startedInGeminiEnterprise?: boolean;
   /** Extra header actions, before the gallery link (e.g. "Share slate"). */
   actions?: ReactNode;
@@ -82,8 +84,17 @@ export function ResultsHeader({
             )}
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {actions}
+          {deliveryKitUrl && (
+            <a
+              href={deliveryKitUrl}
+              download
+              className={buttonVariants({ variant: "outline", size: "sm" })}
+            >
+              Download Delivery Kit (.zip)
+            </a>
+          )}
           {galleryUrl && (
             <a
               href={galleryUrl}

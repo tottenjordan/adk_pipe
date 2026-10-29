@@ -285,6 +285,72 @@ def _extract_checkpoint_entries(
     return entries
 
 
+_VARIATION_AXIS_LABELS: dict[str, str] = {
+    "locale_market": "Locale / Market",
+    "audience_persona": "Audience Persona",
+    "visual_style": "Visual Style",
+    "sibling_sku": "Sibling SKU",
+    "cta_hook": "CTA / Hook",
+    "composition_mode": "Composition Mode",
+}
+
+
+def _append_variation_entries(
+    state: Mapping[str, Any], entries: list[dict[str, Any]]
+) -> None:
+    """Append ``kind='variations'`` changelog milestones from ``creative_variations``."""
+    raw_records = _as_obj(state.get("creative_variations"))
+    records: list[Mapping[str, Any]] = []
+    if isinstance(raw_records, list):
+        records = [r for r in raw_records if isinstance(r, Mapping)]
+    if not records:
+        visuals_obj = _as_obj(state.get("final_visual_concepts"))
+        visuals = (
+            visuals_obj.get("visual_concepts")
+            if isinstance(visuals_obj, Mapping)
+            else visuals_obj
+        )
+        if isinstance(visuals, list):
+            records = [
+                {
+                    "concept_name": vc.get("concept_name"),
+                    "variation_of": vc.get("variation_of"),
+                    "axis": vc.get("variation_axis"),
+                    "value": vc.get("variation_value"),
+                }
+                for vc in visuals
+                if isinstance(vc, Mapping) and vc.get("variation_of")
+            ]
+    if not records:
+        return
+
+    grouped: OrderedDict[tuple[str, str, str], list[Mapping[str, Any]]] = OrderedDict()
+    for rec in records:
+        parent = str(rec.get("variation_of") or "Base creative").strip()
+        axis = str(rec.get("axis") or rec.get("variation_axis") or "").strip()
+        ts = str(rec.get("created_at") or "").strip()
+        grouped.setdefault((parent, axis, ts), []).append(rec)
+
+    for (parent, axis, ts), batch in grouped.items():
+        axis_label = _VARIATION_AXIS_LABELS.get(axis, axis or "Single-axis")
+        values = [
+            str(item.get("value") or item.get("variation_value") or "").strip()
+            for item in batch
+        ]
+        values_clean = [v for v in values if v]
+        detail = f"Base: {parent} · Axis: {axis_label}"
+        if values_clean:
+            detail += f" ({', '.join(values_clean)})"
+        entries.append(
+            _entry(
+                "variations",
+                f"Generated {len(batch)} controlled variation(s)",
+                detail=detail,
+                timestamp=ts or None,
+            )
+        )
+
+
 def build_changelog(
     app_name: str,
     session_id: str,
@@ -460,6 +526,8 @@ def build_changelog(
         )
     elif state.get("eval_report_gcs_uri"):
         entries.append(_entry("evaluation", "Evaluated creative portfolio"))
+
+    _append_variation_entries(state, entries)
 
     return {
         "session_id": session_id,

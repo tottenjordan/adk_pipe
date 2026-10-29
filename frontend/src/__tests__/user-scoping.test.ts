@@ -317,3 +317,52 @@ describe("scopeRequestToUser: brand-assist", () => {
     expect(scopeRequestToUser("POST", ["brand-assist", ".."], "{}", U)).toBeNull();
   });
 });
+
+describe("scopeRequestToUser: variations & delivery-kit", () => {
+  const SID = "sess_abc-123";
+
+  it("rewrites userAt=2 on POST /runs/{app}/{user}/{session}/variations", () => {
+    const body = '{"base_concept_index":0,"axis":"visual_style","count":2}';
+    expect(
+      scopeRequestToUser("POST", ["runs", "creative_agent", "me", SID, "variations"], body, U)
+    ).toEqual({
+      path: `runs/creative_agent/alice%40x.com/${SID}/variations`,
+      body,
+    });
+    expect(
+      scopeRequestToUser("POST", ["runs", "interactive_creative", "bob@x.com", SID, "variations"], body, U)?.path
+    ).toBe(`runs/interactive_creative/alice%40x.com/${SID}/variations`);
+  });
+
+  it("rewrites userAt=2 on GET /runs/{app}/{user}/{session}/delivery-kit", () => {
+    expect(
+      scopeRequestToUser("GET", ["runs", "creative_agent", "me", SID, "delivery-kit"], undefined, U)
+    ).toEqual({
+      path: `runs/creative_agent/alice%40x.com/${SID}/delivery-kit`,
+      body: undefined,
+    });
+    expect(
+      scopeRequestToUser("GET", ["runs", "interactive_creative", "bob@x.com", SID, "delivery-kit"], undefined, U)?.path
+    ).toBe(`runs/interactive_creative/alice%40x.com/${SID}/delivery-kit`);
+  });
+
+  it("rejects wrong HTTP methods, malformed session IDs, and extra path segments", () => {
+    expect(
+      scopeRequestToUser("GET", ["runs", "creative_agent", "me", SID, "variations"], undefined, U)
+    ).toBeNull();
+    expect(
+      scopeRequestToUser("POST", ["runs", "creative_agent", "me", SID, "delivery-kit"], "{}", U)
+    ).toBeNull();
+    expect(
+      scopeRequestToUser("POST", ["runs", "creative_agent", "me", SID, "variations", "extra"], "{}", U)
+    ).toBeNull();
+    for (const bad of ["a b", "a.b", "..", "a/b", "x".repeat(129), "id$1"]) {
+      expect(
+        scopeRequestToUser("POST", ["runs", "creative_agent", "me", bad, "variations"], "{}", U)
+      ).toBeNull();
+      expect(
+        scopeRequestToUser("GET", ["runs", "creative_agent", "me", bad, "delivery-kit"], undefined, U)
+      ).toBeNull();
+    }
+  });
+});

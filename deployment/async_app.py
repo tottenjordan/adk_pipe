@@ -34,12 +34,14 @@ from google.adk.runners import Runner
 from runserver import (
     brand_assist,
     changelog,
+    delivery_kit,
     experiments,
     person_refs,
     ratings,
     shares,
     shutdown,
     variants,
+    variations,
 )
 from runserver.a2a_mount import a2a_enabled, mount_a2a_apps
 from runserver.async_runs import (
@@ -195,6 +197,20 @@ changelog.configure(
     authz_mode=_AUTHZ_MODE,
 )
 app.include_router(changelog.router)
+
+variations.configure(
+    session_service=session_service,
+    artifact_service=artifact_service,
+    authz_mode=_AUTHZ_MODE,
+)
+app.include_router(variations.router)
+
+delivery_kit.configure(
+    session_service=session_service,
+    artifact_service=artifact_service,
+    authz_mode=_AUTHZ_MODE,
+)
+app.include_router(delivery_kit.router)
 
 brand_assist.configure(authz_mode=_AUTHZ_MODE)
 app.include_router(brand_assist.router)

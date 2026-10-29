@@ -404,6 +404,14 @@ _REPORT_BUCKET: str | None = configured_report_bucket()
 _REPORT_CACHE: OrderedDict[str, Any] = OrderedDict()
 
 
+def invalidate_report_cache(uri: str | None = None) -> None:
+    """Evict ``uri`` from ``_REPORT_CACHE`` (or clear all entries when ``uri`` is ``None``)."""
+    if uri is None:
+        _REPORT_CACHE.clear()
+    else:
+        _REPORT_CACHE.pop(uri, None)
+
+
 def configure(
     *,
     session_service,
@@ -509,6 +517,17 @@ async def http_put_rating(user_id: str, session_id: str, body: _RatingBody) -> d
     if info is None:
         raise _error(400, "unknown_creative_key", "creative_key is not in this run")
     report, judge_source = await load_report(state)
+    if (
+        judge_source == "gcs"
+        and isinstance(report, Mapping)
+        and _find_eval(report, info) is None
+    ):
+        state_report = _as_obj(state.get(REPORT_KEY))
+        if (
+            isinstance(state_report, Mapping)
+            and _find_eval(state_report, info) is not None
+        ):
+            report, judge_source = state_report, "state"
     now = utcnow()
     row = {
         "rating_id": rating_id(session_id, fields["creative_key"], user_id),

@@ -117,6 +117,24 @@ export function failedGates(score: CreativeScore | null | undefined): GateResult
   return scoreGates(score).filter((g) => !g.passed && !g.advisory);
 }
 
+/** Controlled single-axis variation dimensions (`creative_agent/variations.py`). */
+export type VariationAxis =
+  | "locale_market"
+  | "audience_persona"
+  | "visual_style"
+  | "sibling_sku"
+  | "cta_hook"
+  | "composition_mode";
+
+export const VARIATION_AXIS_LABELS: Record<VariationAxis, string> = {
+  locale_market: "Locale / Market",
+  audience_persona: "Audience Persona",
+  visual_style: "Visual Style",
+  sibling_sku: "Sibling SKU",
+  cta_hook: "CTA / Hook",
+  composition_mode: "Composition Mode",
+};
+
 /** Visual concept data from session state (`final_visual_concepts`). */
 export interface VisualConcept {
   ad_copy_id: number;
@@ -132,6 +150,12 @@ export interface VisualConcept {
   concept_summary: string;
   image_generation_prompt: string;
   visual_style?: string;
+  composition_mode?: string;
+  aspect_ratio?: string;
+  variation_of?: string;
+  variation_base_index?: number;
+  variation_axis?: VariationAxis;
+  variation_value?: string;
   /** True when the concept asked to cast the run's consented person. */
   casts_person_reference?: boolean;
   /** One sentence on why the concept casts (or would not cast) the person. */
@@ -140,6 +164,18 @@ export interface VisualConcept {
   uses_trend_state?: boolean;
   /** One sentence on how the creative references the current moment. */
   timely_reason?: string;
+}
+
+/** Human-readable lineage label for a controlled variation, or null for base creatives. */
+export function variationLineageLabel(
+  concept: Pick<VisualConcept, "variation_of" | "variation_axis" | "variation_value">
+): string | null {
+  if (!concept.variation_of) return null;
+  const axisLabel = concept.variation_axis
+    ? VARIATION_AXIS_LABELS[concept.variation_axis] ?? concept.variation_axis
+    : "Variation";
+  const valueSuffix = concept.variation_value ? `: ${concept.variation_value}` : "";
+  return `Variant of ${concept.variation_of} · ${axisLabel}${valueSuffix}`;
 }
 
 /** A timely proof: why it references the current moment, until when, and whether that has passed. */
@@ -440,4 +476,62 @@ export function sortProofs(proofs: Proof[], mode: ProofSort): Proof[] {
     if (sb === null) return -1;
     return sa === sb ? a.index - b.index : (sa - sb) * dir;
   });
+}
+
+export interface VariationFamily {
+  baseIndex: number;
+  baseName: string;
+  /** `[baseIndex, ...variantIndices]` capped at `maxArms` (default 4). */
+  armIndices: number[];
+}
+
+/**
+ * Group proofs into `[base, ...variants]` families for 1-click contextual-bandit
+ * deployment (capped at `maxArms = 4`, matching `docs/bandit/contracts.md` §5).
+ */
+export function findVariationFamilies(
+  proofs: Proof[],
+  maxArms = 4
+): VariationFamily[] {
+  const ordered = [...proofs].sort((a, b) => a.index - b.index);
+  const byIndex = new Map<number, Proof>();
+  const byName = new Map<string, Proof>();
+  for (const p of ordered) {
+    byIndex.set(p.index, p);
+    if (p.concept.concept_name && !byName.has(p.concept.concept_name)) {
+      byName.set(p.concept.concept_name, p);
+    }
+  }
+
+  const variantsByBase = new Map<number, number[]>();
+  for (const p of ordered) {
+    if (!p.concept.variation_of && p.concept.variation_base_index === undefined) {
+      continue;
+    }
+    let base: Proof | undefined;
+    if (
+      typeof p.concept.variation_base_index === "number" &&
+      byIndex.has(p.concept.variation_base_index)
+    ) {
+      base = byIndex.get(p.concept.variation_base_index);
+    } else if (p.concept.variation_of) {
+      base = byName.get(p.concept.variation_of);
+    }
+    if (!base || base.index === p.index) continue;
+    const list = variantsByBase.get(base.index) ?? [];
+    list.push(p.index);
+    variantsByBase.set(base.index, list);
+  }
+
+  const families: VariationFamily[] = [];
+  for (const [baseIndex, variantIndices] of variantsByBase.entries()) {
+    const base = byIndex.get(baseIndex);
+    if (!base || variantIndices.length === 0) continue;
+    families.push({
+      baseIndex,
+      baseName: base.concept.concept_name || base.concept.headline,
+      armIndices: [baseIndex, ...variantIndices].slice(0, maxArms),
+    });
+  }
+  return families;
 }

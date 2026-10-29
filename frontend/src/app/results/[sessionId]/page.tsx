@@ -11,7 +11,9 @@ import {
   listArtifacts,
   fetchRunChangelog,
   claimRunHandoff,
+  deliveryKitUrl as buildDeliveryKitUrl,
   SELF_USER_ID,
+  type GenerateVariationsResponse,
   type RunChangelog,
 } from "@/lib/api";
 import { fetchEvalReport, parseEvalReport } from "@/lib/eval-report";
@@ -36,6 +38,7 @@ import {
   sortProofs,
   type AdCopy,
   type EvalReport,
+  type Proof,
   type ProofSort,
   type VisualConcept,
 } from "@/lib/eval-matching";
@@ -58,6 +61,7 @@ import { isProofRated } from "@/lib/ratings";
 import { ResultsHeader } from "./results-header";
 import { ResultsSummary, type EvalStatus } from "./results-summary";
 import { RunChangelogPanel } from "./run-changelog";
+import { VariationDrawer } from "./variation-drawer";
 import { ShareDialog } from "@/components/share-dialog";
 import { SessionShares } from "@/components/shares-list";
 import { failedChecksFor, hasRenderedImage, type Share } from "@/lib/shares";
@@ -144,6 +148,30 @@ const CAMPAIGN_FIELD_DEFS: DisplayFieldDef[] = [
 
 const EMPTY_STATE: Record<string, unknown> = {};
 
+function parseStateEvalReport(raw: unknown): EvalReport | null {
+  let obj = raw;
+  if (typeof obj === "string") {
+    try {
+      obj = JSON.parse(obj);
+    } catch {
+      return null;
+    }
+  }
+  return parseEvalReport(obj);
+}
+
+function countStateVariations(raw: unknown): number {
+  let obj = raw;
+  if (typeof obj === "string") {
+    try {
+      obj = JSON.parse(obj);
+    } catch {
+      return 0;
+    }
+  }
+  return Array.isArray(obj) ? obj.length : 0;
+}
+
 export default function ResultsPage({ params }: PageProps<"/results/[sessionId]">) {
   const { sessionId } = use(params);
   const searchParams = useSearchParams();
@@ -164,6 +192,7 @@ export default function ResultsPage({ params }: PageProps<"/results/[sessionId]"
   const [sort, setSort] = useState<ProofSort>("pipeline");
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailIndex, setDetailIndex] = useState<number | null>(null);
+  const [variationTarget, setVariationTarget] = useState<Proof | null>(null);
   const runKey = `${appName}:${userId}:${sessionId}`;
   const [changelogState, setChangelogState] = useState<{
     key: string;
@@ -223,16 +252,36 @@ export default function ResultsPage({ params }: PageProps<"/results/[sessionId]"
   // `isCancelled` lets the load effect drop the result after unmount (the
   // refresh button passes nothing: it always applies).
   const loadEval = useCallback(async (sess: Session, isCancelled: () => boolean = () => false) => {
+    const stateReport = parseStateEvalReport(sess.state?.creative_evaluation_report);
     const dir = outputDir(sess.state ?? {});
-    if (!dir) return;
+    if (!dir) {
+      if (!isCancelled() && stateReport) {
+        setEvalReport(stateReport);
+        setEvalStatus("idle");
+      }
+      return;
+    }
 
     setEvalStatus("loading");
-    const evalUrl = gcsProxyUrl(dir.bucket, `${dir.prefix}/creative_eval_report.json`);
+    const variationsCount = countStateVariations(sess.state?.creative_variations);
+    const baseEvalUrl = gcsProxyUrl(dir.bucket, `${dir.prefix}/creative_eval_report.json`);
+    const evalUrl = variationsCount > 0 ? `${baseEvalUrl}&v=${variationsCount}` : baseEvalUrl;
     const result = await fetchEvalReport<unknown>(evalUrl);
     if (isCancelled()) return;
     if (result.status === "found") {
-      // A malformed/older report (null) shows the "no evaluation" state.
-      setEvalReport(parseEvalReport(result.report));
+      // A malformed/older report (null) shows the "no evaluation" state unless
+      // session state already carries a fresher valid report (e.g. post-variation).
+      const gcsReport = parseEvalReport(result.report);
+      if (gcsReport && stateReport) {
+        const stateVisCount = stateReport.visual_concept_evaluations.length;
+        const gcsVisCount = gcsReport.visual_concept_evaluations.length;
+        setEvalReport(stateVisCount > gcsVisCount ? stateReport : gcsReport);
+      } else {
+        setEvalReport(gcsReport ?? stateReport);
+      }
+      setEvalStatus("idle");
+    } else if (stateReport) {
+      setEvalReport(stateReport);
       setEvalStatus("idle");
     } else {
       setEvalStatus(result.status);
@@ -305,10 +354,19 @@ export default function ResultsPage({ params }: PageProps<"/results/[sessionId]"
           void loadChangelog();
         }
 
-        // A run that stopped early never writes its eval report, so don't poll
-        // for it (that would show "still being written" for a report that won't
-        // come). Otherwise fetch it, retrying on 404 for the last-written race.
-        if (sessionStoppedEarly(appName, sess.state ?? {}, sess.events ?? [])) return;
+        // A run that stopped early never writes its eval report to GCS, so don't
+        // poll for it (that would show "still being written" for a report that
+        // won't come) — though if creative_evaluation_report is already in session
+        // state (e.g. local memory:// dev mode without GCS, or a fail-soft GCS
+        // save), hydrate it directly.
+        if (sessionStoppedEarly(appName, sess.state ?? {}, sess.events ?? [])) {
+          const fallbackReport = parseStateEvalReport(sess.state?.creative_evaluation_report);
+          if (fallbackReport) {
+            setEvalReport(fallbackReport);
+            setEvalStatus("idle");
+          }
+          return;
+        }
         await loadEval(sess, isCancelled);
       } catch (err) {
         if (cancelled) return;
@@ -326,6 +384,28 @@ export default function ResultsPage({ params }: PageProps<"/results/[sessionId]"
   }, [appName, userId, sessionId, fromGe, handoffToken, loadEval, loadChangelog, attempt]);
 
   const state = session?.state || EMPTY_STATE;
+
+  const handleVariationsGenerated = useCallback(
+    async (resp: GenerateVariationsResponse) => {
+      setSession((prev) => (prev ? { ...prev, state: resp.state } : prev));
+      const nextReport = parseStateEvalReport(resp.creative_evaluation_report);
+      if (nextReport) {
+        setEvalReport(nextReport);
+        setEvalStatus("idle");
+      }
+      if (changelogFetchedKeyRef.current === runKey) {
+        changelogFetchedKeyRef.current = null;
+        void loadChangelog();
+      }
+      try {
+        const artifactNames = await listArtifacts(appName, userId, sessionId);
+        setArtifacts(artifactNames.map((name) => ({ name })));
+      } catch {
+        // Non-fatal: contact sheet and GCS proxy URLs remain available.
+      }
+    },
+    [appName, userId, sessionId, runKey, loadChangelog]
+  );
 
   // Pair each visual concept (session state) with its ad copy and both evals.
   const proofs = useMemo(() => {
@@ -423,6 +503,12 @@ export default function ResultsPage({ params }: PageProps<"/results/[sessionId]"
   // Does this run have the creative asset + eval view?
   const hasCreativeView =
     (appName === "creative_agent" || appName === "interactive_creative") && proofs.length > 0;
+  const canExportDeliveryKit =
+    hasCreativeView || Boolean(researchReport) || Boolean(creativeBrief);
+  const kitUrl = canExportDeliveryKit
+    ? buildDeliveryKitUrl(appName, userId, sessionId)
+    : null;
+  const canGenerateVariations = hasCreativeView && !stopped;
   // Sharing freezes the rendered images into a public snapshot, so it needs them.
   const shareEnabled = hasCreativeView && !imagesMissing;
   const startedInGeminiEnterprise =
@@ -440,6 +526,7 @@ export default function ResultsPage({ params }: PageProps<"/results/[sessionId]"
         visualDirectionFields={visualDirectionFields}
         gcsUri={gcsUri}
         galleryUrl={galleryUrl}
+        deliveryKitUrl={kitUrl}
         startedInGeminiEnterprise={startedInGeminiEnterprise}
         actions={
           shareEnabled && (
@@ -481,6 +568,11 @@ export default function ResultsPage({ params }: PageProps<"/results/[sessionId]"
               setDetailOpen(true);
             }}
             isRated={(p) => isProofRated(p, ratings.byKey)}
+            onOpenVariations={
+              canGenerateVariations
+                ? (p) => setVariationTarget(p)
+                : undefined
+            }
             itemRef={(i) => (el) => {
               if (el) proofButtons.current.set(i, el);
               else proofButtons.current.delete(i);
@@ -494,6 +586,14 @@ export default function ResultsPage({ params }: PageProps<"/results/[sessionId]"
             onClose={() => setDetailOpen(false)}
             imageUrlFor={imageUrlFor}
             returnFocusTo={(i) => proofButtons.current.get(i) ?? null}
+            onOpenVariations={
+              canGenerateVariations
+                ? (p) => {
+                    setDetailOpen(false);
+                    setVariationTarget(p);
+                  }
+                : undefined
+            }
             ratingSlot={(p) => (
               <CreativeRatings
                 proof={p}
@@ -529,6 +629,17 @@ export default function ResultsPage({ params }: PageProps<"/results/[sessionId]"
                 />
               ) : null
             }
+          />
+          <VariationDrawer
+            open={variationTarget !== null}
+            proof={variationTarget}
+            appName={appName}
+            userId={userId}
+            sessionId={sessionId}
+            imageUrlFor={imageUrlFor}
+            remainingSlots={Math.max(0, 16 - proofs.length)}
+            onClose={() => setVariationTarget(null)}
+            onGenerated={handleVariationsGenerated}
           />
         </>
       )}

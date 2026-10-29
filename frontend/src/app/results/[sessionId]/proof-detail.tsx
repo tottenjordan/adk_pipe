@@ -27,6 +27,7 @@ export function ProofDetail({
   onClose,
   imageUrlFor,
   returnFocusTo,
+  onOpenVariations,
   ratingSlot,
   shareSlot,
   personaliseSlot,
@@ -40,6 +41,8 @@ export function ProofDetail({
   onClose: () => void;
   imageUrlFor: (conceptName: string) => string | null;
   returnFocusTo: (index: number) => HTMLElement | null;
+  /** Opens the controlled single-axis variations drawer for this proof. */
+  onOpenVariations?: (proof: Proof) => void;
   /** Extra section rendered under the scores (the human rating control). */
   ratingSlot?: (proof: Proof) => ReactNode;
   /** Share action rendered next to the rating slot ("Share this creative"). */
@@ -124,6 +127,17 @@ export function ProofDetail({
                 <Kbd>{SHORTCUTS.prev.combos[0][0]}</Kbd>
                 <Kbd>{SHORTCUTS.next.combos[0][0]}</Kbd>
               </span>
+              {onOpenVariations && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="xs"
+                  className="ml-auto"
+                  onClick={() => onOpenVariations(proof)}
+                >
+                  Generate controlled variations
+                </Button>
+              )}
             </div>
 
             <ProofKeysContext value={registry}>

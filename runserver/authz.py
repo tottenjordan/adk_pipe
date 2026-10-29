@@ -30,7 +30,7 @@ _EMAIL_RE = re.compile(r"^[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}$")
 _PATH_USER_RES = (
     re.compile(r"^/apps/[^/]+/users/(?P<user>[^/]+)(?:/|$)"),
     re.compile(
-        r"^/runs/[^/]+/(?P<user>[^/]+)/[^/]+(?:/(?:resume|changelog|claim-handoff))?/?$"
+        r"^/runs/[^/]+/(?P<user>[^/]+)/[^/]+(?:/(?:resume|changelog|claim-handoff|variations|delivery-kit))?/?$"
     ),
     # Bandit experiments: GET list/detail/metrics, POST traffic/stop. The bare
     # POST /experiments is body-scoped (authorize_body_user in the handler).
