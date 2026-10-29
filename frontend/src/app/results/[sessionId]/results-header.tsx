@@ -43,6 +43,7 @@ export function ResultsHeader({
   visualDirectionFields,
   gcsUri,
   galleryUrl,
+  startedInGeminiEnterprise = false,
   actions,
 }: {
   appName: string;
@@ -52,6 +53,7 @@ export function ResultsHeader({
   visualDirectionFields: Field[];
   gcsUri: string;
   galleryUrl: string | null;
+  startedInGeminiEnterprise?: boolean;
   /** Extra header actions, before the gallery link (e.g. "Share slate"). */
   actions?: ReactNode;
 }) {
@@ -62,7 +64,14 @@ export function ResultsHeader({
     <Collapsible open={open} onOpenChange={setOpen} className="mb-5">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0">
-          <h1 className="text-2xl font-bold text-foreground">Results</h1>
+          <div className="flex flex-wrap items-center gap-2.5">
+            <h1 className="text-2xl font-bold text-foreground">Results</h1>
+            {startedInGeminiEnterprise && (
+              <span className="inline-flex items-center rounded-full border border-border bg-muted/70 px-2.5 py-0.5 text-xs font-medium text-foreground/85">
+                Started in Gemini Enterprise
+              </span>
+            )}
+          </div>
           <p className="mt-1 text-sm text-foreground/85">
             {summary || <span className="font-mono text-muted-foreground">{appName} / {sessionId}</span>}
             {hasDetails && (

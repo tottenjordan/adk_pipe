@@ -1,4 +1,22 @@
-import type { Session, AgentEvent } from "./types";
+import type {
+  Session,
+  AgentEvent,
+  RunChangelogEntry,
+  RunChangelog,
+  ClaimHandoffResult,
+  ChangelogEntry,
+  RunChangelogResponse,
+  ClaimHandoffResponse,
+} from "./types";
+
+export type {
+  RunChangelogEntry,
+  RunChangelog,
+  ClaimHandoffResult,
+  ChangelogEntry,
+  RunChangelogResponse,
+  ClaimHandoffResponse,
+};
 import { isPauseAnswered } from "./pause-detection";
 import type { Calibration, Rating, RatingPayload } from "./ratings";
 import { ShareError, type CreateSharePayload, type Share } from "./shares";
@@ -598,4 +616,46 @@ export async function listVariants(appName: string, sessionId: string): Promise<
   const res = await fetch(variantsUrl(appName, sessionId));
   if (!res.ok) throw await variantError(res);
   return parseVariantsListing(await res.json());
+}
+
+// ---------------------------------------------------------------------------
+// Run changelog & Gemini Enterprise handoff (runserver/changelog.py)
+// ---------------------------------------------------------------------------
+
+/** `GET /runs/{app}/{user}/{session}/changelog`: provenance, gates, sources, and timeline. */
+export async function fetchRunChangelog(
+  appName: string,
+  userId: string,
+  sessionId: string,
+  opts?: { signal?: AbortSignal }
+): Promise<RunChangelog> {
+  const res = await fetch(
+    `${runsUrl(appName, userId, sessionId)}/changelog`,
+    opts?.signal ? { signal: opts.signal } : undefined
+  );
+  if (!res.ok) throw await httpError(res, "Failed to load run changelog");
+  return res.json();
+}
+
+export const getRunChangelog = fetchRunChangelog;
+
+/** `POST /runs/{app}/{user}/{session}/claim-handoff`: redeem a one-time handoff token. */
+export async function claimRunHandoff(
+  appName: string,
+  userId: string,
+  sessionId: string,
+  handoffToken: string,
+  opts?: { signal?: AbortSignal }
+): Promise<ClaimHandoffResult> {
+  const res = await fetch(
+    `${runsUrl(appName, userId, sessionId)}/claim-handoff`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ handoff: handoffToken }),
+      ...(opts?.signal ? { signal: opts.signal } : {}),
+    }
+  );
+  if (!res.ok) throw await httpError(res, "Failed to claim run handoff");
+  return res.json();
 }

@@ -107,8 +107,10 @@ export function createPollBatcher(apply: (batch: PollBatch) => void) {
 export function useRunFollower(
   appName: string,
   userId: string,
-  sessionId: string
+  sessionId: string,
+  opts?: { enabled?: boolean }
 ): RunFollower {
+  const enabled = opts?.enabled ?? true;
   const [events, setEvents] = useState<AgentEvent[]>([]);
   const [status, setStatus] = useState<RunStatus>("connecting");
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -245,6 +247,7 @@ export function useRunFollower(
   }, [appName, userId, sessionId, consumePollEvents, failRun]);
 
   useEffect(() => {
+    if (!enabled) return;
     // Each effect run owns its own poll (and AbortController); cleanup aborts
     // it. Under StrictMode the effect runs twice: the first poll is aborted, the
     // second re-polls from since=0 and the seenEventIds dedup keeps that replay
@@ -303,7 +306,7 @@ export function useRunFollower(
     run();
 
     return () => controller.abort();
-  }, [appName, userId, sessionId, consumePollEvents, failRun]);
+  }, [appName, userId, sessionId, enabled, consumePollEvents, failRun]);
 
   // Reset the stall timer whenever a new event lands (keeps the per-event loop
   // bodies byte-identical — the timestamp is bumped here instead of inline).

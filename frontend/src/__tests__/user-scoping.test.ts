@@ -249,3 +249,51 @@ describe("scopeRequestToUser: variants", () => {
     expect(scopeRequestToUser("POST", ["variants", "me", "creative_agent", VSID, "x"], body, U)).toBeNull();
   });
 });
+
+describe("scopeRequestToUser: runs changelog and claim-handoff", () => {
+  const SID = "vertex-sid-42_abc";
+  it("rewrites userAt=2 on GET changelog and POST claim-handoff", () => {
+    expect(
+      scopeRequestToUser("GET", ["runs", "creative_agent", "me", SID, "changelog"], undefined, U)
+    ).toEqual({
+      path: `runs/creative_agent/alice%40x.com/${SID}/changelog`,
+      body: undefined,
+    });
+    expect(
+      scopeRequestToUser(
+        "POST",
+        ["runs", "interactive_creative", "bob@x.com", SID, "claim-handoff"],
+        '{"handoff":"tok.sig"}',
+        U
+      )
+    ).toEqual({
+      path: `runs/interactive_creative/alice%40x.com/${SID}/claim-handoff`,
+      body: '{"handoff":"tok.sig"}',
+    });
+  });
+
+  it("rejects wrong HTTP methods and malformed session IDs across runs routes", () => {
+    expect(
+      scopeRequestToUser("POST", ["runs", "creative_agent", "me", SID, "changelog"], "{}", U)
+    ).toBeNull();
+    expect(
+      scopeRequestToUser("GET", ["runs", "creative_agent", "me", SID, "claim-handoff"], undefined, U)
+    ).toBeNull();
+    expect(
+      scopeRequestToUser("DELETE", ["runs", "creative_agent", "me", SID, "changelog"], undefined, U)
+    ).toBeNull();
+
+    for (const bad of ["a b", "a.b", "..", "a/b", "x".repeat(129), "id$1"]) {
+      expect(scopeRequestToUser("GET", ["runs", "creative_agent", "me", bad], undefined, U)).toBeNull();
+      expect(
+        scopeRequestToUser("POST", ["runs", "creative_agent", "me", bad, "resume"], "{}", U)
+      ).toBeNull();
+      expect(
+        scopeRequestToUser("GET", ["runs", "creative_agent", "me", bad, "changelog"], undefined, U)
+      ).toBeNull();
+      expect(
+        scopeRequestToUser("POST", ["runs", "creative_agent", "me", bad, "claim-handoff"], "{}", U)
+      ).toBeNull();
+    }
+  });
+});

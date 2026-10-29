@@ -67,14 +67,16 @@ export function QuietDisclosure({
   count,
   children,
   className,
+  onOpenChange,
 }: {
   title: string;
   count?: number;
   children: React.ReactNode;
   className?: string;
+  onOpenChange?: (open: boolean) => void;
 }) {
   return (
-    <Collapsible>
+    <Collapsible onOpenChange={(next) => onOpenChange?.(next)}>
       <div className={cn("overflow-hidden rounded-lg border border-border bg-card", className)}>
         <DisclosureTrigger className="flex w-full items-center justify-between gap-3 px-4 py-2.5 text-left transition-colors hover:bg-muted/60">
           <span className="text-sm font-medium text-foreground">

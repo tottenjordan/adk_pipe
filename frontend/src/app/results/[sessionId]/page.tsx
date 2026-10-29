@@ -1,12 +1,19 @@
 "use client";
 
 import { useEffect, useState, useCallback, useMemo, useRef, use } from "react";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import dynamic from "next/dynamic";
 import { Collapsible } from "@/components/ui/collapsible";
 import { ErrorState } from "@/components/ui/error-state";
 import { Skeleton } from "@/components/ui/skeleton";
-import { getSession, listArtifacts, SELF_USER_ID } from "@/lib/api";
+import {
+  getSession,
+  listArtifacts,
+  fetchRunChangelog,
+  claimRunHandoff,
+  SELF_USER_ID,
+  type RunChangelog,
+} from "@/lib/api";
 import { fetchEvalReport, parseEvalReport } from "@/lib/eval-report";
 import { gcsProxyUrl } from "@/lib/gcs";
 import { outputDir } from "@/lib/results-paths";
@@ -50,6 +57,7 @@ import { CreativeRatings, useSessionRatings } from "./rating-control";
 import { isProofRated } from "@/lib/ratings";
 import { ResultsHeader } from "./results-header";
 import { ResultsSummary, type EvalStatus } from "./results-summary";
+import { RunChangelogPanel } from "./run-changelog";
 import { ShareDialog } from "@/components/share-dialog";
 import { SessionShares } from "@/components/shares-list";
 import { failedChecksFor, hasRenderedImage, type Share } from "@/lib/shares";
@@ -139,8 +147,11 @@ const EMPTY_STATE: Record<string, unknown> = {};
 export default function ResultsPage({ params }: PageProps<"/results/[sessionId]">) {
   const { sessionId } = use(params);
   const searchParams = useSearchParams();
+  const router = useRouter();
   const appName = searchParams.get("app") || "trend_scout";
   const userId = searchParams.get("userId") || SELF_USER_ID;
+  const fromGe = searchParams.get("from") === "ge";
+  const handoffToken = searchParams.get("handoff") || "";
 
   const [session, setSession] = useState<Session | null>(null);
   const [artifacts, setArtifacts] = useState<ArtifactData[]>([]);
@@ -153,6 +164,18 @@ export default function ResultsPage({ params }: PageProps<"/results/[sessionId]"
   const [sort, setSort] = useState<ProofSort>("pipeline");
   const [detailOpen, setDetailOpen] = useState(false);
   const [detailIndex, setDetailIndex] = useState<number | null>(null);
+  const runKey = `${appName}:${userId}:${sessionId}`;
+  const [changelogState, setChangelogState] = useState<{
+    key: string;
+    data: RunChangelog | null;
+    loading: boolean;
+    error: string | null;
+  }>({ key: "", data: null, loading: false, error: null });
+  const changelog = changelogState.key === runKey ? changelogState.data : null;
+  const changelogLoading = changelogState.key === runKey ? changelogState.loading : false;
+  const changelogError = changelogState.key === runKey ? changelogState.error : null;
+  const changelogFetchedKeyRef = useRef<string | null>(null);
+  const changelogAbortRef = useRef<AbortController | null>(null);
   const proofButtons = useRef(new Map<number, HTMLButtonElement>());
   // Links created on this page since load (newest first), shown in "Shared links".
   const [newShares, setNewShares] = useState<Share[]>([]);
@@ -160,6 +183,38 @@ export default function ResultsPage({ params }: PageProps<"/results/[sessionId]"
   // Wall clock for the timely creative's expiry (lib/timely.ts), refreshed every
   // minute so "Timely" turns "Expired" while the page is open.
   const now = useWallClock();
+
+  const loadChangelog = useCallback(async () => {
+    if (changelogFetchedKeyRef.current === runKey) return;
+    changelogFetchedKeyRef.current = runKey;
+    changelogAbortRef.current?.abort();
+    const controller = new AbortController();
+    changelogAbortRef.current = controller;
+    setChangelogState({ key: runKey, data: null, loading: true, error: null });
+    try {
+      const data = await fetchRunChangelog(appName, userId, sessionId, {
+        signal: controller.signal,
+      });
+      if (controller.signal.aborted) return;
+      setChangelogState({ key: runKey, data, loading: false, error: null });
+    } catch (err) {
+      if (
+        controller.signal.aborted ||
+        (err instanceof Error && err.name === "AbortError")
+      ) {
+        return;
+      }
+      if (changelogFetchedKeyRef.current === runKey) {
+        changelogFetchedKeyRef.current = null;
+      }
+      setChangelogState({
+        key: runKey,
+        data: null,
+        loading: false,
+        error: err instanceof Error ? err.message : "Failed to load run changelog",
+      });
+    }
+  }, [appName, userId, sessionId, runKey]);
 
   // The eval report is the LAST artifact the run writes to GCS, so it can 404 if the
   // results page opens before the run's final write lands. fetchEvalReport retries on
@@ -185,8 +240,54 @@ export default function ResultsPage({ params }: PageProps<"/results/[sessionId]"
   }, []);
 
   useEffect(() => {
+    if (!fromGe || !handoffToken) return;
+    let cancelled = false;
+    const controller = new AbortController();
+
+    async function redeem() {
+      try {
+        const claimed = await claimRunHandoff(
+          appName,
+          userId,
+          sessionId,
+          handoffToken,
+          { signal: controller.signal }
+        );
+        if (cancelled || controller.signal.aborted) return;
+        router.replace(
+          `/results/${encodeURIComponent(claimed.session_id)}?app=${encodeURIComponent(appName)}&from=ge`
+        );
+      } catch (err) {
+        if (
+          cancelled ||
+          controller.signal.aborted ||
+          (err instanceof Error && err.name === "AbortError")
+        ) {
+          return;
+        }
+        setError(
+          err instanceof Error
+            ? err.message
+            : "Failed to claim Gemini Enterprise handoff"
+        );
+        setLoading(false);
+      }
+    }
+    redeem();
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [fromGe, handoffToken, appName, userId, sessionId, router]);
+
+  useEffect(() => {
+    if (fromGe && handoffToken) return;
     let cancelled = false;
     const isCancelled = () => cancelled;
+    changelogAbortRef.current?.abort();
+    changelogAbortRef.current = null;
+    changelogFetchedKeyRef.current = null;
+
     async function load() {
       try {
         const [sess, artifactNames] = await Promise.all([
@@ -199,6 +300,10 @@ export default function ResultsPage({ params }: PageProps<"/results/[sessionId]"
         // downloading every artifact's payload here would only delay the page.
         setArtifacts(artifactNames.map((name) => ({ name })));
         setLoading(false);
+
+        if (fromGe) {
+          void loadChangelog();
+        }
 
         // A run that stopped early never writes its eval report, so don't poll
         // for it (that would show "still being written" for a report that won't
@@ -216,8 +321,9 @@ export default function ResultsPage({ params }: PageProps<"/results/[sessionId]"
     load();
     return () => {
       cancelled = true;
+      changelogAbortRef.current?.abort();
     };
-  }, [appName, userId, sessionId, loadEval, attempt]);
+  }, [appName, userId, sessionId, fromGe, handoffToken, loadEval, loadChangelog, attempt]);
 
   const state = session?.state || EMPTY_STATE;
 
@@ -247,7 +353,9 @@ export default function ResultsPage({ params }: PageProps<"/results/[sessionId]"
   // (proof navigation, ratings, share-list updates all re-render this page).
   const stateJson = useMemo(() => JSON.stringify(state, null, 2), [state]);
   const ratingsEnabled =
-    !loading && (appName === "creative_agent" || appName === "interactive_creative");
+    !loading &&
+    !(fromGe && Boolean(handoffToken)) &&
+    (appName === "creative_agent" || appName === "interactive_creative");
   const ratings = useSessionRatings(sessionId, ratingsEnabled);
   // People + variants for the proof dialog's Personalise panel: loaded once, on the
   // first open, and shared across creatives (the panel remounts per creative).
@@ -317,6 +425,10 @@ export default function ResultsPage({ params }: PageProps<"/results/[sessionId]"
     (appName === "creative_agent" || appName === "interactive_creative") && proofs.length > 0;
   // Sharing freezes the rendered images into a public snapshot, so it needs them.
   const shareEnabled = hasCreativeView && !imagesMissing;
+  const startedInGeminiEnterprise =
+    fromGe ||
+    state.run_origin === "gemini_enterprise" ||
+    changelog?.origin === "gemini_enterprise";
 
   return (
     <div className="mx-auto max-w-[1600px] px-6 py-6">
@@ -328,6 +440,7 @@ export default function ResultsPage({ params }: PageProps<"/results/[sessionId]"
         visualDirectionFields={visualDirectionFields}
         gcsUri={gcsUri}
         galleryUrl={galleryUrl}
+        startedInGeminiEnterprise={startedInGeminiEnterprise}
         actions={
           shareEnabled && (
             <ShareDialog
@@ -456,6 +569,14 @@ export default function ResultsPage({ params }: PageProps<"/results/[sessionId]"
           />
         </DeployDisclosure>
       )}
+
+      <RunChangelogPanel
+        changelog={changelog}
+        loading={changelogLoading}
+        error={changelogError}
+        onOpen={loadChangelog}
+        className="mb-4"
+      />
 
       <ArtifactsPanel artifacts={artifacts} urlFor={outputUrl} />
 

@@ -12,11 +12,12 @@ import enum
 import json
 import logging
 import os
+import posixpath
 import re
 import threading
 import time
 import urllib.request
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Collection, Iterable, Mapping, Sequence
 
 import google.auth.exceptions
 from google.auth import jwt as google_jwt
@@ -24,10 +25,13 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 
 TRUSTED_USER_HEADER = "x-tt-user"
+_MAX_EMAIL_LEN = 320
 _EMAIL_RE = re.compile(r"^[a-z0-9._%+\-]+@[a-z0-9.\-]+\.[a-z]{2,}$")
 _PATH_USER_RES = (
     re.compile(r"^/apps/[^/]+/users/(?P<user>[^/]+)(?:/|$)"),
-    re.compile(r"^/runs/[^/]+/(?P<user>[^/]+)/[^/]+(?:/resume)?/?$"),
+    re.compile(
+        r"^/runs/[^/]+/(?P<user>[^/]+)/[^/]+(?:/(?:resume|changelog|claim-handoff))?/?$"
+    ),
     # Bandit experiments: GET list/detail/metrics, POST traffic/stop. The bare
     # POST /experiments is body-scoped (authorize_body_user in the handler).
     re.compile(r"^/experiments/(?P<user>[^/]+)(?:/.*)?$"),
@@ -91,7 +95,7 @@ def resolve_mode(env: Mapping[str, str] = os.environ) -> AuthzMode:
 
 def normalize_user_id(raw: str) -> str:
     value = raw.strip().lower().removeprefix("accounts.google.com:")
-    if not _EMAIL_RE.fullmatch(value):
+    if len(value) > _MAX_EMAIL_LEN or not _EMAIL_RE.fullmatch(value):
         raise ValueError(f"not a valid user email: {raw!r}")
     return value
 
@@ -225,13 +229,94 @@ def verify_proxy_caller(
     return ok
 
 
+_A2A_AGENT_CARD_RE = re.compile(
+    r"^/a2a/[A-Za-z_][A-Za-z0-9_]*/\.well-known/(?:agent-card|agent)\.json$"
+)
+
+
+def parse_allowed_sas(raw: str | None) -> frozenset[str]:
+    """Parse ``A2A_ALLOWED_CALLER_SAS`` into a normalized lowercase frozenset."""
+    if not raw:
+        return frozenset()
+    return frozenset(
+        item.strip().lower() for item in raw.split(",") if item and item.strip()
+    )
+
+
+def verify_a2a_caller(
+    authorization: str | None,
+    *,
+    audiences: Sequence[str],
+    allowed_sas: Collection[str],
+    certs: Callable[..., Mapping[str, str | bytes]] = google_certs,
+) -> bool:
+    """True iff ``authorization`` is a valid Google ID token for one of ``allowed_sas``.
+
+    Security boundary: callers in ``allowed_sas`` are trusted to invoke ``/a2a/*``
+    and assert end-user session ownership via A2A ``user_email`` metadata / auth
+    headers (see ``runserver.a2a_mount.extract_a2a_user_id``). Only include trusted
+    first-party platform service accounts (e.g. Discovery Engine's service agent).
+
+    Fails closed when ``allowed_sas`` or ``audiences`` is empty. Blocking (may fetch
+    certs): ``UserAuthzMiddleware`` runs it in a worker thread via ``asyncio.to_thread``."""
+    allowed = {s.strip().lower() for s in allowed_sas if s and s.strip()}
+    auds = [a.strip() for a in audiences if a and a.strip()]
+    if not allowed or not auds:
+        return False
+    if not authorization or not authorization.lower().startswith("bearer "):
+        return False
+    token = authorization[7:].strip()
+    try:
+        keys = certs()
+        if (kid := _token_kid(token)) is not None and kid not in keys:
+            keys = certs(refresh=True)
+        claims = google_jwt.decode(
+            token,
+            certs=dict(keys),
+            audience=auds,
+            clock_skew_in_seconds=30,
+        )
+    except (ValueError, OSError, google.auth.exceptions.GoogleAuthError) as exc:
+        _log_rejection(type(exc).__name__)
+        return False
+    email = claims.get("email")
+    ok = (
+        claims.get("iss") in ("https://accounts.google.com", "accounts.google.com")
+        and claims.get("email_verified") is True
+        and isinstance(email, str)
+        and email.strip().lower() in allowed
+    )
+    if not ok:
+        _log_rejection("a2a claims mismatch")
+    return ok
+
+
 class UserAuthzMiddleware:
     """Pure-ASGI: derive the trusted user, stash it on scope state, deny per ``decide``."""
 
     def __init__(
-        self, app, *, mode: AuthzMode, caller_ok: Callable[[str | None], bool]
+        self,
+        app,
+        *,
+        mode: AuthzMode,
+        caller_ok: Callable[[str | None], bool],
+        a2a_caller_ok: Callable[[str | None], bool] | None = None,
+        a2a_audiences: Sequence[str] = (),
+        a2a_allowed_sas: Collection[str] = (),
+        a2a_public_agent_card: bool = False,
     ):
         self.app, self.mode, self.caller_ok = app, mode, caller_ok
+        self.a2a_public_agent_card = a2a_public_agent_card
+        if a2a_caller_ok is not None:
+            self.a2a_caller_ok = a2a_caller_ok
+        else:
+            auds = tuple(a2a_audiences)
+            sas = frozenset(
+                s.strip().lower() for s in a2a_allowed_sas if s and s.strip()
+            )
+            self.a2a_caller_ok = lambda auth: verify_a2a_caller(
+                auth, audiences=auds, allowed_sas=sas
+            )
 
     async def __call__(self, scope, receive, send):
         if (
@@ -243,6 +328,50 @@ class UserAuthzMiddleware:
             k.decode("latin-1").lower(): v.decode("latin-1")
             for k, v in scope["headers"]
         }
+        path = scope["path"]
+        has_dot_seg = "\\" in path or any(s in (".", "..") for s in path.split("/"))
+        norm_path = posixpath.normpath("/" + path.replace("\\", "/").lstrip("/"))
+        if norm_path != "/" and path.endswith("/"):
+            norm_path += "/"
+        if has_dot_seg:
+            scope.setdefault("state", {})["tt_user"] = None
+            if self.mode is AuthzMode.ENFORCE:
+                if scope["type"] == "websocket":
+                    if (await receive())["type"] == "websocket.connect":
+                        await send({"type": "websocket.close", "code": 1008})
+                    return
+                await JSONResponse({"detail": "invalid request path"}, status_code=401)(
+                    scope, receive, send
+                )
+                return
+            log.warning("authz observe: would deny 401 %r (dot-segment path)", path)
+        if norm_path == "/a2a" or norm_path.startswith("/a2a/"):
+            scope.setdefault("state", {})["tt_user"] = None
+            if (
+                self.a2a_public_agent_card
+                and not has_dot_seg
+                and scope["type"] == "http"
+                and scope.get("method", "").upper() == "GET"
+                and _A2A_AGENT_CARD_RE.fullmatch(path) is not None
+            ):
+                return await self.app(scope, receive, send)
+            if await asyncio.to_thread(
+                self.a2a_caller_ok, headers.get("authorization")
+            ):
+                return await self.app(scope, receive, send)
+            if self.mode is AuthzMode.OBSERVE:
+                log.warning(
+                    "authz observe: would deny 401 %r (unauthorized A2A caller)", path
+                )
+                return await self.app(scope, receive, send)
+            if scope["type"] == "websocket":
+                if (await receive())["type"] == "websocket.connect":
+                    await send({"type": "websocket.close", "code": 1008})
+                return
+            await JSONResponse({"detail": "unauthorized A2A caller"}, status_code=401)(
+                scope, receive, send
+            )
+            return
         trusted = None
         # Verification may block on a certs fetch: keep it off the event loop
         # shared with the detached /runs tasks.
@@ -254,7 +383,7 @@ class UserAuthzMiddleware:
             except ValueError:
                 trusted = None
         scope.setdefault("state", {})["tt_user"] = trusted
-        denial = decide(self.mode, scope["path"], trusted)
+        denial = decide(self.mode, norm_path, trusted)
         if denial is None:
             return await self.app(scope, receive, send)
         if scope["type"] == "websocket":
