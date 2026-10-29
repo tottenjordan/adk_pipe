@@ -15,18 +15,39 @@ import json
 import logging
 import socket
 import urllib.request
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from typing import Any
 from urllib.parse import urlparse
 
 # Google allows up to 14 reference images; keep it small for render latency.
-MAX_REFERENCE_IMAGES = 3
+MAX_REFERENCE_IMAGES = 4
 
 # How a reference image may be used. Only the legacy single pair may leave the
 # role empty (→ `product`, the historical meaning of the single reference
 # image); every ``reference_images`` entry must name its role.
-REFERENCE_ROLES = ("product", "logo", "style")
+REFERENCE_ROLES = ("product", "logo", "style", "cast")
 _LEGACY_DEFAULT_ROLE = "product"
+_CAST_EXCLUDED_COMPOSITION_MODES = frozenset({"product_hero", "graphic_lockup"})
+
+
+def filter_references_for_composition[T](
+    references: Sequence[tuple[str, T]],
+    missing_roles: Sequence[str],
+    composition_mode: str | None,
+) -> tuple[list[tuple[str, T]], list[str]]:
+    """Filter resolved reference pairs and missing roles for a concept's composition mode.
+
+    Pure packshots (``product_hero``) and typographic/emblem lockups
+    (``graphic_lockup``) omit ``"cast"`` references and missing-role notices so
+    the image model never receives a talent headshot during non-human compositions.
+    """
+    mode = (composition_mode or "").strip().lower()
+    if mode in _CAST_EXCLUDED_COMPOSITION_MODES:
+        return (
+            [(role, part) for role, part in references if role != "cast"],
+            [role for role in missing_roles if role != "cast"],
+        )
+    return list(references), list(missing_roles)
 
 
 def _normalise_role(role: Any, default: str | None = None) -> str | None:

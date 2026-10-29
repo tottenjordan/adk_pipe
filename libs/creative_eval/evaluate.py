@@ -67,6 +67,20 @@ from .schemas import (
 logger = logging.getLogger(__name__)
 
 
+def _int_id(value: Any, fallback: int) -> int:
+    """Coerce ``value`` to ``int`` when well-formed (rejecting ``bool``), else ``fallback``."""
+    if isinstance(value, bool) or value is None:
+        return fallback
+    if isinstance(value, int):
+        return value
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    try:
+        return int(str(value).strip())
+    except (TypeError, ValueError):
+        return fallback
+
+
 def evaluate_ad_copy(
     ad_copy: dict,
     campaign_context: dict,
@@ -132,7 +146,7 @@ def evaluate_ad_copy(
         score = _failed_score()  # a zero-score evaluation on failure
     # Join keys and labels come from the input copy, never the judge's echo.
     return AdCopyEvaluation(
-        original_id=ad_copy.get("original_id", 0),
+        original_id=_int_id(ad_copy.get("original_id"), 0),
         headline=str(ad_copy.get("headline") or ""),
         tone_style=str(ad_copy.get("tone_style") or ""),
         angle_id=str(ad_copy.get("angle_id") or ""),
@@ -218,7 +232,7 @@ def evaluate_visual_concept(
         # Join keys come from the input concept, never the judge's echo; the
         # tags are recorded by code (brand history reads them).
         return VisualConceptEvaluation(
-            ad_copy_id=visual_concept.get("ad_copy_id", 0),
+            ad_copy_id=_int_id(visual_concept.get("ad_copy_id"), 0),
             concept_name=str(visual_concept.get("concept_name") or ""),
             score=score,
             image_judged=image_judged,

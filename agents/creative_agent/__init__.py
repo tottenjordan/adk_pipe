@@ -40,7 +40,7 @@ from .brand_history import ALLOWED_TONES as AD_COPY_TONES
 from .brand_history import normalize_brand
 from .copy_gate import parse_copies as parse_ad_copies
 from .copy_gate import user_revision_inputs as user_copy_revision_inputs
-from .schemas import CreativeBrief, VisualConceptFinalList
+from .schemas import CompositionMode, CreativeBrief, VisualConceptFinalList
 from .style_shortlist import canonical_style
 
 __all__ = [
@@ -63,6 +63,7 @@ __all__ = [
     "residual_copy_issues",
     "cap_and_residual_copies",
     # shared visual schema + the structured creative brief (downstream contract)
+    "CompositionMode",
     "VisualConceptFinalList",
     "CreativeBrief",
     # allowlists for the api's rating learning context (runserver/ratings.py)

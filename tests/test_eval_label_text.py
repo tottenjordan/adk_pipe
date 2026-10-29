@@ -21,7 +21,7 @@ def _gate_line(name: str) -> str:
 
 
 def test_judge_version_current():
-    assert JUDGE_VERSION == "2026-10-15.2"
+    assert JUDGE_VERSION == "2026-10-29"
 
 
 def test_no_visual_defects_exempts_product_label_text():

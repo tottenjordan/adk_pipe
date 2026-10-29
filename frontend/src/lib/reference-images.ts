@@ -7,9 +7,9 @@ import type { CampaignInput, ReferenceImageInput } from "@/lib/types";
  * pair first (an empty role there means `product`), deduped by uri. A
  * `reference_images` entry must name a valid role or it is skipped.
  */
-export const MAX_REFERENCE_IMAGES = 3;
+export const MAX_REFERENCE_IMAGES = 4;
 
-export const REFERENCE_ROLES = ["product", "logo", "style"] as const;
+export const REFERENCE_ROLES = ["product", "logo", "style", "cast"] as const;
 
 const DEFAULT_ROLE = "product";
 

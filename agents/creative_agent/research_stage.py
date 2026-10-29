@@ -36,6 +36,7 @@ from .brief_check import check_brief, normalize_brief_terms, parse_brief
 from .brief_render import render_brief_markdown
 from .config import SCHEMA_RETRY, config
 from .finalize import issue_message
+from .reference_descriptor import describe_reference_assets
 from .run_policy import RunPolicy
 from .safer_angle import clear_stray_safer_angle
 from .schemas import CreativeBrief, ResearchFeedback
@@ -556,6 +557,7 @@ combined_research_pipeline = Workflow(
                 ca_sequential_planner,
                 enterprise_sequential_planner,
                 load_brand_history,
+                describe_reference_assets,
                 trend_situation_pipeline,
             ),
             research_join,

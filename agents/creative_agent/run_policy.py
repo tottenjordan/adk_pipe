@@ -29,6 +29,7 @@ from .copy_gate import (
     brief_safer_angle,
 )
 from .rating_signals import strictness_flags
+from .references import resolve_references
 from .trend_situation import timely_allowed
 
 
@@ -93,6 +94,8 @@ class RunPolicy:
     motifs: Sequence[str] = ()
     risks: Sequence[str] = ()
     brand_colors: str = ""
+    reference_roles: Sequence[str] | str = ()
+    visual_style_preference: str = ""
     sources: Mapping[str, Any] | None = None
     enterprise_sources: Mapping[str, Any] | None = None
     trend_situation: Mapping[str, Any] | None = None
@@ -105,6 +108,12 @@ class RunPolicy:
         ent_sources = state.get("enterprise_sources")
         situation = state.get("trend_situation")
         max_timely = config.max_timely_concepts
+        raw_roles = state.get("reference_roles")
+        roles: Sequence[str] | str = (
+            raw_roles
+            if raw_roles
+            else tuple(role for _, role in resolve_references(state))
+        )
         return cls(
             brand=str(state.get("brand") or ""),
             target_product=str(state.get("target_product") or ""),
@@ -123,6 +132,8 @@ class RunPolicy:
             motifs=tuple(brief_motifs(brief)),
             risks=tuple(brief_risks(brief)),
             brand_colors=str(state.get("brand_colors") or ""),
+            reference_roles=roles,
+            visual_style_preference=str(state.get("visual_style_preference") or ""),
             sources=sources if isinstance(sources, Mapping) else None,
             enterprise_sources=(
                 ent_sources if isinstance(ent_sources, Mapping) else None

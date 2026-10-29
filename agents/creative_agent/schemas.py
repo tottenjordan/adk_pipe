@@ -177,6 +177,15 @@ class FinalAdCopyList(BaseModel):
 
 
 # --- VISUAL CONCEPT SCHEMA ---
+CompositionMode = Literal[
+    "product_hero",
+    "product_in_scene",
+    "cast_with_product",
+    "lifestyle_context",
+    "graphic_lockup",
+]
+
+
 class VisualConcept(BaseModel):
     """Model representing a single candidate visual concept."""
 
@@ -211,6 +220,10 @@ class VisualConcept(BaseModel):
     angle_id: str = Field(
         default="",
         description="The creative brief angle id carried over from the paired ad copy (its `angle_id`, e.g. 'A2'); '' when the copy has none.",
+    )
+    composition_mode: CompositionMode = Field(
+        default="product_in_scene",
+        description="Composition framing mode: 'product_hero' (pure packshot/studio hero — zero humans, faces or hands), 'product_in_scene' (product grounded in a contextual scene), 'cast_with_product' (on-camera talent/person interacting with or presenting the product), 'lifestyle_context' (wider lifestyle or cultural scene featuring the product), or 'graphic_lockup' (typographic, poster or emblem graphic composition — zero human models).",
     )
     uses_trend_state: bool = Field(
         default=False,
@@ -289,6 +302,10 @@ class VisualConceptCritique(BaseModel):
     person_casting_reason: str = Field(
         default="",
         description="One sentence: why this concept casts (or would not cast) the person reference; '' when no person reference is available.",
+    )
+    composition_mode: CompositionMode = Field(
+        default="product_in_scene",
+        description="Composition framing mode carried through or refined from the draft ('product_hero', 'product_in_scene', 'cast_with_product', 'lifestyle_context', or 'graphic_lockup').",
     )
     image_generation_prompt: str = Field(
         description="The FINAL, refined image-generation prompt, written in the concept's chosen visual_style and at a length appropriate to that style."
@@ -375,6 +392,10 @@ class VisualConceptFinal(BaseModel):
     person_casting_reason: str = Field(
         default="",
         description="One sentence: why this concept casts (or would not cast) the person reference; '' when no person reference is available.",
+    )
+    composition_mode: CompositionMode = Field(
+        default="product_in_scene",
+        description="The final composition framing mode ('product_hero', 'product_in_scene', 'cast_with_product', 'lifestyle_context', or 'graphic_lockup') for this concept.",
     )
     image_generation_prompt: str = Field(
         description="The final, revised image-generation prompt, written in the concept's chosen visual_style."

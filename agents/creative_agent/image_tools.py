@@ -66,9 +66,13 @@ from .references import (
     REFERENCE_MAX_BYTES,
     REFERENCE_ROLES,
     UnsafeReferenceURL,
+    filter_references_for_composition,
     reference_mime_for,
     reference_roles_summary,
     resolve_references,
+)
+from .references import (
+    fetch_reference_image as _fetch_single_reference_image,
 )
 from .trend_situation import timely_allowed
 
@@ -80,10 +84,17 @@ __all__ = [
     "REFERENCE_IGNORE_TEXT_LINE",
     "REFERENCE_ROLES",
     "UnsafeReferenceURL",
+    "fetch_reference_image",
+    "filter_references_for_composition",
     "generate_image",
     "reference_roles_summary",
     "resolve_references",
 ]
+
+
+def fetch_reference_image(uri: str) -> types.Part | None:
+    """Fetch a single ``gs://`` or SSRF-hardened ``http(s)://`` reference image Part."""
+    return _fetch_single_reference_image(uri, download=_download_blob)
 
 
 @functools.cache
@@ -219,6 +230,11 @@ _REFERENCE_ROLE_INSTRUCTIONS = {
     "style": (
         "Match only its palette, texture and lighting, not its content, subject "
         "or layout."
+    ),
+    "cast": (
+        "Feature this person as the on-camera talent or spokesperson: preserve "
+        "their facial likeness, hair and wardrobe cues in talent-inclusive "
+        "compositions without altering the product."
     ),
     # Only attached to concepts that cast the user's consented person.
     "person": PERSON_ROLE_INSTRUCTION,
@@ -596,6 +612,7 @@ class RenderPlan:
     safer_angle_active: bool
     timely_valid_until: str
     copies_by_id: dict[str, Mapping[str, Any]]
+    reference_description: str = ""
 
 
 def _person_reference(state: Any, notes: list[str]) -> tuple[str, str]:
@@ -702,6 +719,9 @@ async def _plan_renders(state: Any, *, fingerprint: str) -> RenderPlan:
             if timely_valid_until
             else {}
         ),
+        reference_description=str(
+            state.get("reference_product_description") or ""
+        ).strip(),
     )
 
 
@@ -782,6 +802,7 @@ async def _run_pipelined(plan: RenderPlan) -> list["RenderResult"]:
                             target_product=plan.product,
                             budget=budget,
                             pacing=pacing,
+                            reference_description=plan.reference_description,
                         ),
                     )
                 )

@@ -1489,6 +1489,9 @@ def _final_concept(ad_copy_id: int, prompt: str = "", **overrides: Any) -> dict:
         "trend_motif": "a roadrunner dust cloud",
         "brand_cue": "the ACME crate",
         "angle_id": "A1",
+        "composition_mode": (
+            "product_in_scene" if ad_copy_id % 2 == 1 else "lifestyle_context"
+        ),
         "uses_trend_state": False,
         "timely_reason": "",
         "casts_person_reference": False,

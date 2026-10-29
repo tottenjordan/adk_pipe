@@ -878,6 +878,7 @@ def test_visual_eval_prompt_formats_concepts_with_brand_cue_and_angle_id():
         "image_generation_prompt": "A watercolor of skates.",
         "brand_cue": "the ACME crate",
         "angle_id": "A1",
+        "composition_mode": "product_in_scene",
     }
     assert not set(campaign) & set(concept)
     text = eval_prompts.VISUAL_CONCEPT_EVAL_USER.format(

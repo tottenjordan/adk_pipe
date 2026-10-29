@@ -84,6 +84,7 @@ function ReferenceRow({
             <SelectItem value="product">Product — reproduce this exact product</SelectItem>
             <SelectItem value="logo">Logo — place this brand logo, small and legible</SelectItem>
             <SelectItem value="style">Style — match its palette, texture and lighting</SelectItem>
+            <SelectItem value="cast">Cast — feature this talent / spokesperson in cast shots</SelectItem>
           </SelectContent>
         </Select>
       )}

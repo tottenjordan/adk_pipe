@@ -579,6 +579,7 @@ def _instruction(
     has_person_image: bool = False,
     has_original_image: bool = False,
     safer_angle_active: bool = False,
+    reference_description: str = "",
 ) -> str:
     """The QA instruction for one concept (what to check, what was promised).
 
@@ -591,13 +592,37 @@ def _instruction(
     """
     prompt = " ".join((concept.get("image_generation_prompt") or "").split())
     motif = (concept.get("trend_motif") or "").strip()
+    composition_mode = (
+        str(concept.get("composition_mode") or "").strip() or "product_in_scene"
+    )
     lines = [
         "You are an ad-image QA reviewer. Inspect the attached rendered ad "
         "image and fill in the JSON verdict. Flag only clear, material "
         "problems: every failure triggers a costly re-render.",
         f"Campaign brand: {brand or 'unknown'}.",
+        f"Composition mode: {composition_mode}.",
         f"What the image was asked to show: {prompt[:PROMPT_CHAR_CAP] or 'not given'}",
     ]
+    if composition_mode == "product_hero":
+        lines.append(
+            "product_hero rule: require unobstructed product packshot visibility; "
+            "if unexpected people, faces or human hands touch or obscure the "
+            "product packaging, record it in issues (and set product_visible false "
+            "if the packaging is obscured)."
+        )
+    elif composition_mode in ("lifestyle_context", "graphic_lockup"):
+        lines.append(
+            f"{composition_mode} rule: contextualize product_visible for this framing — "
+            "an integrated environmental placement, lockup, or graphic depiction "
+            "matching the prompt satisfies product_visible."
+        )
+    if reference_description and reference_description.strip():
+        compact_desc = " ".join(reference_description.split())[:600]
+        lines.append(
+            "Reference asset visual details (verify product geometry, materials "
+            "and surface labels match when visible, and cast appearance matches "
+            f"in talent shots): {compact_desc}"
+        )
     if target_product:
         lines.append(
             f"Product: {target_product}. product_visible is true when the "
@@ -736,6 +761,7 @@ def inspect_image(
     person_image: tuple[bytes, str] | None = None,
     original_image: tuple[bytes, str] | None = None,
     safer_angle_active: bool = False,
+    reference_description: str = "",
     temperature: float = 0.0,
 ) -> ImageQAResult:
     """One structured vision call → the image's ``ImageQAResult``.
@@ -775,6 +801,7 @@ def inspect_image(
                 has_person_image=person_image is not None,
                 has_original_image=original_image is not None,
                 safer_angle_active=safer_angle_active,
+                reference_description=reference_description,
             )
         )
     )
