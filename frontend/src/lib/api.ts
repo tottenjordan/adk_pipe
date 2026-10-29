@@ -704,3 +704,82 @@ export async function fetchBrandAssist(
   }
   return res.json();
 }
+
+// ---------------------------------------------------------------------------
+// Controlled single-axis variations & Delivery Kit (.zip)
+// ---------------------------------------------------------------------------
+
+import type {
+  AdCopy,
+  EvalReport,
+  VariationAxis,
+  VisualConcept,
+} from "./eval-matching";
+
+export type { VariationAxis };
+
+export interface GenerateVariationsRequest {
+  base_concept_index: number;
+  axis: VariationAxis;
+  count?: 1 | 2 | 3;
+  target_values?: string[];
+}
+
+export interface GenerateVariationsResponse {
+  session_id: string;
+  app_name: string;
+  axis: VariationAxis;
+  base_concept_index: number;
+  added_indices: number[];
+  variations: VisualConcept[];
+  new_ad_copies: AdCopy[];
+  generated_images: Record<string, unknown>;
+  creative_evaluation_report: EvalReport;
+  state: Record<string, unknown>;
+}
+
+/** `POST /runs/{app}/{user}/{session}/variations`: generate 1–3 single-axis controlled variations. */
+export async function generateVariations(
+  appName: string,
+  userId: string,
+  sessionId: string,
+  req: GenerateVariationsRequest,
+  opts?: { signal?: AbortSignal }
+): Promise<GenerateVariationsResponse> {
+  const res = await fetch(
+    `${runsUrl(appName, userId, sessionId)}/variations`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(req),
+      ...(opts?.signal ? { signal: opts.signal } : {}),
+    }
+  );
+  if (!res.ok) {
+    let detail = "";
+    try {
+      const body = await res.json();
+      if (typeof body?.detail === "string") {
+        detail = body.detail;
+      } else if (Array.isArray(body?.detail) && body.detail.length > 0) {
+        const firstMsg = body.detail[0]?.msg;
+        if (typeof firstMsg === "string") {
+          detail = firstMsg.replace(/^Value error,\s*/i, "");
+        }
+      }
+    } catch {
+      // Ignore non-JSON body
+    }
+    throw new Error(detail || `Failed to generate variations (${res.status})`);
+  }
+  return res.json();
+}
+
+/** `GET /runs/{app}/{user}/{session}/delivery-kit`: streaming `.zip` Delivery Kit URL. */
+export function deliveryKitUrl(
+  appName: string,
+  userId: string,
+  sessionId: string
+): string {
+  return `${runsUrl(appName, userId, sessionId)}/delivery-kit`;
+}

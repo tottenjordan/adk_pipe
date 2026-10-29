@@ -7,7 +7,12 @@ import { Button } from "@/components/ui/button";
 import { FieldLabel } from "@/components/field-label";
 import { InfoTip, InfoTipList } from "@/components/ui/info-tip";
 import { SegmentedControl } from "@/components/segmented-control";
-import { proofScore, type Proof } from "@/lib/eval-matching";
+import {
+  findVariationFamilies,
+  proofScore,
+  variationLineageLabel,
+  type Proof,
+} from "@/lib/eval-matching";
 import {
   ActiveExperimentError,
   createExperiment,
@@ -75,6 +80,10 @@ export function DeployPanel({
   const [tuning, setTuning] = useState<TuneValues>(() => presetValues("segment_winners"));
 
   const ordered = useMemo(() => [...proofs].sort((a, b) => a.index - b.index), [proofs]);
+  const variationFamilies = useMemo(
+    () => findVariationFamilies(ordered, 4),
+    [ordered]
+  );
   /** Selected creative → colour, shared by the cards, the preview and the experiment page. */
   const picked = useMemo(
     () => new Set(ordered.filter((p) => selected.has(p.index)).map((p) => p.index)),
@@ -145,7 +154,7 @@ export function DeployPanel({
           <InfoTip label="About choosing creatives" align="start">
             {DEPLOY_HELP.creatives}
           </InfoTip>
-          <span className="flex gap-1">
+          <span className="flex flex-wrap gap-1">
             <Button
               variant="ghost"
               size="xs"
@@ -162,6 +171,18 @@ export function DeployPanel({
             <Button variant="ghost" size="xs" onClick={() => setSelected(new Set())}>
               Select none
             </Button>
+            {variationFamilies.map((fam) => (
+              <Button
+                key={fam.baseIndex}
+                variant="outline"
+                size="xs"
+                onClick={() => setSelected(new Set(fam.armIndices))}
+              >
+                {variationFamilies.length === 1
+                  ? "Select Base + Variants"
+                  : `Select Base + Variants (${fam.baseName})`}
+              </Button>
+            ))}
           </span>
         </div>
         <ul className="clear-left grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-4">
@@ -211,6 +232,15 @@ export function DeployPanel({
                     <span className="line-clamp-2 text-sm leading-snug font-medium text-foreground">
                       {p.concept.headline}
                     </span>
+                    {variationLineageLabel(p.concept) && (
+                      <span
+                        data-testid="deploy-variation-lineage"
+                        className="mt-0.5 block truncate text-[11px] text-muted-foreground"
+                        title={variationLineageLabel(p.concept) ?? undefined}
+                      >
+                        {variationLineageLabel(p.concept)}
+                      </span>
+                    )}
                     <span className="mt-1 block text-xs text-muted-foreground tabular-nums">
                       {score === null ? "Not scored" : `Score ${pct(score)}%`}
                     </span>

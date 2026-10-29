@@ -55,6 +55,8 @@ def test_normalize_strips_iap_prefix_and_lowercases():
         ("/runs/trend_scout/u1/123/resume", "u1"),
         ("/runs/trend_scout/u1/123/changelog", "u1"),
         ("/runs/trend_scout/u1/123/claim-handoff", "u1"),
+        ("/runs/creative_agent/u1/123/variations", "u1"),
+        ("/runs/creative_agent/u1/123/delivery-kit", "u1"),
         ("/runs/trend_scout", None),
         ("/brand-assist/u1", "u1"),
         ("/brand-assist/u1/", "u1"),
@@ -84,8 +86,14 @@ def test_decide_enforce():
     E = AuthzMode.ENFORCE
     assert decide(E, "/list-apps", None) is None
     assert decide(E, f"/runs/x/{A}/1", A) is None
+    assert decide(E, f"/runs/x/{A}/1/variations", A) is None
+    assert decide(E, f"/runs/x/{A}/1/delivery-kit", A) is None
     assert decide(E, "/runs/x/bob@example.com/1", A)[0] == 403
+    assert decide(E, "/runs/x/bob@example.com/1/variations", A)[0] == 403
+    assert decide(E, "/runs/x/bob@example.com/1/delivery-kit", A)[0] == 403
     assert decide(E, f"/runs/x/{A}/1", None)[0] == 401
+    assert decide(E, f"/runs/x/{A}/1/variations", None)[0] == 401
+    assert decide(E, f"/runs/x/{A}/1/delivery-kit", None)[0] == 401
     assert decide(E, "/run_sse", A)[0] == 404
     assert decide(E, f"/apps/x/users/{A}/memory", A)[0] == 404
     # pre-rewrite forms of the same routes (ADK_DEFAULT_APP_NAME set)

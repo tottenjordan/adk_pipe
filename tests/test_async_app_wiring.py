@@ -100,6 +100,13 @@ _ENFORCE_SCRIPT = """
     assert r.status_code == 401, (r.status_code, r.text)
     r = client.post("/brand-assist/a@x.com", json={"brand": "PRS"})
     assert r.status_code == 401, (r.status_code, r.text)
+    r = client.post(
+        "/runs/creative_agent/a@x.com/s1/variations",
+        json={"base_concept_index": 0, "axis": "visual_style", "count": 1},
+    )
+    assert r.status_code == 401, (r.status_code, r.text)
+    r = client.get("/runs/creative_agent/a@x.com/s1/delivery-kit")
+    assert r.status_code == 401, (r.status_code, r.text)
     r = client.post("/run", json={})
     assert r.status_code == 404, (r.status_code, r.text)
     print("WIRING_OK")

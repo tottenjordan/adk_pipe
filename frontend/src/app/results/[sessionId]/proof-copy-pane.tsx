@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils";
 import { dimensionLabel } from "@/lib/eval-dimensions";
 import {
   scoreGates,
+  variationLineageLabel,
   type Casting,
   type CreativeScore,
   type ImageCheck,
@@ -279,6 +280,14 @@ export function ProofCopyPane({
           {vc.concept_name}
           {vc.visual_style ? `, ${vc.visual_style}` : ""}
         </DialogDescription>
+        {variationLineageLabel(vc) && (
+          <p
+            data-testid="detail-variation-lineage"
+            className="mt-1.5 inline-flex max-w-full items-center truncate rounded-sm border border-border bg-muted/60 px-2 py-0.5 text-xs font-medium text-foreground/85"
+          >
+            {variationLineageLabel(vc)}
+          </p>
+        )}
       </div>
 
       {ac?.body_text && (

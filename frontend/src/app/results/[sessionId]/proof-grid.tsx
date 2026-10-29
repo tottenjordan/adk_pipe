@@ -1,8 +1,15 @@
 "use client";
 
 import type { Ref } from "react";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { proofFailedChecks, type Proof, type ProofSort, type Timely } from "@/lib/eval-matching";
+import {
+  proofFailedChecks,
+  variationLineageLabel,
+  type Proof,
+  type ProofSort,
+  type Timely,
+} from "@/lib/eval-matching";
 import { SegmentedControl } from "@/components/segmented-control";
 import { ProofImage } from "@/components/proof-image";
 import { CheckFailedChip } from "./eval-checks";
@@ -80,6 +87,7 @@ export function ProofGrid({
   onOpen,
   itemRef,
   isRated,
+  onOpenVariations,
 }: {
   /** Already sorted. */
   proofs: Proof[];
@@ -90,6 +98,8 @@ export function ProofGrid({
   itemRef: (proofIndex: number) => Ref<HTMLButtonElement>;
   /** Whether the user has rated this proof (shows a muted "Rated" mark). */
   isRated?: (proof: Proof) => boolean;
+  /** Opens the controlled single-axis variations drawer for this proof. */
+  onOpenVariations?: (proof: Proof) => void;
 }) {
   // One card with a chip reserves the flag row on every card, so scores line up.
   const reserveFlags = proofs.some(hasFlags);
@@ -113,14 +123,18 @@ export function ProofGrid({
       <ul className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
         {proofs.map((p) => {
           const rated = isRated?.(p) ?? false;
+          const lineage = variationLineageLabel(p.concept);
           return (
-            <li key={p.index}>
+            <li
+              key={p.index}
+              className="flex flex-col rounded-lg border border-border bg-card transition-colors hover:border-foreground/40"
+            >
               <button
                 type="button"
                 ref={itemRef(p.index)}
                 onClick={() => onOpen(p.index)}
                 aria-label={`Open creative ${p.index + 1}: ${p.concept.headline}${timelyAria(p.timely)}${p.namesRealPerson ? " · names a real person" : ""}${rated ? " (rated)" : ""}`}
-                className="group flex h-full w-full flex-col rounded-lg border border-border bg-card p-2 text-left transition-[border-color,scale] duration-(--dur-press) ease-(--ease-out) hover:border-foreground/40 active:scale-[0.99] motion-reduce:transition-colors motion-reduce:active:scale-100"
+                className="group flex flex-1 w-full flex-col p-2 text-left transition-[border-color,scale] duration-(--dur-press) ease-(--ease-out) active:scale-[0.99] motion-reduce:transition-colors motion-reduce:active:scale-100"
               >
                 <ProofImage
                   src={imageUrlFor(p.concept.concept_name)}
@@ -129,6 +143,15 @@ export function ProofGrid({
                   className="aspect-square w-full"
                 />
                 <div className="flex flex-1 flex-col px-1 pt-3 pb-1">
+                  {lineage && (
+                    <p
+                      data-testid="variation-lineage-badge"
+                      className="mb-1.5 inline-flex max-w-full items-center truncate rounded-sm border border-border bg-muted/60 px-1.5 py-0.5 text-[11px] font-medium text-foreground/85"
+                      title={lineage}
+                    >
+                      {lineage}
+                    </p>
+                  )}
                   <h3
                     className={cn(
                       CONDENSED,
@@ -156,6 +179,18 @@ export function ProofGrid({
                   )}
                 </div>
               </button>
+              {onOpenVariations && (
+                <div className="flex items-center justify-end border-t border-border px-2.5 py-1.5">
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="xs"
+                    onClick={() => onOpenVariations(p)}
+                  >
+                    Controlled variations
+                  </Button>
+                </div>
+              )}
             </li>
           );
         })}
