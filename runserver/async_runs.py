@@ -1298,13 +1298,116 @@ def merge_brief_edit(state: dict | None, edits: list | None) -> dict:
 def validate_resume_edits(function_name: str, edits: list | None) -> None:
     """Reject invalid resume edits BEFORE anything is claimed or written.
 
-    Only checkpoint 1's structured brief is validated strictly (raises
-    ``BriefEditError``); every other edit stays best-effort (ignored if bad)."""
-    if function_name != "review_research":
-        return
-    found, value = _brief_edit_value(edits)
-    if found:
-        validate_brief_edit(value)
+    Checkpoint 1's structured brief raises ``BriefEditError`` and checkpoint 4's
+    structured video storyboard raises ``StoryboardEditError``; every other edit
+    stays best-effort (ignored if bad)."""
+    if function_name == "review_research":
+        found, value = _brief_edit_value(edits)
+        if found:
+            validate_brief_edit(value)
+    elif function_name == "review_video_storyboard":
+        found, value = _storyboard_edit_value(edits)
+        if found:
+            validate_storyboard_edit(value)
+
+
+STORYBOARD_EDIT_FIELD = "video_storyboard"
+STORYBOARD_EDIT_MAX_CHARS = 80_000
+
+
+class StoryboardEditError(ValueError):
+    """A checkpoint-4 video-storyboard edit that fails validation (→ HTTP 400).
+
+    ``errors`` is a list of ``{"loc": "dotted.field.path", "msg": str}`` the
+    frontend can show next to the offending fields."""
+
+    def __init__(self, errors: list[dict[str, str]]):
+        self.errors = errors
+        super().__init__(
+            "; ".join(f"{e['loc'] or 'storyboard'}: {e['msg']}" for e in errors)
+        )
+
+
+def _storyboard_edit_value(edits: list | None) -> tuple[bool, object]:
+    """``(found, value)`` of the first ``video_storyboard`` edit in ``edits``."""
+    for edit in edits or []:
+        if isinstance(edit, dict) and edit.get("field") == STORYBOARD_EDIT_FIELD:
+            return True, edit.get("value")
+    return False, None
+
+
+def validate_storyboard_edit(value: object, state: dict | None = None) -> dict:
+    """Validate an edited storyboard against ``VideoStoryboard`` and gate rules.
+
+    ``value`` is the full storyboard object (or its JSON string). Raises
+    ``StoryboardEditError`` with per-field errors for malformed JSON, an
+    oversized payload, any Pydantic schema violation, a blank title, or any
+    deterministic ``storyboard_issues`` constraint violation against ``state``."""
+    from creative_agent import VideoStoryboard
+    from creative_agent.video_qa import storyboard_issues
+
+    if isinstance(value, str):
+        if len(value) > STORYBOARD_EDIT_MAX_CHARS:
+            raise StoryboardEditError(
+                [{"loc": "", "msg": "The storyboard is too long."}]
+            )
+        try:
+            value = json.loads(value)
+        except ValueError as exc:
+            raise StoryboardEditError(
+                [{"loc": "", "msg": "The storyboard is not valid JSON."}]
+            ) from exc
+    if not isinstance(value, dict):
+        raise StoryboardEditError(
+            [{"loc": "", "msg": "The storyboard must be an object."}]
+        )
+    if len(json.dumps(value, default=str)) > STORYBOARD_EDIT_MAX_CHARS:
+        raise StoryboardEditError([{"loc": "", "msg": "The storyboard is too long."}])
+    try:
+        storyboard = VideoStoryboard.model_validate(value)
+    except ValidationError as exc:
+        raise StoryboardEditError(
+            [
+                {"loc": ".".join(str(part) for part in err["loc"]), "msg": err["msg"]}
+                for err in exc.errors()
+            ]
+        ) from exc
+
+    errors: list[dict[str, str]] = []
+    if not storyboard.title.strip():
+        errors.append({"loc": "title", "msg": "The storyboard title is required."})
+    dumped = storyboard.model_dump()
+    for issue in storyboard_issues(dumped, state if isinstance(state, dict) else {}):
+        errors.append({"loc": "shots", "msg": issue})
+    if errors:
+        raise StoryboardEditError(errors)
+    return dumped
+
+
+def merge_storyboard_edit(state: dict | None, edits: list | None) -> dict:
+    """Pure: turn a checkpoint-4 video-storyboard edit into a state delta.
+
+    Validates the edited ``video_storyboard`` against ``VideoStoryboard`` and
+    deterministic ``storyboard_issues`` (raising ``StoryboardEditError`` when
+    invalid), then writes ``video_storyboard``, ``video_storyboard_edited: True``,
+    and clears ``video_storyboard__issues``. Returns ``{}`` when no storyboard
+    edit is present or when the edited storyboard equals the current one."""
+    from creative_agent.video_qa import parse_storyboard
+
+    found, value = _storyboard_edit_value(edits)
+    if not found:
+        return {}
+    state = state if isinstance(state, dict) else {}
+    storyboard = validate_storyboard_edit(value, state)
+    current = parse_storyboard(state.get(STORYBOARD_EDIT_FIELD))
+    if current is not None and dict(current) == storyboard:
+        return {}
+    return {
+        STORYBOARD_EDIT_FIELD: storyboard,
+        "video_storyboard_edited": True,
+        "video_storyboard__issues": None,
+        "_videos_generated": False,
+    }
 
 
 async def _apply_visual_concept_edits(
@@ -1394,10 +1497,29 @@ async def _drop_person_reference(
     await session_service.append_event(session, event)
 
 
+async def _apply_storyboard_edit(
+    session_service, app_name, user_id, session_id, edits
+) -> None:
+    """Write checkpoint-4 structured storyboard edits into session state BEFORE relaunch."""
+    session = await _get_session_or_none(session_service, app_name, user_id, session_id)
+    if session is None:
+        return
+    delta = merge_storyboard_edit(session.state, edits)
+    if not delta:
+        return
+    event = Event(
+        author=RUNSERVER_AUTHOR,
+        invocation_id=RUNSERVER_AUTHOR,
+        actions=EventActions(state_delta=delta),
+    )
+    await session_service.append_event(session, event)
+
+
 # Resume ``edits`` appliers keyed by the paused checkpoint's function name.
 _EDIT_APPLIERS = {
     "review_visual_concepts": _apply_visual_concept_edits,
     "review_research": _apply_research_edit,
+    "review_video_storyboard": _apply_storyboard_edit,
 }
 
 
@@ -1464,6 +1586,14 @@ async def start_resume(
     once with reason ``resume_in_progress`` (the first one is serving it)."""
     key = (app_name, user_id, session_id)
     validate_resume_edits(function_name, edits)  # 400 before any claim/write
+    if function_name == "review_video_storyboard":
+        found_sb, sb_val = _storyboard_edit_value(edits)
+        if found_sb:
+            existing_session = await _get_session_or_none(
+                session_service, app_name, user_id, session_id
+            )
+            if existing_session is not None:
+                validate_storyboard_edit(sb_val, dict(existing_session.state or {}))
     if _is_live(key) and _ACTIVE_RESUME_CALL_IDS.get(key) == function_call_id:
         raise RunAlreadyActive(key, REASON_RESUME_IN_PROGRESS)
     drop_person = False
@@ -1654,6 +1784,15 @@ async def http_start_resume(
             detail={
                 "reason": "invalid_brief",
                 "message": f"The edited brief is invalid: {exc}",
+                "errors": exc.errors,
+            },
+        ) from exc
+    except StoryboardEditError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "reason": "invalid_storyboard",
+                "message": f"The edited storyboard is invalid: {exc}",
                 "errors": exc.errors,
             },
         ) from exc

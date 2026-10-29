@@ -33,6 +33,8 @@ from .agent import (
     finalize_pipeline,
     residual_copy_issues,
     root_agent,
+    video_render_pipeline,
+    video_storyboard_pipeline,
     visual_generation_pipeline,
     visual_generator_resilient,
 )
@@ -40,7 +42,14 @@ from .brand_history import ALLOWED_TONES as AD_COPY_TONES
 from .brand_history import normalize_brand
 from .copy_gate import parse_copies as parse_ad_copies
 from .copy_gate import user_revision_inputs as user_copy_revision_inputs
-from .schemas import CompositionMode, CreativeBrief, VisualConceptFinalList
+from .schemas import (
+    CompositionMode,
+    CreativeBrief,
+    VideoCutFormat,
+    VideoShotSpec,
+    VideoStoryboard,
+    VisualConceptFinalList,
+)
 from .style_shortlist import canonical_style
 
 __all__ = [
@@ -55,6 +64,8 @@ __all__ = [
     "ad_creative_pipeline",
     "visual_generation_pipeline",
     "visual_generator_resilient",
+    "video_storyboard_pipeline",
+    "video_render_pipeline",
     "finalize_pipeline",
     # bare ad-copy reviser + its user-revision inputs (interactive checkpoint 2)
     "ad_copy_reviser",
@@ -62,10 +73,13 @@ __all__ = [
     "parse_ad_copies",
     "residual_copy_issues",
     "cap_and_residual_copies",
-    # shared visual schema + the structured creative brief (downstream contract)
+    # shared visual, brief, and Phase 3 video schemas (downstream contract)
     "CompositionMode",
     "VisualConceptFinalList",
     "CreativeBrief",
+    "VideoCutFormat",
+    "VideoShotSpec",
+    "VideoStoryboard",
     # allowlists for the api's rating learning context (runserver/ratings.py)
     "canonical_style",
     "AD_COPY_TONES",

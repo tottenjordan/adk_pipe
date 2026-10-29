@@ -43,9 +43,25 @@ def test_facade_exposes_reusable_pipelines_and_schema():
     assert creative_agent.VisualConceptFinalList is VisualConceptFinalList
 
     # Structured creative brief (the downstream creative contract)
-    from creative_agent.schemas import CreativeBrief
+    from creative_agent.schemas import (
+        CreativeBrief,
+        VideoCutFormat,
+        VideoShotSpec,
+        VideoStoryboard,
+    )
 
     assert creative_agent.CreativeBrief is CreativeBrief
+    assert creative_agent.VideoCutFormat is VideoCutFormat
+    assert creative_agent.VideoShotSpec is VideoShotSpec
+    assert creative_agent.VideoStoryboard is VideoStoryboard
+    assert (
+        creative_agent.video_storyboard_pipeline
+        is creative_agent.agent.video_storyboard_pipeline
+    )
+    assert (
+        creative_agent.video_render_pipeline
+        is creative_agent.agent.video_render_pipeline
+    )
 
     # Allowlists the api stamps onto ratings (runserver/ratings.learning_context)
     from creative_agent.brand_history import ALLOWED_TONES
@@ -87,6 +103,8 @@ def test_facade_all_is_complete_and_importable():
         "ad_creative_pipeline",
         "visual_generation_pipeline",
         "visual_generator_resilient",
+        "video_storyboard_pipeline",
+        "video_render_pipeline",
         "finalize_pipeline",
         "ad_copy_reviser",
         "residual_copy_issues",
@@ -94,6 +112,9 @@ def test_facade_all_is_complete_and_importable():
         "CompositionMode",
         "VisualConceptFinalList",
         "CreativeBrief",
+        "VideoCutFormat",
+        "VideoShotSpec",
+        "VideoStoryboard",
         "canonical_style",
         "AD_COPY_TONES",
         "normalize_brand",

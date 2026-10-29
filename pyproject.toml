@@ -33,6 +33,8 @@ dependencies = [
     "google-cloud-run>=0.16.2,<1.0.0",
     "tzdata>=2026.4",
     "google-cloud-discoveryengine>=0.15.0,<1.0.0",
+    "google-cloud-texttospeech>=2.37,<3.0.0",
+    "imageio-ffmpeg>=0.5.1,<1.0.0",
 ]
 
 [build-system]

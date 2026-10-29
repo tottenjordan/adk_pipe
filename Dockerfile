@@ -26,6 +26,9 @@ WORKDIR /app
 # never installed (locally it is an editable install, `[tool.uv] package = true`; here
 # PYTHONPATH below does that job), so this is the whole sync (a post-COPY `uv sync`
 # would force the dependency layer to be unpacked on every source change).
+# Note: `imageio-ffmpeg` (in main dependencies) ships a self-contained static
+# `ffmpeg` binary inside `.venv` (`imageio_ffmpeg.get_ffmpeg_exe()`), so Phase 3
+# video conform works out-of-the-box without `apt-get install ffmpeg`.
 COPY pyproject.toml uv.lock ./
 RUN --mount=type=cache,target=/root/.cache/uv \
     UV_LINK_MODE=copy uv sync --frozen --no-dev --no-install-project

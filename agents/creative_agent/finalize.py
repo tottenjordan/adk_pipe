@@ -478,6 +478,11 @@ def finalize_summary(state: Mapping[str, Any]) -> str:
             "evaluate, or the judge failed); no scores are available for this run."
         )
 
+    videos = state.get("generated_videos")
+    if isinstance(videos, Mapping) and videos:
+        cut_names = ", ".join(str(k) for k in videos)
+        parts.append(f"Video reel: {len(videos)} cut(s) rendered ({cut_names}).")
+
     saved = [
         f"{label} {state[key]}"
         for key, label in (

@@ -54,6 +54,8 @@ _CREATIVE = [
     ["root_agent", 1.0],
     ["trend_situation_searcher", None],
     ["trend_situation_synthesizer", 0.2],
+    ["video_director", 0.6],
+    ["video_storyboard_reviser", 0.4],
     ["visual_concept_critic", 0.7],
     ["visual_concept_drafter", 1.5],
     ["visual_concept_finalizer", 0.8],

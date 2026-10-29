@@ -605,3 +605,73 @@ class TrendSituation(TrendSituationDraft):
         default="",
         description="Why the validator abstained (phase forced to 'unknown') or why the moment is not timely.",
     )
+
+
+# --- PHASE 3 VIDEO PRODUCTION SCHEMAS (OPT-IN) ---
+VideoCutFormat = Literal["hero_30s_16x9", "social_15s_9x16", "bumper_6s_9x16"]
+
+
+class VideoShotSpec(BaseModel):
+    """Specification for a single commercial video shot anchored on a Phase 2 keyframe."""
+
+    shot_number: int = Field(
+        ge=1,
+        description="1-based sequential shot number within the storyboard (1..N).",
+    )
+    duration_seconds: Literal[4, 6, 8] = Field(
+        description="Shot duration in seconds; must be 4, 6, or 8.",
+    )
+    camera_motion: str = Field(
+        description="Explicit camera movement and framing directive (e.g. 'Slow push-in dolly shot, shallow depth of field').",
+    )
+    visual_action_prompt: str = Field(
+        description="Detailed visual motion and scene action anchored on the Phase 2 keyframe, preserving product identity, composition framing, and lighting.",
+    )
+    voiceover_line: str = Field(
+        default="",
+        description="Spoken narration line for this shot (at most ceil(2.3 * duration_seconds) words; '' for silent/music-only beat).",
+    )
+    on_screen_super: str = Field(
+        default="",
+        description="Optional short on-screen text super; when non-empty, must match an approved ad copy headline/CTA, the brand name, or the target product name.",
+    )
+    audio_cue: str = Field(
+        default="",
+        description="Diegetic sound or musical transition cue for this shot (e.g. 'crisp snare hit and warm synth swell').",
+    )
+    anchor_concept_name: str = Field(
+        description="Exact `concept_name` of the finalized Phase 2 visual concept whose rendered image anchors this shot.",
+    )
+    include_in_15s: bool = Field(
+        default=False,
+        description="True when this shot belongs to the 15-second 9:16 social cutdown (selected shots must total 14..16 seconds across at least 2 shots).",
+    )
+    include_in_6s: bool = Field(
+        default=False,
+        description="True when this shot belongs to the 6-second 9:16 bumper cutdown (selected shots must total 6 seconds across at least 1 shot).",
+    )
+
+
+class VideoStoryboard(BaseModel):
+    """Multi-cut commercial storyboard for a 30s hero spot plus 15s social and 6s bumper cutdowns."""
+
+    title: str = Field(
+        description="Short commercial spot title connecting the brand/product and trend.",
+    )
+    creative_direction: str = Field(
+        default="",
+        description="1-2 sentences summarizing pacing, visual continuity, and commercial arc.",
+    )
+    music_direction: str = Field(
+        default="",
+        description="Instrumental music bed direction (genre, tempo, instrumentation, mood; strictly instrumental, no vocals).",
+    )
+    voiceover_style: str = Field(
+        default="",
+        description="Voiceover delivery direction matching the brand tone of voice (e.g. 'warm, confident, conversational').",
+    )
+    shots: list[VideoShotSpec] = Field(
+        min_length=3,
+        max_length=6,
+        description="3-6 sequential shots whose durations sum to 30 seconds for the 16:9 hero commercial.",
+    )

@@ -79,6 +79,7 @@ google-api-core==2.34.0
     #   google-cloud-resource-manager
     #   google-cloud-run
     #   google-cloud-storage
+    #   google-cloud-texttospeech
 google-auth==2.62.0
     # via
     #   adk-pipe
@@ -94,6 +95,7 @@ google-auth==2.62.0
     #   google-cloud-resource-manager
     #   google-cloud-run
     #   google-cloud-storage
+    #   google-cloud-texttospeech
     #   google-genai
 google-cloud-aiplatform==2.4.0
     # via adk-pipe
@@ -126,6 +128,8 @@ google-cloud-storage==3.17.1
     # via
     #   adk-pipe
     #   google-cloud-aiplatform
+google-cloud-texttospeech==2.38.0
+    # via adk-pipe
 google-crc32c==1.9.0
     # via
     #   google-cloud-storage
@@ -164,6 +168,7 @@ grpcio==1.84.0
     #   google-cloud-modelarmor
     #   google-cloud-resource-manager
     #   google-cloud-run
+    #   google-cloud-texttospeech
     #   googleapis-common-protos
     #   grpc-google-iam-v1
     #   grpcio-status
@@ -188,6 +193,8 @@ idna==3.20
     #   httpx
     #   requests
     #   yarl
+imageio-ffmpeg==0.6.0
+    # via adk-pipe
 joserfc==1.7.5
     # via authlib
 json-rpc==1.15.0
@@ -288,6 +295,7 @@ proto-plus==1.28.4
     #   google-cloud-modelarmor
     #   google-cloud-resource-manager
     #   google-cloud-run
+    #   google-cloud-texttospeech
 protobuf==6.33.6
     # via
     #   a2a-sdk
@@ -300,6 +308,7 @@ protobuf==6.33.6
     #   google-cloud-modelarmor
     #   google-cloud-resource-manager
     #   google-cloud-run
+    #   google-cloud-texttospeech
     #   googleapis-common-protos
     #   grpc-google-iam-v1
     #   grpcio-status

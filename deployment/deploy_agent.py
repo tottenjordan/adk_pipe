@@ -158,6 +158,10 @@ ENV_VAR_DICT = {
     # pickled agents carry the deployer's value; shipped so the engine env
     # records which arm it is.
     "GEMINI_TEMPERATURE_PROFILE": os.getenv("GEMINI_TEMPERATURE_PROFILE", "tuned"),
+    # Opt-in Phase 3 video production knobs (creative_agent/config.py).
+    "VIDEO_GEN_BACKEND": os.getenv("VIDEO_GEN_BACKEND", "auto"),
+    "VIDEO_QA_MAX_RETAKES": os.getenv("VIDEO_QA_MAX_RETAKES", "1"),
+    "STORYBOARD_REVISION_ROUNDS": os.getenv("STORYBOARD_REVISION_ROUNDS", "1"),
 }
 
 # Shipped only when set in the deployer's env (never a None, never an invented
@@ -167,13 +171,23 @@ ENV_VAR_DICT = {
 # MODEL_LOCATION (shipped above), so it is only passed through when overridden.
 OPTIONAL_ENV_VARS = ("CRITIC_FALLBACK_MODEL", "EVAL_MODEL_LOCATION")
 
-# Optional inbound Discovery Engine enterprise grounding env vars; forwarded only
-# when non-empty in the deployer's environment so unconfigured deployments stay
-# identical to the default config.
+# Optional inbound Discovery Engine enterprise grounding + optional Phase 3 video
+# model override env vars; forwarded only when non-empty in the deployer's
+# environment so unconfigured deployments stay identical to the default config.
 _OPTIONAL_ENTERPRISE_ENV_VARS = (
     "ENTERPRISE_DATA_STORES",
     "ENTERPRISE_SEARCH_ENGINE",
     "ENTERPRISE_RESEARCH_MODEL",
+)
+_OPTIONAL_VIDEO_ENV_VARS = (
+    "OMNIFLASH_VIDEO_MODEL",
+    "VEO_VIDEO_MODEL",
+    "VIDEO_TTS_MODEL",
+    "VIDEO_MUSIC_MODEL",
+)
+_OPTIONAL_FORWARDED_ENV_VARS = (
+    *_OPTIONAL_ENTERPRISE_ENV_VARS,
+    *_OPTIONAL_VIDEO_ENV_VARS,
 )
 
 
@@ -183,7 +197,7 @@ def optional_env_vars() -> dict[str, str]:
 
 
 ENV_VAR_DICT.update(optional_env_vars())
-for _key in _OPTIONAL_ENTERPRISE_ENV_VARS:
+for _key in _OPTIONAL_FORWARDED_ENV_VARS:
     if _val := (os.getenv(_key) or "").strip():
         ENV_VAR_DICT[_key] = _val
 
@@ -199,7 +213,7 @@ def build_env_vars(enable_tracing: bool = False) -> dict[str, str | None]:
     ``ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS=false`` (as ``adk deploy`` does).
     """
     env = {**ENV_VAR_DICT}
-    for key in _OPTIONAL_ENTERPRISE_ENV_VARS:
+    for key in _OPTIONAL_FORWARDED_ENV_VARS:
         if val := (os.getenv(key) or "").strip():
             env[key] = val
         else:

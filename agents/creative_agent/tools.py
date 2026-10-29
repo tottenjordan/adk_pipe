@@ -131,6 +131,97 @@ def _esc_attr(value: object) -> str:
     return html.escape(str(value), quote=True)
 
 
+def _build_video_reel_html(generated_videos: object) -> str:
+    """Render an optional ``Video Reel`` HTML section, or ``""`` when no cuts exist.
+
+    Pure and HTML-escaped. Returns an empty string when Phase 3 video production
+    did not run so default Phase 2 galleries remain byte-identical.
+    """
+    if not isinstance(generated_videos, dict) or not generated_videos:
+        return ""
+
+    cards: list[str] = []
+    for index, (cut_key, raw_rec) in enumerate(generated_videos.items()):
+        if isinstance(raw_rec, dict):
+            label = raw_rec.get("label") or raw_rec.get("cut") or cut_key
+            aspect = raw_rec.get("aspect_ratio") or ""
+            dur = raw_rec.get("duration_seconds")
+            dur_str = f"{dur}s" if dur is not None else ""
+            backend = raw_rec.get("backend") or ""
+            gcs_uri = str(raw_rec.get("gcs_uri") or "").strip()
+            transcript = str(raw_rec.get("voiceover_transcript") or "").strip()
+            shots = (
+                raw_rec.get("shot_numbers")
+                if isinstance(raw_rec.get("shot_numbers"), list)
+                else raw_rec.get("shots")
+            )
+            shot_count = len(shots) if isinstance(shots, list) else None
+        elif isinstance(raw_rec, str) and raw_rec.strip():
+            label = cut_key
+            aspect = ""
+            dur_str = ""
+            backend = ""
+            gcs_uri = raw_rec.strip()
+            transcript = ""
+            shot_count = None
+        else:
+            continue
+
+        auth_url = ""
+        if gcs_uri.startswith("gs://"):
+            auth_url = "https://storage.mtls.cloud.google.com/" + gcs_uri[5:]
+
+        rows = [f"<dt>Cut:</dt> <dd>{_esc(label)}</dd>"]
+        spec_bits = [
+            b
+            for b in (dur_str, aspect, f"{shot_count} shot(s)" if shot_count else "")
+            if b
+        ]
+        if spec_bits:
+            rows.append(f"<dt>Format:</dt> <dd>{_esc(' · '.join(spec_bits))}</dd>")
+        if backend:
+            rows.append(f"<dt>Renderer:</dt> <dd>{_esc(backend)}</dd>")
+        if transcript:
+            rows.append(f"<dt>Voiceover:</dt> <dd>{_esc(transcript)}</dd>")
+        if auth_url:
+            rows.append(
+                f'<dt>MP4:</dt> <dd><a href="{_esc_attr(auth_url)}" target="_blank" '
+                f'rel="noopener noreferrer">{_esc(gcs_uri)}</a></dd>'
+            )
+        elif gcs_uri:
+            rows.append(f"<dt>MP4:</dt> <dd>{_esc(gcs_uri)}</dd>")
+
+        cards.append(
+            f"""
+                    <!-- Video Cut {index + 1} -->
+                    <div class="content-card">
+                        <dl>
+                            {"".join(rows)}
+                        </dl>
+                    </div>
+            """
+        )
+
+    if not cards:
+        return ""
+    return (
+        """
+        <section class="content-section">
+            <details open>
+                <summary>
+                    <h2>Video Reel</h2>
+                </summary>
+                <div class="card-grid">
+        """
+        + "".join(cards)
+        + """
+                </div>
+            </details>
+        </section>
+        """
+    )
+
+
 async def save_creative_gallery_html(tool_context: ToolContext) -> dict:
     """
     Saves generated HTML report to Cloud Storage.
@@ -281,6 +372,10 @@ async def save_creative_gallery_html(tool_context: ToolContext) -> dict:
             """
             CONNECTED_AD_COPY_STRING += AD_COPY_BLOCK
 
+        VIDEO_REEL_STRING = _build_video_reel_html(
+            tool_context.state.get("generated_videos")
+        )
+
         # concat all strings to form HTML doc
         FINAL_HTML = (
             gt.HTML_TEMPLATE
@@ -293,6 +388,7 @@ async def save_creative_gallery_html(tool_context: ToolContext) -> dict:
             + gt.HTML_PRE_AD_COPY
             + CONNECTED_AD_COPY_STRING
             + gt.HTML_POST_AD_COPY
+            + VIDEO_REEL_STRING
             + gt.HTML_END_JAVASCRIPT
         )
 

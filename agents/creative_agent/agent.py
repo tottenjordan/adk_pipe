@@ -74,12 +74,34 @@ from .schemas import (  # noqa: F401
     ResearchFeedback,
     SearchQuery,
     TrendBridge,
+    VideoCutFormat,
+    VideoShotSpec,
+    VideoStoryboard,
     VisualConcept,
     VisualConceptCritique,
     VisualConceptCritiqueList,
     VisualConceptFinal,
     VisualConceptFinalList,
     VisualConceptList,
+)
+from .video_stage import (  # noqa: F401  (re-exported)
+    _video_director_failed,
+    _video_storyboard_reviser_failed,
+    produce_video_reel_node,
+    storyboard_gate,
+    storyboard_gate_decision,
+    video_director,
+    video_director_failsoft,
+    video_director_resilient,
+    video_gate,
+    video_render_pipeline,
+    video_storyboard_enabled_gate,
+    video_storyboard_pipeline,
+    video_storyboard_ready,
+    video_storyboard_reviser,
+    video_storyboard_reviser_failsoft,
+    video_storyboard_skipped,
+    videos_ready,
 )
 from .visual_stage import (  # noqa: F401  (re-exported)
     art_director,
@@ -149,10 +171,13 @@ def _stage_barrier(stage: Workflow) -> FunctionNode:
 # the early evaluation failed or is stale).
 ad_copy_eval_join = JoinNode(name="ad_copy_eval_join")
 _visual_production_barrier = _stage_barrier(visual_production_pipeline)
+_video_storyboard_barrier = _stage_barrier(video_storyboard_pipeline)
+_video_render_barrier = _stage_barrier(video_render_pipeline)
+_finalize_barrier = _stage_barrier(finalize_pipeline)
 
 creative_pipeline = Workflow(
     name="creative_pipeline",
-    description="Runs the complete creative workflow: research and a creative brief (research PDF saved), ad copies, visual concepts with rendered images, then evaluation and export of the report, HTML gallery and BigQuery rows. Returns the evaluation summary.",
+    description="Runs the complete creative workflow: research and a creative brief (research PDF saved), ad copies, visual concepts with rendered images (plus optional multi-cut video production when enabled), then evaluation and export of the report, HTML gallery and BigQuery rows. Returns the evaluation summary.",
     input_schema=PipelineRequest,
     edges=[
         (
@@ -164,10 +189,23 @@ creative_pipeline = Workflow(
         ),
         (_visual_production_barrier, visual_production_pipeline, ad_copy_eval_join),
         (evaluate_ad_copies_node, ad_copy_eval_join),
+        (ad_copy_eval_join, video_gate),
         (
-            ad_copy_eval_join,
-            # Drops the join dict (finalize_pipeline validates PipelineRequest).
-            _stage_barrier(finalize_pipeline),
+            video_gate,
+            {
+                "skip": _finalize_barrier,
+                "produce": _video_storyboard_barrier,
+            },
+        ),
+        (
+            _video_storyboard_barrier,
+            video_storyboard_pipeline,
+            _video_render_barrier,
+            video_render_pipeline,
+            _finalize_barrier,
+        ),
+        (
+            _finalize_barrier,
             # Terminal: finalize_ready's always-truthy summary.
             finalize_pipeline,
         ),

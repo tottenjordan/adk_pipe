@@ -53,6 +53,7 @@ _CHECKPOINT_LABELS: dict[str, str] = {
     "review_research": "Reviewed research & creative brief",
     "review_ad_copies": "Reviewed ad copy",
     "review_visual_concepts": "Reviewed visual concepts",
+    "review_video_storyboard": "Reviewed video storyboard",
 }
 
 _SESSION_SERVICE: Any = None
@@ -191,6 +192,7 @@ def _extract_checkpoint_entries(
     seen_brief_edit = False
     seen_copy_review = False
     seen_visual_review = False
+    seen_storyboard_edit = False
 
     for ev in events:
         ts = _event_timestamp(ev)
@@ -219,6 +221,16 @@ def _extract_checkpoint_entries(
                     _entry(
                         "checkpoint",
                         "Edited research report at review checkpoint",
+                        timestamp=ts,
+                    )
+                )
+            if delta.get("video_storyboard_edited"):
+                seen_storyboard_edit = True
+                entries.append(
+                    _entry(
+                        "checkpoint",
+                        "Edited video storyboard at review checkpoint",
+                        detail="Updated structured video storyboard before rendering",
                         timestamp=ts,
                     )
                 )
@@ -280,6 +292,14 @@ def _extract_checkpoint_entries(
                 "checkpoint",
                 "Submitted visual concept edits",
                 detail=f"{len(notes_state)} revision note(s) applied before rendering",
+            )
+        )
+    if state.get("video_storyboard_edited") and not seen_storyboard_edit:
+        entries.append(
+            _entry(
+                "checkpoint",
+                "Edited video storyboard at review checkpoint",
+                detail="Updated structured video storyboard before rendering",
             )
         )
     return entries
@@ -374,6 +394,9 @@ def build_changelog(
             state.get("visual_concept_revision_rounds_used")
         ),
     }
+    video_storyboard_rounds = _safe_nonneg_int(
+        state.get("video_storyboard_revision_rounds_used")
+    )
     source_counts = {
         "web": _count_sources(state.get("sources")),
         "enterprise": _count_sources(state.get("enterprise_sources")),
@@ -509,6 +532,34 @@ def build_changelog(
                     detail=f"{len(gen_images)} image(s) passed first-pass QA",
                 )
             )
+
+    sb_obj = _as_obj(state.get("video_storyboard"))
+    sb_shots = sb_obj.get("shots") if isinstance(sb_obj, Mapping) else None
+    if isinstance(sb_shots, list) and sb_shots:
+        sb_detail = (
+            f"{len(sb_shots)} shots ({video_storyboard_rounds} gate revision(s))"
+            if video_storyboard_rounds > 0
+            else f"{len(sb_shots)} shots passed storyboard gate"
+        )
+        entries.append(
+            _entry("gate", "Finalized & gated video storyboard", detail=sb_detail)
+        )
+
+    gen_videos = _as_obj(state.get("generated_videos"))
+    if isinstance(gen_videos, Mapping) and gen_videos:
+        backends = sorted(
+            {
+                str(rec.get("backend")).strip()
+                for rec in gen_videos.values()
+                if isinstance(rec, Mapping) and str(rec.get("backend") or "").strip()
+            }
+        )
+        vid_detail = f"{len(gen_videos)} cut(s) conformed ({', '.join(gen_videos)})"
+        if backends:
+            vid_detail += f" via {', '.join(backends)}"
+        entries.append(
+            _entry("video", "Rendered multi-cut video reel", detail=vid_detail)
+        )
 
     eval_report = _as_obj(state.get("creative_evaluation_report"))
     if isinstance(eval_report, Mapping) and eval_report:
