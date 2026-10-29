@@ -91,6 +91,12 @@ export interface CampaignInput {
    */
   enterpriseGroundingEnabled?: boolean;
   /**
+   * creative_agent / interactive_creative only: opt this run in to Phase 3
+   * multi-cut video reel production (30s 16:9 hero + 15s & 6s 9:16 cuts). Seeded
+   * explicitly as `video_production_enabled` (`true` or `false`).
+   */
+  videoProductionEnabled?: boolean;
+  /**
    * creative_agent / interactive_creative only: opt this run in to learning
    * from the brand's past human ratings (guidance, style steering, stricter
    * checks). Seeded as `learn_from_ratings: true` only when checked.
@@ -176,6 +182,7 @@ export interface RunChangelog {
     brief: number;
     ad_copy: number;
     visual_concept: number;
+    video_storyboard?: number;
   };
   source_counts: {
     web: number;
@@ -211,3 +218,13 @@ export interface BrandAssistSuggestion {
   tone_summary: string;
   brand_cues: string[];
 }
+
+export type {
+  VideoCutFormat,
+  VideoShotSpec,
+  VideoStoryboard,
+  GeneratedVideoCut,
+  GeneratedVideoEntry,
+  GeneratedVideosMap,
+  StoryboardEdit,
+} from "./video-storyboard";

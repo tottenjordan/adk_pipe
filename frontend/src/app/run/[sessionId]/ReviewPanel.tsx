@@ -13,6 +13,7 @@ import { normalizeTerm, parseTrendFlags } from "@/lib/trend-flags";
 import { formatRefreshDate, parseTrendSummaries } from "@/lib/trend-summaries";
 import { ResearchReportEditor, useReportEdit } from "./report-editor";
 import { ReviewBrief } from "./review-brief";
+import { ReviewVideoStoryboard } from "./review-video-storyboard";
 import { useReviewDraft } from "./review-drafts";
 import { ACTIONS_ROW, ShortcutHint, useApproveShortcut } from "./review-shared";
 import {
@@ -587,6 +588,15 @@ export function ReviewPanel({
   } else if (functionName === "review_visual_concepts") {
     panel = (
       <ReviewVisualConcepts state={sessionState} onResume={onResume} functionCallId={functionCallId} />
+    );
+  } else if (functionName === "review_video_storyboard") {
+    panel = (
+      <ReviewVideoStoryboard
+        state={sessionState}
+        onResume={onResume}
+        draftKey={functionCallId}
+        serverErrors={serverErrors}
+      />
     );
   } else if (functionName === "review_trends") {
     panel = (

@@ -69,6 +69,9 @@ export function RunChangelogPanel({
               <dd className="mt-0.5 text-sm text-foreground tabular-nums">
                 Brief {changelog.gate_rounds.brief} · Copy {changelog.gate_rounds.ad_copy} · Visual{" "}
                 {changelog.gate_rounds.visual_concept}
+                {typeof changelog.gate_rounds.video_storyboard === "number"
+                  ? ` · Storyboard ${changelog.gate_rounds.video_storyboard}`
+                  : ""}
               </dd>
             </div>
           </dl>

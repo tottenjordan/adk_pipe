@@ -509,32 +509,62 @@ function HomeContent() {
               )}
 
               {isCreative && (
-                <label
-                  htmlFor="enterprise-grounding-enabled"
-                  className="flex items-start gap-3 rounded-md border border-border bg-background px-3 py-2.5 cursor-pointer hover:border-foreground/20 transition-colors"
-                >
-                  <input
-                    id="enterprise-grounding-enabled"
-                    type="checkbox"
-                    checked={form.enterpriseGroundingEnabled ?? false}
-                    onChange={(e) =>
-                      setForm({
-                        ...form,
-                        enterpriseGroundingEnabled: e.target.checked,
-                      })
-                    }
-                    className="mt-0.5 h-4 w-4 shrink-0 rounded-sm border-border accent-primary cursor-pointer"
-                  />
-                  <span className="space-y-0.5">
-                    <span className="block text-sm font-medium text-foreground">
-                      Ground in Enterprise Knowledge Base
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <label
+                    htmlFor="enterprise-grounding-enabled"
+                    className="flex items-start gap-3 rounded-md border border-border bg-background px-3 py-2.5 cursor-pointer hover:border-foreground/20 transition-colors"
+                  >
+                    <input
+                      id="enterprise-grounding-enabled"
+                      type="checkbox"
+                      checked={form.enterpriseGroundingEnabled ?? false}
+                      onChange={(e) =>
+                        setForm({
+                          ...form,
+                          enterpriseGroundingEnabled: e.target.checked,
+                        })
+                      }
+                      className="mt-0.5 h-4 w-4 shrink-0 rounded-sm border-border accent-primary cursor-pointer"
+                    />
+                    <span className="space-y-0.5">
+                      <span className="block text-sm font-medium text-foreground">
+                        Ground in Enterprise Knowledge Base
+                      </span>
+                      <span className="block text-xs text-muted-foreground">
+                        Include internal Discovery Engine brand guidelines, approved
+                        claims, and product specs when configured.
+                      </span>
                     </span>
-                    <span className="block text-xs text-muted-foreground">
-                      Include internal Discovery Engine brand guidelines, approved
-                      claims, and product specs when configured.
+                  </label>
+
+                  <label
+                    htmlFor="video-production-enabled"
+                    className="flex items-start gap-3 rounded-md border border-border bg-background px-3 py-2.5 cursor-pointer hover:border-foreground/20 transition-colors"
+                  >
+                    <input
+                      id="video-production-enabled"
+                      type="checkbox"
+                      checked={form.videoProductionEnabled ?? false}
+                      onChange={(e) =>
+                        setForm({
+                          ...form,
+                          videoProductionEnabled: e.target.checked,
+                        })
+                      }
+                      className="mt-0.5 h-4 w-4 shrink-0 rounded-sm border-border accent-primary cursor-pointer"
+                    />
+                    <span className="space-y-0.5">
+                      <span className="block text-sm font-medium text-foreground">
+                        Phase 3: Multi-Cut Video Reel (30s / 15s / 6s)
+                      </span>
+                      <span className="block text-xs text-muted-foreground">
+                        Render an animated commercial reel (16:9 hero + 9:16 social
+                        &amp; bumper cuts) with voiceover and instrumental score
+                        from your approved visual keyframes.
+                      </span>
                     </span>
-                  </span>
-                </label>
+                  </label>
+                </div>
               )}
 
               {isCreative && (

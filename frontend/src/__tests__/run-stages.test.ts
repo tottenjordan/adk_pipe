@@ -356,6 +356,30 @@ describe("deriveStages — interactive_creative", () => {
     const stages = deriveStages("interactive_creative", CREATIVE_DONE, null, "completed");
     expect(stages.every((s) => s.state === "done")).toBe(true);
   });
+
+  it("adds video storyboard, review storyboard, and video reel stages when video_production_enabled is true", () => {
+    const labels = deriveStages(
+      "interactive_creative",
+      { video_production_enabled: true },
+      null,
+      "running"
+    ).map((s) => s.label);
+    expect(labels).toEqual([
+      "Research",
+      "Brief",
+      "Research report",
+      "Review brief",
+      "Ad copy",
+      "Review ad copy",
+      "Visual concepts",
+      "Review visuals",
+      "Images",
+      "Video storyboard",
+      "Review storyboard",
+      "Video reel",
+      "Evaluation & save",
+    ]);
+  });
 });
 
 describe("deriveStages — trend_scout", () => {

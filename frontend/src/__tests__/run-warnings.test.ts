@@ -67,9 +67,13 @@ describe("classifyWarnings", () => {
       "Ad copy check has unresolved issues: 1 (e.g. Copy 2: CTA too long)",
       "Visual concept check has unresolved issues: 2 (e.g. Jackpot: missing motif)",
       "Creative brief has unresolved issues: 1 (e.g. insight has no tension)",
+      "Video storyboard has unresolved issues: 1 (e.g. Hero cut sum repaired)",
+      "Video check has unresolved issues: 1 (e.g. Shot 2 required 1 retake)",
+      "Video reel has unresolved issues: 1 (e.g. Bumper uploaded with fallback)",
       "3 checks not reported by the judge (passed as not checked)",
       "Visual judge could not read the rendered image and judged the prompt instead for: Jackpot",
       exhausted("creative_evaluation_report"),
+      exhausted("video_storyboard"),
     ]
     expect(classifyWarnings(notes)).toEqual({ research: [], saves: [], quality: notes })
   })

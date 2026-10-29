@@ -1,4 +1,5 @@
 import type {
+  Part,
   Session,
   AgentEvent,
   BrandAssistRequest,
@@ -131,6 +132,17 @@ export async function listArtifacts(
 ): Promise<string[]> {
   const res = await fetch(`${sessionsUrl(appName, userId, sessionId)}/artifacts`);
   if (!res.ok) throw await httpError(res, "Failed to list artifacts");
+  return res.json();
+}
+
+export async function getArtifact(
+  appName: string,
+  userId: string,
+  sessionId: string,
+  artifactName: string
+): Promise<Part> {
+  const res = await fetch(`${sessionsUrl(appName, userId, sessionId)}/artifacts/${seg(artifactName)}`);
+  if (!res.ok) throw await httpError(res, "Failed to get artifact");
   return res.json();
 }
 
@@ -347,7 +359,14 @@ async function rejection(res: Response): Promise<ResumeRejectedError> {
     const fieldErrors: Record<string, string> = {};
     if (Array.isArray(detail?.errors)) {
       for (const e of detail.errors) {
-        if (typeof e?.loc === "string" && typeof e?.msg === "string") fieldErrors[e.loc] ??= e.msg;
+        if (typeof e?.loc === "string" && typeof e?.msg === "string") {
+          const prev = fieldErrors[e.loc];
+          if (!prev) {
+            fieldErrors[e.loc] = e.msg;
+          } else if (!prev.split("\n").includes(e.msg)) {
+            fieldErrors[e.loc] = `${prev}\n${e.msg}`;
+          }
+        }
       }
     }
     const message = typeof detail?.message === "string" && detail.message ? `${detail.message} Fix it and submit again.` : fallback;
@@ -415,8 +434,8 @@ export async function resumeRun(
         functionName,
         response,
         functionCallEventId,
-        // Checkpoint edits (1: report / structured brief; 3: concepts): merged
-        // into session state server-side before the resumed run (see
+        // Checkpoint edits (1: report / structured brief; 3: concepts; 4: video_storyboard):
+        // merged into session state server-side before the resumed run (see
         // runserver.async_runs). Omitted when absent/empty.
         ...(edits && edits.length ? { edits } : {}),
       }),

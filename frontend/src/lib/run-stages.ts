@@ -1,5 +1,6 @@
 import type { PauseContext } from "@/lib/pause-detection";
 import { imagesRetryExhausted } from "@/lib/utils";
+import { isVideoProductionEnabled } from "@/lib/video-storyboard";
 
 /**
  * The run page's stage spine, derived purely from session state.
@@ -47,20 +48,44 @@ const VISUALS: StageDef = {
   label: "Visual concepts",
   key: "final_visual_concepts",
 };
-const CREATIVE_TAIL: StageDef[] = [
-  { id: "images", label: "Images", key: "_images_generated" },
-  // Done at the creative apps' completion key (set by finalize_pipeline on every
-  // path, even when the eval report save failed), like run-completion.ts;
-  // sessions that predate finalize_done fall back to the eval report URI.
-  {
-    id: "eval_save",
-    label: "Evaluation & save",
-    key: "finalize_done",
-    fallbackKey: "eval_report_gcs_uri",
-  },
-];
+const IMAGES_STAGE: StageDef = { id: "images", label: "Images", key: "_images_generated" };
+// Done at the creative apps' completion key (set by finalize_pipeline on every
+// path, even when the eval report save failed), like run-completion.ts;
+// sessions that predate finalize_done fall back to the eval report URI.
+const EVAL_SAVE_STAGE: StageDef = {
+  id: "eval_save",
+  label: "Evaluation & save",
+  key: "finalize_done",
+  fallbackKey: "eval_report_gcs_uri",
+};
+const VIDEO_STORYBOARD_STAGE: StageDef = {
+  id: "video_storyboard",
+  label: "Video storyboard",
+  key: "video_storyboard",
+};
+const REVIEW_VIDEO_STORYBOARD_STAGE: StageDef = {
+  id: "review_video_storyboard",
+  label: "Review storyboard",
+  review: "review_video_storyboard",
+};
+const VIDEO_REEL_STAGE: StageDef = {
+  id: "video_reel",
+  label: "Video reel",
+  key: "_videos_generated",
+  fallbackKey: "generated_videos",
+};
+const CREATIVE_TAIL: StageDef[] = [IMAGES_STAGE, EVAL_SAVE_STAGE];
 
 const CREATIVE_STAGES: StageDef[] = [...CREATIVE_HEAD, AD_COPY, VISUALS, ...CREATIVE_TAIL];
+const CREATIVE_VIDEO_STAGES: StageDef[] = [
+  ...CREATIVE_HEAD,
+  AD_COPY,
+  VISUALS,
+  IMAGES_STAGE,
+  VIDEO_STORYBOARD_STAGE,
+  VIDEO_REEL_STAGE,
+  EVAL_SAVE_STAGE,
+];
 
 const INTERACTIVE_STAGES: StageDef[] = [
   ...CREATIVE_HEAD,
@@ -70,6 +95,19 @@ const INTERACTIVE_STAGES: StageDef[] = [
   VISUALS,
   { id: "review_visuals", label: "Review visuals", review: "review_visual_concepts" },
   ...CREATIVE_TAIL,
+];
+const INTERACTIVE_VIDEO_STAGES: StageDef[] = [
+  ...CREATIVE_HEAD,
+  { id: "review_research", label: "Review brief", review: "review_research" },
+  AD_COPY,
+  { id: "review_ad_copy", label: "Review ad copy", review: "review_ad_copies" },
+  VISUALS,
+  { id: "review_visuals", label: "Review visuals", review: "review_visual_concepts" },
+  IMAGES_STAGE,
+  VIDEO_STORYBOARD_STAGE,
+  REVIEW_VIDEO_STORYBOARD_STAGE,
+  VIDEO_REEL_STAGE,
+  EVAL_SAVE_STAGE,
 ];
 
 function trendScoutStages(state: Record<string, unknown>): StageDef[] {
@@ -103,6 +141,12 @@ export const STAGE_DESCRIPTIONS: Record<string, string> = {
   visual_concepts: "Drafting and critiquing visual concepts.",
   review_visuals: "Review the visual concepts before images are rendered.",
   images: "Rendering images for each visual concept.",
+  video_storyboard:
+    "Planning the multi-cut video storyboard anchored on the rendered keyframes.",
+  review_video_storyboard:
+    "Review and edit the video storyboard before rendering the 30s, 15s, and 6s cuts.",
+  video_reel:
+    "Rendering and stitching the 30s hero, 15s social, and 6s bumper video cuts.",
   eval_save: "Scoring every creative and saving the outputs.",
   run: "The agent is working.",
 };
@@ -144,12 +188,27 @@ function exhaustionMarkers(
   const sub = new Set<string>();
   const byKey = new Map(defs.filter((d) => d.key).map((d) => [d.key as string, d.id]));
   if (imagesRetryExhausted(state)) own.add("images");
+  if (
+    byKey.has("_videos_generated") &&
+    !isPopulated(state._videos_generated) &&
+    !isPopulated(state.generated_videos) &&
+    isPopulated(state.generated_videos__issues)
+  ) {
+    own.add("video_reel");
+  }
   for (const [key, value] of Object.entries(state)) {
     if (!key.endsWith(EXHAUSTED_SUFFIX) || !value) continue;
     const stageKey = key.slice(0, -EXHAUSTED_SUFFIX.length);
     const ownId = byKey.get(stageKey);
     if (ownId) own.add(ownId);
     else if (stageKey.startsWith("_images_generated")) own.add("images");
+    else if (
+      byKey.has("_videos_generated") &&
+      (stageKey === "generated_videos" || stageKey.startsWith("_videos_generated"))
+    )
+      own.add("video_reel");
+    else if (byKey.has("video_storyboard") && stageKey.startsWith("video_storyboard"))
+      own.add("video_storyboard");
     else sub.add(stageKey.startsWith("creative_brief") ? "brief" : "research");
   }
   return { own, sub };
@@ -179,13 +238,21 @@ export function deriveStages(
   status: RunStageStatus,
   answeredReviews: ReadonlySet<string> = new Set()
 ): Stage[] {
+  const videoEnabled =
+    isVideoProductionEnabled(state.video_production_enabled) ||
+    (state.video_production_enabled == null &&
+      (isPopulated(state.video_storyboard) || isPopulated(state.generated_videos)));
   const defs =
     appName === "trend_scout"
       ? trendScoutStages(state)
       : appName === "creative_agent"
-        ? CREATIVE_STAGES
+        ? videoEnabled
+          ? CREATIVE_VIDEO_STAGES
+          : CREATIVE_STAGES
         : appName === "interactive_creative"
-          ? INTERACTIVE_STAGES
+          ? videoEnabled
+            ? INTERACTIVE_VIDEO_STAGES
+            : INTERACTIVE_STAGES
           : UNKNOWN_STAGES;
 
   const markers = exhaustionMarkers(defs, state);

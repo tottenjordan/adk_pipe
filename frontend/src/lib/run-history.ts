@@ -234,6 +234,9 @@ export function briefFromState(state: Record<string, unknown>): Brief {
   if (typeof state.enterprise_grounding_enabled === "boolean") {
     brief.enterpriseGroundingEnabled = state.enterprise_grounding_enabled;
   }
+  if (typeof state.video_production_enabled === "boolean") {
+    brief.videoProductionEnabled = state.video_production_enabled;
+  }
   if (state.learn_from_ratings === true) brief.learnFromRatings = true;
   // The respectful-angle opt-in only makes sense for a sensitive trend context.
   if (state.safer_angle_opt_in === true && contextSensitivity(brief.trendContext).sensitive) {

@@ -352,6 +352,30 @@ describe("briefFromState", () => {
         .enterprise_grounding_enabled,
     ).toBe(false);
   });
+
+  it("round-trips video_production_enabled through Duplicate brief and buildInitialState", () => {
+    const enabledBrief = briefFromState({
+      ui_app: "creative_agent",
+      brand: "PRS",
+      video_production_enabled: true,
+    });
+    expect(enabledBrief.videoProductionEnabled).toBe(true);
+    expect(
+      buildInitialState({ ...EMPTY_CAMPAIGN_FORM, ...enabledBrief })
+        .video_production_enabled,
+    ).toBe(true);
+
+    const disabledBrief = briefFromState({
+      ui_app: "interactive_creative",
+      brand: "PRS",
+      video_production_enabled: false,
+    });
+    expect(disabledBrief.videoProductionEnabled).toBe(false);
+    expect(
+      buildInitialState({ ...EMPTY_CAMPAIGN_FORM, ...disabledBrief })
+        .video_production_enabled,
+    ).toBe(false);
+  });
 });
 
 describe("sessionStorage helpers", () => {

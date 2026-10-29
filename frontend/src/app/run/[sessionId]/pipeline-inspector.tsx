@@ -4,12 +4,16 @@ import { useMemo, useState } from "react";
 import { ChevronDown } from "lucide-react";
 import { FieldLabel } from "@/components/field-label";
 import { cleanEnterpriseLabel } from "@/lib/research-report";
+import { isVideoProductionEnabled } from "@/lib/video-storyboard";
 
 const ISSUE_LABELS: Record<string, string> = {
   image_qa: "Image check",
   ad_copy_critique: "Ad copy check",
   final_visual_concepts: "Visual concept check",
   creative_brief: "Creative brief",
+  video_storyboard: "Video storyboard",
+  video_qa: "Video check",
+  generated_videos: "Video reel",
   enterprise_research_findings: "Enterprise knowledge base",
   research_report_gcs_uri: "Research PDF save",
   eval_report_gcs_uri: "Eval report save",
@@ -241,7 +245,15 @@ export function PipelineInspector({
     const visualRounds = toSafeNonNegInt(
       sessionState.visual_concept_revision_rounds_used
     );
-    const totalRounds = briefRounds + copyRounds + visualRounds;
+    const storyboardRounds = toSafeNonNegInt(
+      sessionState.video_storyboard_revision_rounds_used
+    );
+    const totalRounds =
+      briefRounds + copyRounds + visualRounds + storyboardRounds;
+    const showStoryboardGate =
+      isVideoProductionEnabled(sessionState.video_production_enabled) ||
+      storyboardRounds > 0 ||
+      Boolean(sessionState.video_storyboard);
 
     const residuals = extractResiduals(sessionState);
 
@@ -252,6 +264,8 @@ export function PipelineInspector({
       briefRounds,
       copyRounds,
       visualRounds,
+      storyboardRounds,
+      showStoryboardGate,
       totalRounds,
       residuals,
     };
@@ -478,7 +492,13 @@ export function PipelineInspector({
           {/* 2. Quality Gates & Revision Rounds */}
           <section className="space-y-2 border-t border-border pt-4">
             <FieldLabel as="h3">Quality gates &amp; revision rounds</FieldLabel>
-            <dl className="grid gap-3 sm:grid-cols-3">
+            <dl
+              className={`grid gap-3 ${
+                summaryStats.showStoryboardGate
+                  ? "sm:grid-cols-2 lg:grid-cols-4"
+                  : "sm:grid-cols-3"
+              }`}
+            >
               <div className="rounded-md border border-border bg-background px-3 py-2">
                 <FieldLabel as="dt">Brief gate</FieldLabel>
                 <dd className="mt-0.5 text-sm font-medium text-foreground tabular-nums">
@@ -500,6 +520,15 @@ export function PipelineInspector({
                   {summaryStats.visualRounds !== 1 ? "s" : ""}
                 </dd>
               </div>
+              {summaryStats.showStoryboardGate && (
+                <div className="rounded-md border border-border bg-background px-3 py-2">
+                  <FieldLabel as="dt">Video storyboard gate</FieldLabel>
+                  <dd className="mt-0.5 text-sm font-medium text-foreground tabular-nums">
+                    {summaryStats.storyboardRounds} revision
+                    {summaryStats.storyboardRounds !== 1 ? "s" : ""}
+                  </dd>
+                </div>
+              )}
             </dl>
           </section>
 

@@ -19,6 +19,7 @@ export const EMPTY_CAMPAIGN_FORM: CampaignInput = {
   trendCountryCode: "US",
   trendRegion: "",
   enterpriseGroundingEnabled: false,
+  videoProductionEnabled: false,
   learnFromRatings: false,
   saferAngle: false,
   personReference: null,
@@ -116,6 +117,9 @@ export function buildInitialState(form: CampaignInput): Record<string, unknown> 
 
   if (typeof form.enterpriseGroundingEnabled === "boolean") {
     state.enterprise_grounding_enabled = form.enterpriseGroundingEnabled;
+  }
+  if (typeof form.videoProductionEnabled === "boolean") {
+    state.video_production_enabled = form.videoProductionEnabled;
   }
   if (form.learnFromRatings === true) state.learn_from_ratings = true;
   if (form.saferAngle === true && contextSensitivity(form.trendContext).sensitive) {
