@@ -31,7 +31,16 @@ from google.adk.cli.utils.service_factory import (
 )
 from google.adk.runners import Runner
 
-from runserver import experiments, person_refs, ratings, shares, shutdown, variants
+from runserver import (
+    changelog,
+    experiments,
+    person_refs,
+    ratings,
+    shares,
+    shutdown,
+    variants,
+)
+from runserver.a2a_mount import a2a_enabled, mount_a2a_apps
 from runserver.async_runs import (
     configure,
     get_root_agent,
@@ -42,6 +51,7 @@ from runserver.authz import (
     AuthzMode,
     UserAuthzMiddleware,
     install_ownership_handler,
+    parse_allowed_sas,
     resolve_mode,
     verify_proxy_caller,
 )
@@ -178,6 +188,20 @@ configure(
 )
 app.include_router(router)
 
+changelog.configure(
+    session_service=session_service,
+    artifact_service=artifact_service,
+    authz_mode=_AUTHZ_MODE,
+)
+app.include_router(changelog.router)
+
+if a2a_enabled():
+    mount_a2a_apps(
+        app,
+        runner_factory=_runner_factory,
+        session_service=session_service,
+    )
+
 # Bandit experiments (/experiments): BANDIT_DEPLOY_MODE=vertex (BigQuery + Vertex
 # endpoint + Cloud Run Job) or fake (in-memory; also the fallback when the BigQuery
 # env is missing, i.e. local dev). See runserver/experiments.py.
@@ -237,6 +261,16 @@ app.include_router(person_refs.router)
 variants.configure(session_service=session_service)
 app.include_router(variants.router)
 
+_A2A_AUDIENCES = [
+    a.strip() for a in os.getenv("A2A_AUDIENCES", "").split(",") if a.strip()
+] or _PROXY_AUDIENCES
+_A2A_ALLOWED_SAS = parse_allowed_sas(os.getenv("A2A_ALLOWED_CALLER_SAS"))
+_A2A_PUBLIC_CARD = os.getenv("A2A_PUBLIC_AGENT_CARD", "").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+}
+
 install_ownership_handler(app)
 app.add_middleware(
     UserAuthzMiddleware,
@@ -244,4 +278,7 @@ app.add_middleware(
     caller_ok=partial(
         verify_proxy_caller, audiences=_PROXY_AUDIENCES, trusted_sa=_PROXY_SA
     ),
+    a2a_audiences=_A2A_AUDIENCES,
+    a2a_allowed_sas=_A2A_ALLOWED_SAS,
+    a2a_public_agent_card=_A2A_PUBLIC_CARD,
 )

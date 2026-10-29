@@ -149,3 +149,38 @@ export interface ReferenceImageInput {
 export interface ReferenceRowInput extends ReferenceImageInput {
   id?: string;
 }
+
+export interface RunChangelogEntry {
+  kind: string;
+  label: string;
+  detail?: string;
+  timestamp?: number | string;
+}
+
+export interface RunChangelog {
+  session_id: string;
+  app_name: string;
+  origin: "studio" | "a2a" | "gemini_enterprise";
+  handoff_source_session_id: string | null;
+  gate_rounds: {
+    brief: number;
+    ad_copy: number;
+    visual_concept: number;
+  };
+  source_counts: {
+    web: number;
+    enterprise: number;
+  };
+  warnings: string[];
+  entries: RunChangelogEntry[];
+}
+
+export interface ClaimHandoffResult {
+  session_id: string;
+  app_name: string;
+  already_owned: boolean;
+}
+
+export type ChangelogEntry = RunChangelogEntry;
+export type RunChangelogResponse = RunChangelog;
+export type ClaimHandoffResponse = ClaimHandoffResult;

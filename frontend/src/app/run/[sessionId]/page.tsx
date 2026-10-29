@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useMemo, use } from "react";
+import React, { useEffect, useMemo, useState, use } from "react";
 import Link from "next/link";
 import { useSearchParams, useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -19,7 +19,7 @@ import {
   type RunStageStatus,
 } from "@/lib/run-stages";
 import { stoppedEarly } from "@/lib/run-completion";
-import { SELF_USER_ID } from "@/lib/api";
+import { claimRunHandoff, SELF_USER_ID } from "@/lib/api";
 import { STEP_ERROR_PREFIX } from "@/lib/step-errors";
 import { LearningSummary } from "@/components/learning-summary";
 import { TrendSituationLine } from "@/components/trend-situation-line";
@@ -58,10 +58,23 @@ export default function RunPage({ params }: PageProps<"/run/[sessionId]">) {
   const router = useRouter();
   const appName = searchParams.get("app") || "trend_scout";
   const userId = searchParams.get("userId") || SELF_USER_ID;
+  const fromGe = searchParams.get("from") === "ge";
+  const handoffToken = searchParams.get("handoff") || "";
+  const claimingHandoff = fromGe && Boolean(handoffToken);
+  const handoffKey = `${appName}:${userId}:${sessionId}:${handoffToken}`;
+  const [handoffError, setHandoffError] = useState<{
+    key: string;
+    message: string;
+  } | null>(null);
+  const activeHandoffError =
+    claimingHandoff && handoffError?.key === handoffKey
+      ? handoffError.message
+      : null;
+
   const {
     events,
-    status,
-    errorMsg,
+    status: followerStatus,
+    errorMsg: followerErrorMsg,
     notice,
     stepErrors,
     reviewErrors,
@@ -72,12 +85,58 @@ export default function RunPage({ params }: PageProps<"/run/[sessionId]">) {
     continueError,
     resume: handleResume,
     continueRun: handleContinue,
-  } = useRunFollower(appName, userId, sessionId);
+  } = useRunFollower(appName, userId, sessionId, { enabled: !claimingHandoff });
+
+  const status: RunStatus = activeHandoffError ? "error" : followerStatus;
+  const errorMsg = activeHandoffError ?? followerErrorMsg;
+
+  useEffect(() => {
+    if (!fromGe || !handoffToken) return;
+    let cancelled = false;
+    const controller = new AbortController();
+
+    async function redeem() {
+      try {
+        const claimed = await claimRunHandoff(
+          appName,
+          userId,
+          sessionId,
+          handoffToken,
+          { signal: controller.signal }
+        );
+        if (cancelled || controller.signal.aborted) return;
+        router.replace(
+          `/run/${encodeURIComponent(claimed.session_id)}?app=${encodeURIComponent(appName)}&from=ge`
+        );
+      } catch (err) {
+        if (
+          cancelled ||
+          controller.signal.aborted ||
+          (err instanceof Error && err.name === "AbortError")
+        ) {
+          return;
+        }
+        setHandoffError({
+          key: handoffKey,
+          message:
+            err instanceof Error
+              ? err.message
+              : "Failed to claim Gemini Enterprise handoff",
+        });
+      }
+    }
+    redeem();
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [fromGe, handoffToken, handoffKey, appName, userId, sessionId, router]);
 
   const resultsUrl = useMemo(() => {
     const p = new URLSearchParams({ app: appName, userId });
+    if (fromGe) p.set("from", "ge");
     return `/results/${sessionId}?${p.toString()}`;
-  }, [appName, userId, sessionId]);
+  }, [appName, userId, sessionId, fromGe]);
 
   // Parse trend_scout output into clickable cards
   const trends = useMemo(() => {
@@ -196,12 +255,22 @@ export default function RunPage({ params }: PageProps<"/run/[sessionId]">) {
     learningText ||
     situationText;
 
+  const startedInGeminiEnterprise =
+    fromGe || sessionState.run_origin === "gemini_enterprise";
+
   return (
     <div className="mx-auto max-w-[1400px] px-4 py-6 sm:px-6 sm:py-8">
       {/* Page header */}
       <div className="mb-4 flex flex-wrap items-start justify-between gap-4">
         <div className="min-w-0">
-          <h1 className="text-2xl font-bold text-foreground">{agentLabel(appName)}</h1>
+          <div className="flex flex-wrap items-center gap-2.5">
+            <h1 className="text-2xl font-bold text-foreground">{agentLabel(appName)}</h1>
+            {startedInGeminiEnterprise && (
+              <span className="inline-flex items-center rounded-full border border-border bg-muted/70 px-2.5 py-0.5 text-xs font-medium text-foreground/85">
+                Started in Gemini Enterprise
+              </span>
+            )}
+          </div>
           <p className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
             <span role="status" aria-label="Run status" className="inline-flex items-center gap-x-2">
               <span className={`inline-block h-2 w-2 rounded-full ${statusDisplay.dot}`} aria-hidden />

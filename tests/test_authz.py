@@ -21,8 +21,10 @@ from runserver.authz import (
     decide,
     install_ownership_handler,
     normalize_user_id,
+    parse_allowed_sas,
     path_user_id,
     resolve_mode,
+    verify_a2a_caller,
     verify_proxy_caller,
 )
 
@@ -35,6 +37,11 @@ def test_normalize_strips_iap_prefix_and_lowercases():
         == "alice@jordantotten.altostrat.com"
     )
     assert normalize_user_id("accounts.google.com:Alice@Example.com") == A
+    valid_320 = f"{'a' * (320 - len('@example.com'))}@example.com"
+    assert len(valid_320) == 320
+    assert normalize_user_id(valid_320) == valid_320
+    with pytest.raises(ValueError):
+        normalize_user_id(f"a{valid_320}")
     with pytest.raises(ValueError):
         normalize_user_id("user_1727600000000")
 
@@ -46,6 +53,8 @@ def test_normalize_strips_iap_prefix_and_lowercases():
         ("/apps/trend_scout/users/u1/sessions/123/artifacts/a/b.png", "u1"),
         ("/runs/trend_scout/u1/123", "u1"),
         ("/runs/trend_scout/u1/123/resume", "u1"),
+        ("/runs/trend_scout/u1/123/changelog", "u1"),
+        ("/runs/trend_scout/u1/123/claim-handoff", "u1"),
         ("/runs/trend_scout", None),
         # pre-rewrite form (ADK _DefaultAppRewriteMiddleware adds /apps/<default>)
         ("/users/u1/sessions", "u1"),
@@ -539,3 +548,314 @@ def test_middleware_passes_allowed_websocket_and_lifespan():
     assert called == ["websocket"] and sent == []
     called, _ = _raw_asgi(AuthzMode.ENFORCE, {"type": "lifespan"}, [])
     assert called == ["lifespan"]
+
+
+A2A_SA = "service-12345@gcp-sa-discoveryengine.iam.gserviceaccount.com"
+
+
+def test_parse_allowed_sas():
+    assert parse_allowed_sas(None) == frozenset()
+    assert parse_allowed_sas(" , ") == frozenset()
+    assert parse_allowed_sas(f" {A2A_SA.upper()} , {SA} ") == frozenset({A2A_SA, SA})
+
+
+def test_verify_a2a_caller():
+    certs = lambda **_: {"k1": _PUB}  # noqa: E731
+    valid_a2a_tok = _tok(email=A2A_SA)
+    # Fail closed when allowed_sas or audiences is empty
+    assert not verify_a2a_caller(
+        valid_a2a_tok, audiences=[AUD], allowed_sas=(), certs=certs
+    )
+    assert not verify_a2a_caller(
+        valid_a2a_tok, audiences=(), allowed_sas=[A2A_SA], certs=certs
+    )
+    # Allowed SA passes (case-insensitive)
+    assert verify_a2a_caller(
+        valid_a2a_tok,
+        audiences=[AUD],
+        allowed_sas=[A2A_SA.upper()],
+        certs=certs,
+    )
+    # Wrong SA, unverified email, bad audience, bad signature fail closed
+    assert not verify_a2a_caller(
+        _tok(email="other-sa@test-project.iam.gserviceaccount.com"),
+        audiences=[AUD],
+        allowed_sas=[A2A_SA],
+        certs=certs,
+    )
+    assert not verify_a2a_caller(
+        _tok(email=A2A_SA, email_verified=False),
+        audiences=[AUD],
+        allowed_sas=[A2A_SA],
+        certs=certs,
+    )
+    assert not verify_a2a_caller(
+        _tok(email=A2A_SA, aud="https://wrong-aud.example.com"),
+        audiences=[AUD],
+        allowed_sas=[A2A_SA],
+        certs=certs,
+    )
+    assert not verify_a2a_caller(
+        _tok(signer=_EVIL_SIGNER, email=A2A_SA),
+        audiences=[AUD],
+        allowed_sas=[A2A_SA],
+        certs=certs,
+    )
+
+
+def _a2a_test_app(
+    mode: AuthzMode,
+    *,
+    allowed_sas: tuple[str, ...] = (A2A_SA,),
+    public_agent_card: bool = False,
+):
+    app = FastAPI()
+
+    @app.get("/a2a/trend_scout/.well-known/agent-card.json")
+    async def card():
+        return {"name": "trend_scout"}
+
+    @app.get("/a2a/trend_scout/.well-known/agent.json")
+    async def legacy_card():
+        return {"name": "trend_scout"}
+
+    @app.get("/a2a/trend_scout/extra/.well-known/agent-card.json")
+    async def nested_extra_card():
+        return {"name": "extra"}
+
+    @app.get("/runs/.well-known/agent-card.json")
+    async def runs_fake_card():
+        return {"leaked": True}
+
+    @app.post("/a2a/trend_scout/")
+    async def rpc():
+        return {"ok": True}
+
+    @app.get("/runs/trend_scout/{u}/{s}")
+    async def run_status(u: str, s: str):
+        return {"user": u, "sid": s}
+
+    @app.get("/runs/creative_agent/{u}/{s}")
+    async def creative_run_status(u: str, s: str):
+        return {"user": u, "sid": s}
+
+    @app.get("/runs/trend_scout/{u}/{s}/changelog")
+    async def run_changelog(u: str, s: str):
+        return {"user": u, "sid": s}
+
+    app.add_middleware(
+        UserAuthzMiddleware,
+        mode=mode,
+        caller_ok=lambda auth: auth == "Bearer proxy",
+        a2a_caller_ok=lambda auth: verify_a2a_caller(
+            auth,
+            audiences=[AUD],
+            allowed_sas=allowed_sas,
+            certs=lambda **_: {"k1": _PUB},
+        ),
+        a2a_public_agent_card=public_agent_card,
+    )
+    return app
+
+
+def _req(app, method: str, path: str, **headers):
+    async def go():
+        t = httpx.ASGITransport(app=app, raise_app_exceptions=False)
+        async with httpx.AsyncClient(transport=t, base_url="http://t") as c:
+            return await c.request(method, path, headers=headers)
+
+    return asyncio.run(go())
+
+
+def test_middleware_a2a_enforce_and_studio_non_regression():
+    # Empty A2A_ALLOWED_CALLER_SAS -> fail closed 401 even with a signed token
+    closed_app = _a2a_test_app(AuthzMode.ENFORCE, allowed_sas=())
+    assert (
+        _req(
+            closed_app,
+            "POST",
+            "/a2a/trend_scout/",
+            authorization=_tok(email=A2A_SA),
+        ).status_code
+        == 401
+    )
+
+    app = _a2a_test_app(AuthzMode.ENFORCE, allowed_sas=(A2A_SA,))
+    # Missing / wrong SA / bad audience / unverified email -> 401
+    assert _req(app, "POST", "/a2a/trend_scout/").status_code == 401
+    assert (
+        _req(app, "GET", "/a2a/trend_scout/.well-known/agent-card.json").status_code
+        == 401
+    )
+    assert (
+        _req(
+            app,
+            "POST",
+            "/a2a/trend_scout/",
+            authorization=_tok(email=SA),
+            **{"x-tt-user": A},
+        ).status_code
+        == 401
+    )
+    assert (
+        _req(
+            app,
+            "POST",
+            "/a2a/trend_scout/",
+            authorization=_tok(email=A2A_SA, email_verified=False),
+        ).status_code
+        == 401
+    )
+    assert (
+        _req(
+            app,
+            "POST",
+            "/a2a/trend_scout/",
+            authorization=_tok(email=A2A_SA, aud="https://bad.example.com"),
+        ).status_code
+        == 401
+    )
+
+    # Allowed SA -> 200 on both card and JSON-RPC POST
+    ok_auth = {"authorization": _tok(email=A2A_SA)}
+    assert (
+        _req(
+            app, "GET", "/a2a/trend_scout/.well-known/agent-card.json", **ok_auth
+        ).status_code
+        == 200
+    )
+    assert _req(app, "POST", "/a2a/trend_scout/", **ok_auth).status_code == 200
+
+    # Zero regression on /runs X-TT-User enforcement on the exact same app!
+    assert _req(app, "GET", f"/runs/trend_scout/{A}/s1", **_PROXY).status_code == 200
+    assert (
+        _req(app, "GET", f"/runs/trend_scout/{A}/s1/changelog", **_PROXY).status_code
+        == 200
+    )
+    assert (
+        _req(app, "GET", "/runs/trend_scout/bob@example.com/s1", **_PROXY).status_code
+        == 403
+    )
+    assert (
+        _req(
+            app, "GET", "/runs/trend_scout/bob@example.com/s1/changelog", **_PROXY
+        ).status_code
+        == 403
+    )
+    # An A2A caller token does NOT grant access to user-scoped /runs routes
+    assert _req(app, "GET", f"/runs/trend_scout/{A}/s1", **ok_auth).status_code == 401
+
+
+def test_middleware_a2a_public_agent_card_and_trust_client():
+    pub_app = _a2a_test_app(
+        AuthzMode.ENFORCE, allowed_sas=(A2A_SA,), public_agent_card=True
+    )
+    # GET agent cards bypass OIDC when A2A_PUBLIC_AGENT_CARD=1
+    assert (
+        _req(pub_app, "GET", "/a2a/trend_scout/.well-known/agent-card.json").status_code
+        == 200
+    )
+    assert (
+        _req(pub_app, "GET", "/a2a/trend_scout/.well-known/agent.json").status_code
+        == 200
+    )
+    # POST JSON-RPC still requires valid OIDC!
+    assert _req(pub_app, "POST", "/a2a/trend_scout/").status_code == 401
+    assert (
+        _req(
+            pub_app,
+            "POST",
+            "/a2a/trend_scout/",
+            authorization=_tok(email=A2A_SA),
+        ).status_code
+        == 200
+    )
+
+    # Local dev TRUST_CLIENT passes /a2a/* through without OIDC
+    dev_app = _a2a_test_app(AuthzMode.TRUST_CLIENT, allowed_sas=())
+    assert _req(dev_app, "POST", "/a2a/trend_scout/").status_code == 200
+    assert (
+        _req(dev_app, "GET", "/a2a/trend_scout/.well-known/agent-card.json").status_code
+        == 200
+    )
+
+
+def _raw_http_status(app, method: str, raw_path: str, headers=()) -> int:
+    sent = []
+
+    async def receive():
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    async def send(msg):
+        sent.append(msg)
+
+    scope = {
+        "type": "http",
+        "asgi": {"version": "3.0"},
+        "http_version": "1.1",
+        "method": method,
+        "scheme": "http",
+        "path": raw_path,
+        "raw_path": raw_path.encode("latin-1"),
+        "query_string": b"",
+        "headers": [
+            (k.lower().encode("latin-1"), v.encode("latin-1")) for k, v in headers
+        ],
+    }
+    asyncio.run(app(scope, receive, send))
+    start = next(m for m in sent if m["type"] == "http.response.start")
+    return start["status"]
+
+
+def test_middleware_rejects_dot_segment_traversal_and_multi_segment_agent_card():
+    pub_app = _a2a_test_app(
+        AuthzMode.ENFORCE, allowed_sas=(A2A_SA,), public_agent_card=True
+    )
+
+    # 1. Raw ASGI scope["path"] traversal attempts (unnormalized literal '..' / '.' / '\')
+    for method, raw_path, hdrs in (
+        ("GET", "/a2a/../../runs/.well-known/agent-card.json", ()),
+        ("GET", "/a2a/trend_scout/extra/.well-known/agent-card.json", ()),
+        ("POST", "/public/../a2a/trend_scout/", ()),
+        ("POST", "/public/../a2a/trend_scout/", list(_PROXY.items())),
+        ("GET", "/public/../runs/creative_agent/u/s", ()),
+        ("GET", f"/public/../runs/creative_agent/{A}/s1", list(_PROXY.items())),
+        ("GET", "/a2a/./trend_scout/.well-known/agent-card.json", ()),
+        ("GET", r"/a2a\..\runs\.well-known\agent-card.json", ()),
+    ):
+        assert _raw_http_status(pub_app, method, raw_path, hdrs) == 401, (
+            method,
+            raw_path,
+        )
+
+    # 2. Percent-encoded '%2e%2e' over HTTP client (decoded to '..' by ASGI transport)
+    for method, http_path, hdrs in (
+        ("GET", "/a2a/%2e%2e/%2e%2e/runs/.well-known/agent-card.json", {}),
+        ("GET", "/a2a/trend_scout/extra/.well-known/agent-card.json", {}),
+        ("POST", "/public/%2e%2e/a2a/trend_scout/", {}),
+        ("GET", "/public/%2e%2e/runs/creative_agent/u/s", {}),
+        ("GET", f"/public/%2e%2e/runs/creative_agent/{A}/s1", _PROXY),
+    ):
+        assert _req(pub_app, method, http_path, **hdrs).status_code == 401, (
+            method,
+            http_path,
+        )
+
+    # 3. WebSocket dot-segment traversal closes with 1008 without calling inner app
+    called, sent = _raw_asgi(
+        AuthzMode.ENFORCE,
+        _ws_scope("/public/../a2a/trend_scout/"),
+        [{"type": "websocket.connect"}],
+    )
+    assert called == []
+    assert sent == [{"type": "websocket.close", "code": 1008}]
+
+    # 4. Double-slash normalization still enforces user scoping and blocks _BLOCKED_RE
+    assert _raw_http_status(pub_app, "GET", f"//runs/creative_agent/{A}/s1") == 401
+    assert _raw_http_status(pub_app, "POST", "/public/../run_live") == 401
+
+    # In OBSERVE mode, dot-segment traversal onto _BLOCKED_RE still returns 404
+    obs_app = _a2a_test_app(
+        AuthzMode.OBSERVE, allowed_sas=(A2A_SA,), public_agent_card=True
+    )
+    assert _raw_http_status(obs_app, "POST", "/public/../run_live") == 404

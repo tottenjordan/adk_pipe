@@ -7,6 +7,8 @@ const ROUTES: { method: string; match: (p: string[]) => boolean; userAt?: number
   { method: "POST", match: (p) => p.length === 2 && p[0] === "runs", bodyUser: true },
   { method: "GET", match: (p) => p.length === 4 && p[0] === "runs", userAt: 2 },
   { method: "POST", match: (p) => p.length === 5 && p[0] === "runs" && p[4] === "resume", userAt: 2 },
+  { method: "GET", match: (p) => p.length === 5 && p[0] === "runs" && p[4] === "changelog", userAt: 2 },
+  { method: "POST", match: (p) => p.length === 5 && p[0] === "runs" && p[4] === "claim-handoff", userAt: 2 },
   // Bandit experiments (docs/bandit/contracts.md §5, §8). Ids are validated below.
   { method: "POST", match: (p) => p.length === 1 && p[0] === "experiments", bodyUser: true },
   { method: "GET", match: (p) => p[0] === "experiments" && (p.length === 2 || p.length === 3
@@ -54,6 +56,7 @@ export function scopeRequestToUser(
 ): { path: string; body: string | undefined } | null {
   if (path.some((s) => s === "." || s === ".." || s.includes("/") || s.includes("\\"))) return null;
   if ((path[0] === "apps" || path[0] === "runs") && !APP_RE.test(path[1] ?? "")) return null;
+  if (path[0] === "runs" && path.length >= 4 && !SESSION_ID_RE.test(path[3])) return null;
   if (path[0] === "experiments" && path.length >= 3 && !EXPERIMENT_ID_RE.test(path[2])) return null;
   if (path[0] === "ratings" && path.length >= 3 && !SESSION_ID_RE.test(path[2])) return null;
   if (path[0] === "shares" && path.length === 4
