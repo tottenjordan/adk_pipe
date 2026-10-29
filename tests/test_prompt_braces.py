@@ -36,6 +36,7 @@ _RUNTIME_KEYS = {
     "brief_issues": "brief gate (brief_check)",
     "ad_copy_issues": "copy gate (copy_gate)",
     "visual_concept_issues": "concept gate (concept_guard)",
+    "video_storyboard_issues": "storyboard gate (video_stage)",
     "brand_history": "load_brand_history",
     "rating_signals": "load_brand_history (rating learning)",
     "trend_situation_md": "validate_trend_situation",

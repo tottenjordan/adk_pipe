@@ -227,6 +227,7 @@ def test_graph_llm_agents_are_single_turn():
     from creative_agent.agent import (
         ad_creative_pipeline,
         combined_research_pipeline,
+        video_storyboard_pipeline,
         visual_production_pipeline,
     )
 
@@ -236,6 +237,7 @@ def test_graph_llm_agents_are_single_turn():
             combined_research_pipeline,
             ad_creative_pipeline,
             visual_production_pipeline,
+            video_storyboard_pipeline,
         )
         for n in walk_nodes(wf)
         if isinstance(n, LlmAgent)
@@ -267,6 +269,8 @@ def test_graph_llm_agents_are_single_turn():
         "visual_concept_critic",
         "visual_concept_finalizer",
         "visual_concept_fixer",
+        "video_director",
+        "video_storyboard_reviser",
     }
     for a in agents:
         assert a.mode == "single_turn", a.name
@@ -288,6 +292,9 @@ _RESULT_NODES = {
     "visual_concepts_ready",
     "images_ready",
     "visual_generator_resilient",  # the render node: generate_image's message
+    "video_storyboard_ready",
+    "video_storyboard_skipped",
+    "videos_ready",
     "finalize_ready",
     "ad_copies_revised",  # interactive checkpoint-2 user revision
     "ad_copy_revision_skipped",
@@ -337,6 +344,11 @@ def _result_node_cases():
         (ca.ad_copies_ready, "ad_copy_critique", {"ad_copies": [{"id": 1}]}),
         (ca.visual_concepts_ready, "final_visual_concepts", {"visual_concepts": []}),
         (ca.images_ready, "_images_generated", True),
+        (
+            ca.video_storyboard_ready,
+            "video_storyboard",
+            {"shots": [{"shot_number": 1}]},
+        ),
     ]
 
 
@@ -530,13 +542,19 @@ def test_creative_pipeline_chains_the_stages_through_barriers():
         ("combined_research_pipeline", "ad_creative_barrier", None),
         ("ad_creative_barrier", "ad_creative_pipeline", None),
         # Fan-out: the ad copies are judged while the visual stage renders;
-        # a JoinNode waits for both before finalize.
+        # a JoinNode waits for both before the opt-in video gate / finalize.
         ("ad_creative_pipeline", "visual_production_barrier", None),
         ("ad_creative_pipeline", "evaluate_ad_copies_node", None),
         ("visual_production_barrier", "visual_production_pipeline", None),
         ("visual_production_pipeline", "ad_copy_eval_join", None),
         ("evaluate_ad_copies_node", "ad_copy_eval_join", None),
-        ("ad_copy_eval_join", "finalize_barrier", None),
+        ("ad_copy_eval_join", "video_gate", None),
+        ("video_gate", "finalize_barrier", "skip"),
+        ("video_gate", "video_storyboard_barrier", "produce"),
+        ("video_storyboard_barrier", "video_storyboard_pipeline", None),
+        ("video_storyboard_pipeline", "video_render_barrier", None),
+        ("video_render_barrier", "video_render_pipeline", None),
+        ("video_render_pipeline", "finalize_barrier", None),
         ("finalize_barrier", "finalize_pipeline", None),
     }
     assert wf.input_schema is PipelineRequest
@@ -550,6 +568,8 @@ def test_creative_pipeline_chains_the_stages_through_barriers():
     for name in (
         "ad_creative_pipeline",
         "visual_production_pipeline",
+        "video_storyboard_pipeline",
+        "video_render_pipeline",
         "finalize_pipeline",
     ):
         with pytest.raises(ValidationError):
@@ -583,6 +603,7 @@ def test_structured_output_producers_carry_schema_retry():
     from creative_agent.agent import (
         ad_creative_pipeline,
         combined_research_pipeline,
+        video_storyboard_pipeline,
         visual_production_pipeline,
     )
     from creative_agent.config import SCHEMA_RETRY
@@ -593,6 +614,7 @@ def test_structured_output_producers_carry_schema_retry():
             combined_research_pipeline,
             ad_creative_pipeline,
             visual_production_pipeline,
+            video_storyboard_pipeline,
         )
         for n in walk_nodes(wf)
     }
@@ -607,6 +629,8 @@ def test_structured_output_producers_carry_schema_retry():
         "visual_concept_critic",
         "visual_concept_finalizer",
         "visual_concept_fixer",
+        "video_director",
+        "video_storyboard_reviser",
     ):
         assert by_name[name].retry_config is SCHEMA_RETRY, name
 
@@ -1089,6 +1113,8 @@ def test_interactive_creative_exposes_pipelines_as_node_tools():
         "ad_creative_pipeline",
         "visual_generation_pipeline",
         "visual_generator_resilient",
+        "video_storyboard_pipeline",
+        "video_render_pipeline",
         "finalize_pipeline",
         "ad_copy_user_reviser",
     }
@@ -1107,6 +1133,7 @@ def test_interactive_creative_exposes_pipelines_as_node_tools():
         "review_research",
         "review_ad_copies",
         "review_visual_concepts",
+        "review_video_storyboard",
     }
 
 

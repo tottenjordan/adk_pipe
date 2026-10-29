@@ -29,6 +29,8 @@ from creative_agent import (
     finalize_pipeline,
     parse_ad_copies,
     tools,
+    video_render_pipeline,
+    video_storyboard_pipeline,
     visual_generation_pipeline,
     visual_generator_resilient,
 )
@@ -47,6 +49,7 @@ from interactive_creative.review_tools import (
     prepare_copy_revision,
     review_ad_copies_tool,
     review_research_tool,
+    review_video_storyboard_tool,
     review_visual_concepts_tool,
 )
 
@@ -210,10 +213,13 @@ root_agent = Agent(
         prepare_copy_revision,
         ad_copy_user_reviser,
         visual_generator_resilient,
+        video_storyboard_pipeline,
+        video_render_pipeline,
         finalize_pipeline,
         review_research_tool,
         review_ad_copies_tool,
         review_visual_concepts_tool,
+        review_video_storyboard_tool,
         # The research pipeline saves the PDF itself; the root re-saves it only
         # when the user edited the brief or report at checkpoint 1
         # (brief_edited / report_edited).

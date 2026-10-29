@@ -37,6 +37,12 @@ def review_visual_concepts(tool_context: ToolContext) -> None:
     return None
 
 
+def review_video_storyboard(tool_context: ToolContext) -> None:
+    """Pause for user to review and optionally edit the Phase 3 multi-cut video storyboard (`video_storyboard`) before rendering the 30s/15s/6s video reel. Call ONLY when `video_production_enabled` is True, right after `video_storyboard_pipeline` returns. When this tool returns a response (any direct storyboard edits sent via resume `edits` field 'video_storyboard' are validated and already applied to session state), you MUST call `video_render_pipeline` once, then proceed to `finalize_pipeline`."""
+    tool_context.actions.skip_summarization = True
+    return None
+
+
 def prepare_copy_revision(feedback: str, tool_context: ToolContext) -> dict[str, Any]:
     """Prepare the one user-requested ad-copy revision at checkpoint 2. Call it only after the FIRST `review_ad_copies` response with status 'revision_requested' and non-empty feedback, passing that feedback verbatim. When it returns status 'ready', call `ad_copy_user_reviser` once, then `review_ad_copies` once more. When it returns status 'skipped', do not call `ad_copy_user_reviser`; continue to visual_generation_pipeline."""
     state = tool_context.state
@@ -72,3 +78,4 @@ def prepare_copy_revision(feedback: str, tool_context: ToolContext) -> dict[str,
 review_research_tool = LongRunningFunctionTool(review_research)
 review_ad_copies_tool = LongRunningFunctionTool(review_ad_copies)
 review_visual_concepts_tool = LongRunningFunctionTool(review_visual_concepts)
+review_video_storyboard_tool = LongRunningFunctionTool(review_video_storyboard)

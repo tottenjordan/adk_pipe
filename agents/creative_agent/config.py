@@ -107,6 +107,21 @@ TIMELY_VALID_HOURS_AFTER_RANGE = (6, 168)
 DEFAULT_MAX_TIMELY_CONCEPTS = 1
 MAX_MAX_TIMELY_CONCEPTS = 2
 
+# Phase 3 video production knobs (opt-in via state["video_production_enabled"]).
+VALID_VIDEO_GEN_BACKENDS = ("auto", "omniflash", "veo")
+DEFAULT_VIDEO_GEN_BACKEND = "auto"
+
+DEFAULT_OMNIFLASH_VIDEO_MODEL = "gemini-omni-1.1-flash-preview"
+DEFAULT_VEO_VIDEO_MODEL = "veo-3.1-generate-001"
+DEFAULT_VIDEO_TTS_MODEL = "gemini-2.5-flash-preview-tts"
+DEFAULT_VIDEO_MUSIC_MODEL = "lyria-002"
+
+DEFAULT_VIDEO_QA_MAX_RETAKES = 1
+MAX_VIDEO_QA_MAX_RETAKES = 2
+
+DEFAULT_STORYBOARD_REVISION_ROUNDS = 1
+MAX_STORYBOARD_REVISION_ROUNDS = 2
+
 
 def _parse_rounds(raw: str | None, default: int, maximum: int) -> int:
     try:
@@ -292,6 +307,50 @@ def parse_rating_learning_window_days(raw: str | None) -> int:
     return _parse_bounded(
         raw, DEFAULT_RATING_LEARNING_WINDOW_DAYS, MAX_RATING_LEARNING_WINDOW_DAYS
     )
+
+
+def parse_video_gen_backend(raw: str | None) -> str:
+    """``VIDEO_GEN_BACKEND`` → ``'auto'`` | ``'omniflash'`` | ``'veo'``.
+
+    Unset or blank resolves to ``'auto'``. An unrecognised value logs a warning
+    and degrades cleanly to ``'auto'``.
+    """
+    if raw is None or not raw.strip():
+        return DEFAULT_VIDEO_GEN_BACKEND
+    normalized = raw.strip().lower()
+    if normalized in VALID_VIDEO_GEN_BACKENDS:
+        return normalized
+    logger.warning(
+        "Unknown VIDEO_GEN_BACKEND %r; falling back to %r",
+        raw,
+        DEFAULT_VIDEO_GEN_BACKEND,
+    )
+    return DEFAULT_VIDEO_GEN_BACKEND
+
+
+def parse_video_qa_max_retakes(raw: str | None) -> int:
+    """``VIDEO_QA_MAX_RETAKES`` → int clamped to 0..2; unset/blank/invalid → 1."""
+    return _parse_rounds(raw, DEFAULT_VIDEO_QA_MAX_RETAKES, MAX_VIDEO_QA_MAX_RETAKES)
+
+
+def parse_storyboard_revision_rounds(raw: str | None) -> int:
+    """``STORYBOARD_REVISION_ROUNDS`` → int clamped to 0..2; unset/blank/invalid → 1."""
+    return _parse_rounds(
+        raw,
+        DEFAULT_STORYBOARD_REVISION_ROUNDS,
+        MAX_STORYBOARD_REVISION_ROUNDS,
+    )
+
+
+def is_video_production_enabled(raw: object) -> bool:
+    """Normalize ``state['video_production_enabled']`` across bool/int/str inputs."""
+    if isinstance(raw, bool):
+        return raw
+    if isinstance(raw, (int, float)):
+        return bool(raw)
+    if isinstance(raw, str):
+        return raw.strip().lower() in {"1", "true", "yes", "on"}
+    return False
 
 
 @dataclass
@@ -482,6 +541,43 @@ class ResearchConfiguration(BaseAgentConfiguration):
         default_factory=lambda: (
             os.environ.get("ENTERPRISE_RESEARCH_MODEL", "gemini-3.1-flash-lite").strip()
             or "gemini-3.1-flash-lite"
+        )
+    )
+
+    # Opt-in Phase 3 video production configuration (used only when session
+    # state["video_production_enabled"] is True).
+    video_gen_backend: str = field(
+        default_factory=lambda: parse_video_gen_backend(os.getenv("VIDEO_GEN_BACKEND"))
+    )
+    omniflash_video_model: str = field(
+        default_factory=lambda: (
+            (os.getenv("OMNIFLASH_VIDEO_MODEL") or "").strip()
+            or DEFAULT_OMNIFLASH_VIDEO_MODEL
+        )
+    )
+    veo_video_model: str = field(
+        default_factory=lambda: (
+            (os.getenv("VEO_VIDEO_MODEL") or "").strip() or DEFAULT_VEO_VIDEO_MODEL
+        )
+    )
+    tts_model: str = field(
+        default_factory=lambda: (
+            (os.getenv("VIDEO_TTS_MODEL") or "").strip() or DEFAULT_VIDEO_TTS_MODEL
+        )
+    )
+    music_model: str = field(
+        default_factory=lambda: (
+            (os.getenv("VIDEO_MUSIC_MODEL") or "").strip() or DEFAULT_VIDEO_MUSIC_MODEL
+        )
+    )
+    video_qa_max_retakes: int = field(
+        default_factory=lambda: parse_video_qa_max_retakes(
+            os.getenv("VIDEO_QA_MAX_RETAKES")
+        )
+    )
+    storyboard_revision_rounds: int = field(
+        default_factory=lambda: parse_storyboard_revision_rounds(
+            os.getenv("STORYBOARD_REVISION_ROUNDS")
         )
     )
 

@@ -188,6 +188,10 @@ def _set_initial_states(source: dict[str, Any], target: State | dict[str, Any]):
     target.setdefault("url_to_ent_id", {})
     target.setdefault("enterprise_grounding_enabled", True)
 
+    # Opt-in Phase 3 multi-cut commercial video production (default OFF so
+    # standard Phase 2 runs incur zero video latency or cost).
+    target.setdefault("video_production_enabled", False)
+
 
 def load_session_state(callback_context: CallbackContext):
     """
@@ -472,6 +476,27 @@ def recheck_concept_issues_callback(callback_context: CallbackContext) -> None:
     if residual:
         logger.warning("visual concept issues after revision: %s", residual)
     state["final_visual_concepts__issues"] = residual
+    return None
+
+
+# State the storyboard gate's bounded revision loop owns (see video_stage.storyboard_gate).
+VIDEO_STORYBOARD_STATE_DEFAULTS: dict[str, Any] = {
+    "video_storyboard": None,
+    "video_storyboard_issues": "",
+    "video_storyboard_revision_rounds_used": 0,
+    "video_storyboard__issues": None,
+    "video_storyboard__retry_exhausted": None,
+    "_videos_generated": False,
+    "generated_videos": None,
+    "generated_videos__issues": None,
+    "video_qa__issues": None,
+}
+
+
+def reset_video_state(callback_context: CallbackContext) -> None:
+    """`before_agent_callback` on `video_director`: start each storyboard run clean."""
+    for key, value in VIDEO_STORYBOARD_STATE_DEFAULTS.items():
+        callback_context.state[key] = value
     return None
 
 
