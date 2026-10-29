@@ -40,6 +40,7 @@ from .run_policy import RunPolicy
 from .safer_angle import clear_stray_safer_angle
 from .schemas import CreativeBrief, ResearchFeedback
 from .sub_agents.campaign_researcher.agent import ca_sequential_planner
+from .sub_agents.enterprise_researcher.agent import enterprise_sequential_planner
 from .sub_agents.trend_researcher.agent import gs_sequential_planner
 from .sub_agents.trend_situation.agent import trend_situation_pipeline
 
@@ -553,6 +554,7 @@ combined_research_pipeline = Workflow(
             (
                 gs_sequential_planner,
                 ca_sequential_planner,
+                enterprise_sequential_planner,
                 load_brand_history,
                 trend_situation_pipeline,
             ),

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildInitialState } from "@/lib/initial-state";
+import { buildInitialState, EMPTY_CAMPAIGN_FORM } from "@/lib/initial-state";
 import type { CampaignInput } from "@/lib/types";
 
 const base: CampaignInput = {
@@ -199,5 +199,52 @@ describe("buildInitialState", () => {
     expect(buildInitialState({ ...base, agent: "trend_scout", ...trend })).toEqual({
       ui_app: "trend_scout",
     });
+  });
+
+  it("omits enterprise_grounding_enabled by default and maps explicit booleans for creative agents", () => {
+    expect(buildInitialState(base).enterprise_grounding_enabled).toBeUndefined();
+
+    expect(
+      buildInitialState({ ...base, enterpriseGroundingEnabled: true })
+        .enterprise_grounding_enabled
+    ).toBe(true);
+
+    expect(
+      buildInitialState({
+        ...base,
+        agent: "interactive_creative",
+        enterpriseGroundingEnabled: true,
+      }).enterprise_grounding_enabled
+    ).toBe(true);
+
+    expect(
+      buildInitialState({ ...base, enterpriseGroundingEnabled: false })
+        .enterprise_grounding_enabled
+    ).toBe(false);
+  });
+
+  it("ignores enterpriseGroundingEnabled for trend_scout", () => {
+    const state = buildInitialState({
+      ...base,
+      agent: "trend_scout",
+      enterpriseGroundingEnabled: true,
+    });
+    expect(state).toEqual({ ui_app: "trend_scout" });
+  });
+
+  it("sends enterprise_grounding_enabled: false from an untouched form (EMPTY_CAMPAIGN_FORM)", () => {
+    expect(EMPTY_CAMPAIGN_FORM.enterpriseGroundingEnabled).toBe(false);
+    for (const agent of ["creative_agent", "interactive_creative"] as const) {
+      const state = buildInitialState({
+        ...EMPTY_CAMPAIGN_FORM,
+        agent,
+        brand: "PRS Guitars",
+        targetAudience: "Musicians",
+        targetProduct: "PRS SE CE24",
+        keySellingPoints: "Great tone",
+        targetSearchTrend: "tswift engaged",
+      });
+      expect(state.enterprise_grounding_enabled).toBe(false);
+    }
   });
 });

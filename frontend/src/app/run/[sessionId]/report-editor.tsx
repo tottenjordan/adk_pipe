@@ -21,14 +21,15 @@ const ResearchReport = dynamic(
 export function useReportEdit(state: Record<string, unknown>, draftKey?: string) {
   const report = state.combined_final_cited_report as string | undefined;
   const sources = state.sources as ReportSources | undefined;
-  // The textarea shows `[src-N]` markers instead of raw cite tags; they go
-  // back to canonical `<cite source="src-N"/>` tags for preview and resume.
+  const enterpriseSources = state.enterprise_sources as ReportSources | undefined;
+  // The textarea shows `[src-N]` / `[ent-N]` markers instead of raw cite tags;
+  // they go back to canonical `<cite source="..."/>` tags for preview and resume.
   const [editedReport, setEditedReport] = useReviewDraft(draftKey && `${draftKey}:report`, () =>
     toEditableReport(report ?? "")
   );
   const edits: ResearchEdit[] | null = buildEditableResearchEdit(report ?? "", editedReport);
   const previewSource = edits ? fromEditableReport(editedReport) : (report ?? "");
-  return { report, sources, editedReport, setEditedReport, edits, previewSource };
+  return { report, sources, enterpriseSources, editedReport, setEditedReport, edits, previewSource };
 }
 
 /** The research report with an Edit / Preview toggle (nothing without a report). */
@@ -40,7 +41,7 @@ export function ResearchReportEditor({
   idPrefix: string;
 }) {
   const [editMode, setEditMode] = useState(false);
-  const { report, sources, editedReport, setEditedReport, edits, previewSource } = edit;
+  const { report, sources, enterpriseSources, editedReport, setEditedReport, edits, previewSource } = edit;
   if (!report) return null;
   const hintId = `${idPrefix}-markers-hint`;
   return (
@@ -55,7 +56,14 @@ export function ResearchReportEditor({
           {editMode ? "Preview" : "Edit report"}
         </button>
       </div>
-      {!editMode && <ResearchReport markdown={previewSource} sources={sources} scroll />}
+      {!editMode && (
+        <ResearchReport
+          markdown={previewSource}
+          sources={sources}
+          enterpriseSources={enterpriseSources}
+          scroll
+        />
+      )}
       {editMode && (
         <div className="space-y-1.5">
           <Textarea
@@ -67,7 +75,7 @@ export function ResearchReportEditor({
             className="font-mono text-xs leading-relaxed max-h-[28rem]"
           />
           <p id={hintId} className="text-xs text-muted-foreground">
-            Source markers like [src-12] keep their citations. Leave them in place or delete them.
+            Source markers like [src-12] or [ent-1] keep their citations. Leave them in place or delete them.
           </p>
         </div>
       )}

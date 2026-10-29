@@ -436,7 +436,7 @@ class ReasonToBelieve(BaseModel):
 
     claim: str = Field(description="A concrete, checkable proof point.")
     source_id: str | None = Field(
-        description="The supporting source: a 'src-N' id from the research sources, or 'brief' when the claim comes from the user's key selling points."
+        description="Supporting source id: 'src-N' (web research), 'ent-N' (enterprise knowledge base), or 'brief' (user-provided brief)."
     )
 
 

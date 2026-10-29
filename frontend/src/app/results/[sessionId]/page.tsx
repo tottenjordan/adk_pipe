@@ -425,6 +425,7 @@ export default function ResultsPage({ params }: PageProps<"/results/[sessionId]"
           <CreativeBrief
             brief={creativeBrief}
             sources={state.sources as ReportSources | undefined}
+            enterpriseSources={state.enterprise_sources as ReportSources | undefined}
             className="p-1"
           />
         </QuietDisclosure>
@@ -435,6 +436,7 @@ export default function ResultsPage({ params }: PageProps<"/results/[sessionId]"
           <ResearchReport
             markdown={researchReport}
             sources={state.sources as ReportSources | undefined}
+            enterpriseSources={state.enterprise_sources as ReportSources | undefined}
             className="border-0 bg-transparent p-1"
           />
         </QuietDisclosure>

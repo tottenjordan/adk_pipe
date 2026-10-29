@@ -32,33 +32,14 @@ import {
 import { createSession, SELF_USER_ID } from "@/lib/api";
 import { AGENTS, isAgentId, isCreativeAgent, submitLabel } from "@/lib/agents";
 import { isFormValid } from "@/lib/form-validation";
-import { buildInitialState } from "@/lib/initial-state";
+import { buildInitialState, EMPTY_CAMPAIGN_FORM } from "@/lib/initial-state";
 import { invalidReferenceUris } from "@/lib/reference-images";
 import { takeDuplicateBrief, type Brief, type RunRow } from "@/lib/run-history";
 import { sanitizeTrendContext } from "@/lib/trend-context";
 import { contextSensitivity } from "@/lib/trend-flags";
 import type { CampaignInput } from "@/lib/types";
 
-const EMPTY_FORM: CampaignInput = {
-  agent: "trend_scout",
-  brand: "",
-  targetAudience: "",
-  targetProduct: "",
-  keySellingPoints: "",
-  targetSearchTrend: "",
-  interactiveTrendPick: false,
-  learnFromRatings: false,
-  saferAngle: false,
-  personReference: null,
-  referenceImageUri: "",
-  referenceImageRole: "",
-  extraReferenceImages: [],
-  visualIntent: "",
-  brandColors: "",
-  visualStylePreference: "",
-  visualAvoid: "",
-  visualAspectRatio: "",
-};
+const EMPTY_FORM: CampaignInput = EMPTY_CAMPAIGN_FORM;
 
 export default function Home() {
   return (
@@ -356,6 +337,35 @@ function HomeContent() {
                 <ReferenceImagesFieldset form={form} setForm={setForm} />
               </div>
             </div>
+          )}
+
+          {isCreative && (
+            <label
+              htmlFor="enterprise-grounding-enabled"
+              className="flex items-start gap-3 rounded-md border border-border bg-background px-3 py-2.5 cursor-pointer hover:border-foreground/20 transition-colors"
+            >
+              <input
+                id="enterprise-grounding-enabled"
+                type="checkbox"
+                checked={form.enterpriseGroundingEnabled ?? false}
+                onChange={(e) =>
+                  setForm({
+                    ...form,
+                    enterpriseGroundingEnabled: e.target.checked,
+                  })
+                }
+                className="mt-0.5 h-4 w-4 shrink-0 rounded-sm border-border accent-primary cursor-pointer"
+              />
+              <span className="space-y-0.5">
+                <span className="block text-sm font-medium text-foreground">
+                  Ground in Enterprise Knowledge Base
+                </span>
+                <span className="block text-xs text-muted-foreground">
+                  Include internal Discovery Engine brand guidelines, approved
+                  claims, and product specs when configured.
+                </span>
+              </span>
+            </label>
           )}
 
           {isCreative && (

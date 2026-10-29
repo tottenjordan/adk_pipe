@@ -63,6 +63,7 @@ _PREFIX_PHASES: tuple[tuple[str, str], ...] = (
     ("gs_", "research"),
     ("ca_", "research"),
     ("campaign_", "research"),
+    ("enterprise_", "research"),
     ("merge_", "research"),
     ("combined_", "research"),
     ("enhanced_combined_", "research"),

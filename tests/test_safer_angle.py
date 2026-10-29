@@ -330,7 +330,7 @@ _TOKENS = {
 # the model sees is exactly this text. If one of these prompts changes for
 # another reason, update its hash in the same PR.
 _PRE_SAFER_ANGLE_SHA256 = {
-    "CREATIVE_BRIEF_WRITER_INSTR": "0328660acc7fe9c5",
+    "CREATIVE_BRIEF_WRITER_INSTR": "7e6b88ce8dfe2a77",
     "gs_web_planner": "912e5842403ad6c4",
     "gs_web_searcher": "5b8900a3e343e62e",
     "gs_web_synthesizer": "e7bbaa6e55962dc0",

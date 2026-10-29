@@ -30,6 +30,7 @@ dependencies = [
     { name = "google-auth" },
     { name = "google-cloud-aiplatform", extra = ["agent-engines"] },
     { name = "google-cloud-bigquery" },
+    { name = "google-cloud-discoveryengine" },
     { name = "google-cloud-modelarmor" },
     { name = "google-cloud-run" },
     { name = "google-cloud-storage" },
@@ -91,6 +92,7 @@ requires-dist = [
     { name = "google-auth", specifier = ">=2.59.0,<3.0.0" },
     { name = "google-cloud-aiplatform", extras = ["agent-engines"], specifier = ">=2.4.0,<3.0.0" },
     { name = "google-cloud-bigquery", specifier = ">=3.45.2,<4.0.0" },
+    { name = "google-cloud-discoveryengine", specifier = ">=0.15.0,<1.0.0" },
     { name = "google-cloud-modelarmor", specifier = ">=0.7,<1" },
     { name = "google-cloud-run", specifier = ">=0.16.2,<1.0.0" },
     { name = "google-cloud-storage", specifier = ">=3.15.0,<4.0.0" },
@@ -1187,6 +1189,23 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/f9/54/790548b190cff9cf07225c811d2668eacd8f2cbf04114475cbe3e5738752/google_cloud_core-2.7.0.tar.gz", hash = "sha256:874aaf89765db87a9b911b7a2ca7c5068554868eed9e75c7766affe342a2913d", size = 36603, upload-time = "2026-08-25T19:18:43.076Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/cb/64/904dbc9bee128e7b87eeb60da67c8fa4d1a8acdc9a45dd2fedca67ef184d/google_cloud_core-2.7.0-py3-none-any.whl", hash = "sha256:c18a250904cfdda021eb3ae8b8238c9f9ca272a4cbbfb5cba946b3fe3022eed1", size = 31046, upload-time = "2026-08-24T21:55:28.36Z" },
+]
+
+[[package]]
+name = "google-cloud-discoveryengine"
+version = "0.20.5"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "google-api-core", extra = ["grpc"] },
+    { name = "google-auth" },
+    { name = "grpc-google-iam-v1" },
+    { name = "grpcio" },
+    { name = "proto-plus" },
+    { name = "protobuf" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/67/a6/b3fd926fc79b4e02d9bda3ff30b764abe17a100c3a39e934f0d519bbaf76/google_cloud_discoveryengine-0.20.5.tar.gz", hash = "sha256:cd78028180f32a43aa586ab97d0074949f6326ad46b41058a773b2baa9f525d8", size = 3991015, upload-time = "2026-10-01T18:16:16.9Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ea/12/002adb43105aee5c45907a23f09bdac9f4f77b26b43323abc8ac202f901a/google_cloud_discoveryengine-0.20.5-py3-none-any.whl", hash = "sha256:0d4072845f02100e0244ac0c69f6ac5d68f561793d7c3bd5dee2c93d3090a368", size = 3711486, upload-time = "2026-10-01T18:09:56.619Z" },
 ]
 
 [[package]]

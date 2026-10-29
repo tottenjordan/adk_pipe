@@ -319,7 +319,7 @@ export function BriefEditForm({
             />
             <Input
               aria-label={`Reason ${i + 1} source id`}
-              placeholder="src-1 or brief"
+              placeholder="src-1, ent-1 or brief"
               value={r.sourceId ?? ""}
               onChange={(e) => setRtb(i, { sourceId: e.target.value || null })}
               className="w-32 shrink-0 font-mono text-xs"

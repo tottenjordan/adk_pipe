@@ -167,6 +167,15 @@ ENV_VAR_DICT = {
 # MODEL_LOCATION (shipped above), so it is only passed through when overridden.
 OPTIONAL_ENV_VARS = ("CRITIC_FALLBACK_MODEL", "EVAL_MODEL_LOCATION")
 
+# Optional inbound Discovery Engine enterprise grounding env vars; forwarded only
+# when non-empty in the deployer's environment so unconfigured deployments stay
+# identical to the default config.
+_OPTIONAL_ENTERPRISE_ENV_VARS = (
+    "ENTERPRISE_DATA_STORES",
+    "ENTERPRISE_SEARCH_ENGINE",
+    "ENTERPRISE_RESEARCH_MODEL",
+)
+
 
 def optional_env_vars() -> dict[str, str]:
     """The OPTIONAL_ENV_VARS set in the current env (an empty string counts)."""
@@ -174,6 +183,9 @@ def optional_env_vars() -> dict[str, str]:
 
 
 ENV_VAR_DICT.update(optional_env_vars())
+for _key in _OPTIONAL_ENTERPRISE_ENV_VARS:
+    if _val := (os.getenv(_key) or "").strip():
+        ENV_VAR_DICT[_key] = _val
 
 
 def build_env_vars(enable_tracing: bool = False) -> dict[str, str | None]:
@@ -187,6 +199,11 @@ def build_env_vars(enable_tracing: bool = False) -> dict[str, str | None]:
     ``ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS=false`` (as ``adk deploy`` does).
     """
     env = {**ENV_VAR_DICT}
+    for key in _OPTIONAL_ENTERPRISE_ENV_VARS:
+        if val := (os.getenv(key) or "").strip():
+            env[key] = val
+        else:
+            env.pop(key, None)
     if enable_tracing:
         env["GOOGLE_CLOUD_AGENT_ENGINE_ENABLE_TELEMETRY"] = "true"
         env["ADK_CAPTURE_MESSAGE_CONTENT_IN_SPANS"] = "false"

@@ -474,6 +474,17 @@ class ResearchConfiguration(BaseAgentConfiguration):
         )
     )
 
+    # Enterprise knowledge-base researcher model (optional 3rd parallel research
+    # branch). Uses gemini-3.1-flash-lite so the 3 parallel research branches sit
+    # on disjoint base-model quota buckets (gemini-3.8-flash, gemini-3.5-flash,
+    # gemini-3.1-flash-lite).
+    enterprise_research_model: str = field(
+        default_factory=lambda: (
+            os.environ.get("ENTERPRISE_RESEARCH_MODEL", "gemini-3.1-flash-lite").strip()
+            or "gemini-3.1-flash-lite"
+        )
+    )
+
     def campaign_models(self) -> tuple[str, str, str]:
         """(lite_planner_model, worker_model, location) for the campaign pipeline.
 

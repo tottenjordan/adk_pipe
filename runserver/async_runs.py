@@ -1146,7 +1146,9 @@ def merge_research_edit(state: dict | None, edits: list | None) -> dict:
         return {
             RESEARCH_EDIT_FIELD: value,
             "final_report_with_citations": render_citations(
-                value, state.get("sources") or {}
+                value,
+                state.get("sources") or {},
+                enterprise_sources=state.get("enterprise_sources") or {},
             ),
             # Audit marker only (nothing reads it; the root re-saves the PDF
             # from the resume response's report_edited).
