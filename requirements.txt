@@ -103,7 +103,7 @@ google-cloud-appengine-logging==1.10.0
     # via google-cloud-logging
 google-cloud-audit-log==0.6.2
     # via google-cloud-logging
-google-cloud-bigquery==3.46.2
+google-cloud-bigquery==3.47.0
     # via
     #   adk-pipe
     #   google-cloud-aiplatform
@@ -118,7 +118,7 @@ google-cloud-logging==3.16.3
     # via
     #   google-cloud-aiplatform
     #   opentelemetry-exporter-gcp-logging
-google-cloud-modelarmor==0.7.3
+google-cloud-modelarmor==0.7.4
     # via adk-pipe
 google-cloud-resource-manager==1.18.0
     # via google-cloud-aiplatform
@@ -193,7 +193,7 @@ idna==3.20
     #   httpx
     #   requests
     #   yarl
-imageio-ffmpeg==0.6.0
+imageio-ffmpeg==0.7.0
     # via adk-pipe
 joserfc==1.7.5
     # via authlib
@@ -398,7 +398,7 @@ typing-inspection==0.4.4
     # via
     #   fastapi
     #   pydantic
-tzdata==2026.5
+tzdata==2026.6
     # via adk-pipe
 urllib3==2.8.0
     # via requests
